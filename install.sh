@@ -1,9 +1,12 @@
 #!/bin/bash
-# Instala el comando meta-ralph globalmente en el PATH del usuario
+# Instala meta-ralph como skill de Kimi Code CLI y como comando global.
 
 set -e
 
 SKILL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SKILL_NAME="meta-ralph"
+KIMI_SKILLS_DIR="${KIMI_SKILLS_DIR:-$HOME/.kimi-code/skills}"
+TARGET_SKILL_DIR="$KIMI_SKILLS_DIR/$SKILL_NAME"
 SCRIPT="$SKILL_DIR/scripts/meta-ralph.sh"
 
 if [ ! -f "$SCRIPT" ]; then
@@ -12,6 +15,23 @@ if [ ! -f "$SCRIPT" ]; then
 fi
 
 chmod +x "$SCRIPT"
+
+# Registrar el skill en el directorio de skills de Kimi Code CLI
+if [ "$SKILL_DIR" != "$TARGET_SKILL_DIR" ]; then
+  mkdir -p "$KIMI_SKILLS_DIR"
+  if [ -e "$TARGET_SKILL_DIR" ] || [ -L "$TARGET_SKILL_DIR" ]; then
+    if [ "$(readlink -f "$TARGET_SKILL_DIR" 2>/dev/null || echo "")" != "$SKILL_DIR" ]; then
+      echo "⚠️  $TARGET_SKILL_DIR ya existe y apunta a otro lugar."
+      echo "   Elimínalo manualmente si quieres reinstalar este skill."
+      exit 1
+    fi
+  else
+    ln -sf "$SKILL_DIR" "$TARGET_SKILL_DIR"
+    echo "🔗 Skill registrado: $TARGET_SKILL_DIR → $SKILL_DIR"
+  fi
+else
+  echo "ℹ️  El skill ya está en $TARGET_SKILL_DIR"
+fi
 
 # Crear venv para el dashboard
 DASHBOARD_DIR="$SKILL_DIR/dashboard"
@@ -68,6 +88,12 @@ else
 fi
 
 echo ""
-echo "✅ Meta-Ralph instalado. Reinicia tu terminal o ejecuta:"
+echo "✅ Meta-Ralph instalado como skill en $TARGET_SKILL_DIR"
+echo "✅ Comando 'meta-ralph' disponible en $BIN_DIR"
+echo ""
+echo "Reinicia tu terminal o ejecuta:"
 echo "   source $RC_FILE"
-echo "   meta-ralph --help"
+echo ""
+echo "Luego, en un proyecto git:"
+echo "   meta-ralph init"
+echo "   meta-ralph run"
