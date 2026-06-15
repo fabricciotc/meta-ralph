@@ -1,0 +1,50 @@
+from __future__ import annotations
+
+import asyncio
+from collections import deque
+from typing import Dict, List
+
+from core.models import Message
+from core.memory import Memory
+
+
+class Environment:
+    def __init__(self):
+        self.roles: Dict[str, any] = {}
+        self.memory = Memory()
+        self._queue: deque = deque()
+
+    def add_role(self, role) -> None:
+        self.roles[role.role_id] = role
+
+    def publish_message(self, msg: Message) -> None:
+        self._queue.append(msg)
+
+    def get_messages_for(self, role_id: str) -> List[Message]:
+        result = []
+        for msg in list(self._queue):
+            if "all" in msg.send_to or role_id in msg.send_to:
+                result.append(msg)
+        return result
+
+    def _drain_queue_to_memory(self) -> None:
+        while self._queue:
+            self.memory.add(self._queue.popleft())
+
+    async def run_round(self) -> bool:
+        tasks = []
+        for role in self.roles.values():
+            if hasattr(role, "run"):
+                tasks.append(role.run(self))
+        if not tasks:
+            return False
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        self._drain_queue_to_memory()
+        active = any(r is True for r in results if not isinstance(r, Exception))
+        return active
+
+    def is_idle(self) -> bool:
+        return len(self._queue) == 0
+
+    def history(self) -> List[Message]:
+        return self.memory.get()
