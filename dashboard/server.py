@@ -25,6 +25,8 @@ from pathlib import Path
 
 import communication_bus as bus
 
+from core.orchestrator import Orchestrator
+
 # Permitir volcar stack traces de todos los threads con SIGUSR1 para debugging
 faulthandler.enable()
 try:
@@ -3008,7 +3010,7 @@ def start_automatic_run(ticket, resume=False, queue_if_active=True):
                 )
             return False
 
-    _active_run_thread = AgentRunner(ticket, resume=resume)
+    _active_run_thread = Orchestrator(ticket, resume=resume, runner_factory=AgentRunner)
     _active_run_thread.start()
     return True
 
