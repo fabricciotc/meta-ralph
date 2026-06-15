@@ -1,0 +1,2 @@
+flask>=2.3.0
+flask-socketio>=5.3.0
