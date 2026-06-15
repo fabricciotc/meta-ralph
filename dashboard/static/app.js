@@ -752,13 +752,24 @@ function renderTicketsList() {
 
   ticketsList.innerHTML = '';
   tickets.slice().reverse().forEach(ticket => {
+    const runStatus = getTicketRunStatus(ticket.id);
+    const runIcon = runStatusIcon(runStatus);
+    const isRunnable = ['idle', 'queued', 'paused'].includes(runStatus) && ['backlog', 'ready-for-work', 'in-design', 'in-progress', 'in-review'].includes(ticket.status);
+    const runAction = runStatus === 'running'
+      ? `<button type="button" class="btn-icon btn-small ticket-action-pause" data-id="${escapeHtml(ticket.id)}" title="Pausar"><i data-lucide="pause"></i></button>`
+      : isRunnable
+        ? `<button type="button" class="btn-icon btn-small ticket-action-play" data-id="${escapeHtml(ticket.id)}" title="${runStatus === 'paused' ? 'Reanudar' : 'Ejecutar'}"><i data-lucide="play"></i></button>`
+        : '';
+
     const row = document.createElement('div');
-    row.className = 'ticket-row';
+    row.className = 'ticket-row ticket-row-' + runStatus;
     row.innerHTML = `
+      <span class="ticket-row-run-status" title="${runStatus}"><i data-lucide="${runIcon}"></i></span>
       <span class="ticket-row-id">${escapeHtml(ticket.id)}</span>
       <span class="ticket-row-title" title="${escapeHtml(ticket.title)}">${escapeHtml(ticket.title)}</span>
       <span class="ticket-row-status status-${ticket.status}">${COLUMN_LABELS[ticket.status] || ticket.status}</span>
       <div class="ticket-row-actions">
+        ${runAction}
         <button type="button" class="btn-icon btn-small" title="Editar"><i data-lucide="pencil"></i></button>
         <button type="button" class="btn-icon btn-small" title="Eliminar"><i data-lucide="trash-2"></i></button>
       </div>
@@ -771,9 +782,52 @@ function renderTicketsList() {
       e.stopPropagation();
       deleteTicketById(ticket.id);
     });
+    const playBtn = row.querySelector('.ticket-action-play');
+    if (playBtn) playBtn.addEventListener('click', (e) => { e.stopPropagation(); playTicket(ticket.id); });
+    const pauseBtn = row.querySelector('.ticket-action-pause');
+    if (pauseBtn) pauseBtn.addEventListener('click', (e) => { e.stopPropagation(); pauseTicket(ticket.id); });
     ticketsList.appendChild(row);
   });
   if (window.lucide) lucide.createIcons();
+}
+
+function getTicketRunStatus(ticketId) {
+  if (runState.ticketId === ticketId) {
+    return runState.active ? 'running' : 'paused';
+  }
+  if ((runState.queue || []).includes(ticketId)) return 'queued';
+  return 'idle';
+}
+
+function runStatusIcon(status) {
+  switch (status) {
+    case 'running': return 'play-circle';
+    case 'paused': return 'pause-circle';
+    case 'queued': return 'clock';
+    default: return 'circle';
+  }
+}
+
+async function playTicket(ticketId) {
+  try {
+    const res = await fetch(`/api/tickets/${ticketId}/play`, { method: 'POST' });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || 'Error');
+    showToast(data.message);
+  } catch (err) {
+    showToast(err.message, 4000);
+  }
+}
+
+async function pauseTicket(ticketId) {
+  try {
+    const res = await fetch(`/api/tickets/${ticketId}/pause`, { method: 'POST' });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || 'Error');
+    showToast(data.message);
+  } catch (err) {
+    showToast(err.message, 4000);
+  }
 }
 
 function openTicketsModal() {
@@ -1307,6 +1361,7 @@ function renderRunState(state) {
   renderMessaging();
   renderDesignReview(runState);
   renderDebugFooter();
+  renderTicketsList();
   if (window.lucide) lucide.createIcons();
 }
 

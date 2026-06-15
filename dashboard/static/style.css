@@ -1328,7 +1328,7 @@ body {
   position: relative;
   display: flex;
   align-items: center;
-  gap: 0.75rem;
+  gap: 0.65rem;
   height: 48px;
   padding: 0 0.9rem;
   border-bottom: 1px solid var(--surface-tint-base);
@@ -1356,11 +1356,71 @@ body {
   background: var(--primary);
 }
 
+.ticket-row-running {
+  background: var(--info-muted);
+}
+
+.ticket-row-running:hover {
+  background: rgba(20, 107, 184, 0.12);
+}
+
+.ticket-row-running::before {
+  background: var(--info);
+}
+
+.ticket-row-paused {
+  background: var(--warning-muted);
+}
+
+.ticket-row-paused:hover {
+  background: rgba(181, 109, 0, 0.08);
+}
+
+.ticket-row-paused::before {
+  background: var(--wrn);
+}
+
+.ticket-row-queued::before {
+  background: var(--on-surface-base-disabled);
+}
+
+.ticket-row-run-status {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  color: var(--on-surface-base-disabled);
+}
+
+.ticket-row-running .ticket-row-run-status {
+  color: var(--info);
+  animation: pulse-opacity 2s ease-in-out infinite;
+}
+
+.ticket-row-paused .ticket-row-run-status {
+  color: var(--wrn);
+}
+
+.ticket-row-queued .ticket-row-run-status {
+  color: var(--on-surface-base-subtle);
+}
+
+.ticket-row-run-status svg {
+  width: 14px;
+  height: 14px;
+}
+
+@keyframes pulse-opacity {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; }
+}
+
 .ticket-row-id {
   font-family: var(--font-mono);
   font-size: 0.7rem;
   color: var(--on-surface-base-disabled);
-  width: 72px;
+  width: 68px;
   flex-shrink: 0;
 }
 
@@ -1396,6 +1456,24 @@ body {
 
 .ticket-row:hover .ticket-row-actions {
   opacity: 1;
+}
+
+.ticket-action-play {
+  color: var(--ok);
+}
+
+.ticket-action-play:hover {
+  background: var(--success-muted);
+  color: var(--ok);
+}
+
+.ticket-action-pause {
+  color: var(--wrn);
+}
+
+.ticket-action-pause:hover {
+  background: var(--warning-muted);
+  color: var(--wrn);
 }
 
 /* Adaline form */

@@ -80,6 +80,7 @@ def strip_ansi(text):
 run_lock = threading.RLock()
 board_lock = threading.RLock()
 _active_run_thread = None
+paused_run_threads = {}
 
 
 def get_meta_dir():
@@ -710,15 +711,51 @@ class AgentRunner(threading.Thread):
         self._stop_heartbeat = threading.Event()
         self._heartbeat_thread = None
         self._stop_event = threading.Event()
+        self._pause_event = threading.Event()
+        self._resume_event = threading.Event()
 
     def stop(self):
         """Solicita la detención ordenada del runner."""
         self._stop_event.set()
+        self._pause_event.clear()
+        self._resume_event.set()
         self._stop_runtime_heartbeat()
+
+    def pause(self):
+        """Pausa el runner en el próximo checkpoint."""
+        self._resume_event.clear()
+        self._pause_event.set()
+        update_run_state({"active": False, "status": "paused"})
+        self.log(f"Ticket {self.ticket_id} pausado.", "warning")
+
+    def resume(self):
+        """Reanuda un runner pausado."""
+        self._pause_event.clear()
+        self._resume_event.set()
 
     def _should_stop(self):
         """Retorna True si se solicitó detener el runner."""
         return self._stop_event.is_set()
+
+    def _is_paused(self):
+        """Retorna True si el runner está pausado."""
+        return self._pause_event.is_set()
+
+    def _check_pause(self):
+        """Si está pausado, bloquea hasta reanudar o detener."""
+        if not self._is_paused():
+            return
+        self.log(f"Ticket {self.ticket_id} en pausa. Esperando reanudación...")
+        while self._is_paused() and not self._should_stop():
+            self._resume_event.wait(timeout=1.0)
+            self._resume_event.clear()
+        if not self._should_stop():
+            self.log(f"Ticket {self.ticket_id} reanudado.")
+
+    def _should_stop_or_pause(self):
+        """Retorna True si se solicitó detener; si está pausado, espera primero."""
+        self._check_pause()
+        return self._should_stop()
 
     def log(self, msg, level="info"):
         append_log(f"[{self.ticket_id}] {msg}", level)
@@ -1225,15 +1262,16 @@ Responde de forma concisa y práctica. Asume decisiones razonables para un MVP .
             self._agent_log("orchestrator", "Fase 1/5: PM Analysis — generando plan detallado con subagentes.")
             self.set_phase("pm-research-agents", "in-design", 10)
 
+            self._check_pause()
             self.run_pm_analysis()
-            if self._should_stop():
+            if self._should_stop_or_pause():
                 self.log("Run detenido por solicitud del usuario tras PM Analysis.", "warning")
                 return
 
             self._agent_log("orchestrator", "Fase 2/5: Architecture — definiendo patrones técnicos globales.")
             self.set_phase("architect", "in-design", 40)
             self.run_architect()
-            if self._should_stop():
+            if self._should_stop_or_pause():
                 self.log("Run detenido por solicitud del usuario tras Architecture.", "warning")
                 return
 
@@ -1242,7 +1280,7 @@ Responde de forma concisa y práctica. Asume decisiones razonables para un MVP .
             questions = self._generate_design_questions(prd_path)
             self._agent_log("orchestrator", "Fase 2.5/5: Design Review — esperando confirmación de decisiones técnicas.")
             answers = self._wait_for_design_answers(questions, timeout_seconds=60)
-            if self._should_stop():
+            if self._should_stop_or_pause():
                 self.log("Run detenido por solicitud del usuario tras Design Review.", "warning")
                 return
             self.log(f"Respuestas de design review: {answers}")
@@ -1250,7 +1288,7 @@ Responde de forma concisa y práctica. Asume decisiones razonables para un MVP .
             self._agent_log("orchestrator", "Fase 3/5: Planning & Dispatch — armando batches y DAG de dependencias.")
             self.set_phase("project-manager", "in-design", 60)
             self.run_planner()
-            if self._should_stop():
+            if self._should_stop_or_pause():
                 self.log("Run detenido por solicitud del usuario tras Planning.", "warning")
                 return
 
@@ -1258,45 +1296,44 @@ Responde de forma concisa y práctica. Asume decisiones razonables para un MVP .
             update_ticket_status(self.ticket_id, "in-progress")
             self.set_phase("engineer-squad", "in-progress", 75)
             self.run_execution()
-            if self._should_stop():
+            if self._should_stop_or_pause():
                 self.log("Run detenido por solicitud del usuario tras Execution.", "warning")
                 return
 
             self._agent_log("orchestrator", "Fase 5/5: QA Review — revisando integración del batch.")
             self.set_phase("qa-engineer", "in-review", 90)
             self.run_qa()
-            if self._should_stop():
+            if self._should_stop_or_pause():
                 self.log("Run detenido por solicitud del usuario tras QA Review.", "warning")
                 return
 
             update_ticket_status(self.ticket_id, "done")
             self._update_agent("orchestrator", status="done", progress=100, log="Loop completado. Ticket marcado como Done.", log_level="success")
-            self.set_phase(None, "completed", 100)
+            update_run_state({"active": False, "ticketId": None, "status": "completed", "progress": 100, "currentAgent": None})
             self.log("Loop completado. Ticket marcado como Done.", "success")
 
         except Exception as exc:
             self.log(f"Error en el loop: {exc}", "error")
             self._update_agent("orchestrator", status="failed", log=f"Error en el loop: {exc}", log_level="error")
-            self.set_phase(None, "failed", 0)
-            update_run_state({"active": False, "status": "failed", "progress": 0})
+            update_run_state({"active": False, "ticketId": None, "status": "failed", "progress": 0, "currentAgent": None})
         finally:
             self._stop_runtime_heartbeat()
-            # Marcar run como inactivo y procesar siguiente ticket en cola si existe
+            # Marcar run como inactivo si este runner sigue siendo el activo
             time.sleep(1)
             with run_lock:
                 state = load_run_state()
-                if state.get("ticketId") == self.ticket_id:
+                if state.get("ticketId") == self.ticket_id and self._should_stop():
                     state["active"] = False
                     save_run_state(state)
-            if not self._should_stop():
-                process_next_in_queue()
+            paused_run_threads.pop(self.ticket_id, None)
 
     def _run_planner_and_execution(self):
         """Ejecuta las fases de Planning, Execution y QA. Usado durante un resume."""
+        self._check_pause()
         self._agent_log("orchestrator", "Fase 3/5: Planning & Dispatch — armando batches y DAG de dependencias.")
         self.set_phase("project-manager", "in-design", 60)
         self.run_planner()
-        if self._should_stop():
+        if self._should_stop_or_pause():
             self.log("Run detenido por solicitud del usuario tras Planning.", "warning")
             return
 
@@ -1304,20 +1341,20 @@ Responde de forma concisa y práctica. Asume decisiones razonables para un MVP .
         update_ticket_status(self.ticket_id, "in-progress")
         self.set_phase("engineer-squad", "in-progress", 75)
         self.run_execution()
-        if self._should_stop():
+        if self._should_stop_or_pause():
             self.log("Run detenido por solicitud del usuario tras Execution.", "warning")
             return
 
         self._agent_log("orchestrator", "Fase 5/5: QA Review — revisando integración del batch.")
         self.set_phase("qa-engineer", "in-review", 90)
         self.run_qa()
-        if self._should_stop():
+        if self._should_stop_or_pause():
             self.log("Run detenido por solicitud del usuario tras QA.", "warning")
             return
 
         update_ticket_status(self.ticket_id, "done")
         self._update_agent("orchestrator", status="done", progress=100, log="Loop completado. Ticket marcado como Done.", log_level="success")
-        self.set_phase(None, "completed", 100)
+        update_run_state({"active": False, "ticketId": None, "status": "completed", "progress": 100, "currentAgent": None})
         self.log("Loop completado. Ticket marcado como Done.", "success")
 
     def _resume_loop(self):
@@ -1329,12 +1366,12 @@ Responde de forma concisa y práctica. Asume decisiones razonables para un MVP .
             self._agent_log("orchestrator", "Reanudando desde Architecture/Design Review.")
             self.set_phase("architect", "in-design", 40)
             self.run_architect()
-            if self._should_stop():
+            if self._should_stop_or_pause():
                 return
             prd_path = get_meta_dir() / "state" / f"prd-{self.ticket_id}.md"
             questions = self._generate_design_questions(prd_path)
             answers = self._wait_for_design_answers(questions, timeout_seconds=60)
-            if self._should_stop():
+            if self._should_stop_or_pause():
                 return
             self.log(f"Respuestas de design review: {answers}")
             self._run_planner_and_execution()
@@ -2804,27 +2841,87 @@ Reporta los archivos modificados y el resultado de la build.
             return None
 
 
-def start_automatic_run(ticket, resume=False):
+def pause_active_ticket():
+    """Pausa el ticket que está corriendo actualmente y guarda su thread."""
+    global _active_run_thread
+    with run_lock:
+        state = load_run_state()
+    if not state.get("active"):
+        return False, "No hay ticket corriendo"
+    ticket_id = state.get("ticketId")
+    if _active_run_thread and _active_run_thread.is_alive():
+        _active_run_thread.pause()
+        paused_run_threads[ticket_id] = _active_run_thread
+        _active_run_thread = None
+        return True, f"Ticket {ticket_id} pausado"
+    return False, "No se encontró runner activo"
+
+
+def play_ticket(ticket_id):
+    """Pone un ticket a correr. Si ya hay otro corriendo, lo pausa primero."""
+    global _active_run_thread
+    board = load_board()
+    ticket = next((t for t in board.get("tickets", []) if t.get("id") == ticket_id), None)
+    if not ticket:
+        return False, "Ticket no encontrado"
+
+    with run_lock:
+        state = load_run_state()
+
+    # Ya corriendo
+    if state.get("active") and state.get("ticketId") == ticket_id:
+        return True, "El ticket ya está corriendo"
+
+    # Pausar otro ticket si hay uno corriendo
+    if state.get("active"):
+        ok, msg = pause_active_ticket()
+        if not ok:
+            return False, f"No se pudo pausar el ticket activo: {msg}"
+        state = load_run_state()
+
+    # Reanudar thread pausado si existe
+    if ticket_id in paused_run_threads:
+        thread = paused_run_threads.pop(ticket_id)
+        if thread.is_alive():
+            update_run_state({
+                "active": True,
+                "ticketId": ticket_id,
+                "status": state.get("status") or "running",
+                "currentAgent": state.get("currentAgent"),
+            })
+            thread.resume()
+            _active_run_thread = thread
+            return True, f"Ticket {ticket_id} reanudado"
+
+    # Iniciar desde cero o reanudar desde run-state guardado
+    resume = state.get("ticketId") == ticket_id and state.get("status") in ("paused", "in-design", "in-progress", "in-review")
+    started = start_automatic_run(ticket, resume=resume, queue_if_active=False)
+    if started:
+        return True, f"Ticket {ticket_id} iniciado"
+    return False, "No se pudo iniciar el ticket"
+
+
+def start_automatic_run(ticket, resume=False, queue_if_active=True):
     """Inicia el loop multi-agente para un ticket. Si resume=True, reanuda desde run-state existente."""
     global _active_run_thread
 
     with run_lock:
         state = load_run_state()
         if state.get("active"):
-            queue = state.get("queue", [])
-            if ticket["id"] not in queue:
-                queue.append(ticket["id"])
-                state["queue"] = queue
-                save_run_state(state)
-            queue_position = len(queue)
-            active_ticket_id = state.get("ticketId")
-    if state.get("active"):
-        append_log(
-            f"Ya hay un run activo para {active_ticket_id}. "
-            f"Ticket {ticket['id']} agregado a la cola (posición {queue_position}).",
-            "warning",
-        )
-        return False
+            if queue_if_active:
+                queue = state.get("queue", [])
+                if ticket["id"] not in queue:
+                    queue.append(ticket["id"])
+                    state["queue"] = queue
+                    save_run_state(state)
+                queue_position = len(queue)
+                active_ticket_id = state.get("ticketId")
+                append_log(
+                    f"Ya hay un run activo para {active_ticket_id}. "
+                    f"Ticket {ticket['id']} agregado a la cola (posición {queue_position}).",
+                    "warning",
+                )
+            return False
 
     _active_run_thread = AgentRunner(ticket, resume=resume)
     _active_run_thread.start()
@@ -2975,6 +3072,21 @@ def api_board():
 def api_run_state():
     state = load_run_state()
     return jsonify(state)
+
+
+@app.route("/api/tickets/<ticket_id>/play", methods=["POST"])
+def api_play_ticket(ticket_id):
+    ok, msg = play_ticket(ticket_id)
+    return jsonify({"ok": ok, "message": msg}), (200 if ok else 400)
+
+
+@app.route("/api/tickets/<ticket_id>/pause", methods=["POST"])
+def api_pause_ticket(ticket_id):
+    state = load_run_state()
+    if state.get("ticketId") != ticket_id:
+        return jsonify({"ok": False, "message": "Este ticket no está corriendo"}), 400
+    ok, msg = pause_active_ticket()
+    return jsonify({"ok": ok, "message": msg}), (200 if ok else 400)
 
 
 @app.route("/api/participants", methods=["GET"])
