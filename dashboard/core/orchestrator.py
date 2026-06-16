@@ -105,12 +105,12 @@ class Orchestrator(threading.Thread):
     def _check_pause(self) -> None:
         if not self._is_paused():
             return
-        self.log(f"Ticket {self.ticket_id} en pausa. Esperando reanudación...")
+        self.log(f"Ticket {self.ticket_id} paused. Waiting for resume...")
         while self._is_paused() and not self._should_stop():
             self._resume_event.wait(timeout=1.0)
             self._resume_event.clear()
         if not self._should_stop():
-            self.log(f"Ticket {self.ticket_id} reanudado.")
+            self.log(f"Ticket {self.ticket_id} resumed.")
 
     def _should_stop_or_pause(self) -> bool:
         self._check_pause()
@@ -162,7 +162,7 @@ class Orchestrator(threading.Thread):
                 return role
         return "engineer"
 
-    def _run_kimi(self, prompt: str, phase_name: str, timeout_seconds: int, agent_id: Optional[str] = None) -> Optional[str]:
+    def _run_ai(self, prompt: str, phase_name: str, timeout_seconds: int, agent_id: Optional[str] = None) -> Optional[str]:
         """Execute a prompt through the configured AI backends with skill prefix injection."""
         role = self._infer_role_from_phase(phase_name)
         supports = self.backend_registry.supports_skill_activation()
@@ -170,7 +170,7 @@ class Orchestrator(threading.Thread):
         full_prompt = f"{prefix}\n\n{prompt}" if prefix else prompt
 
         # Allow server callbacks to override (legacy/local testing hook).
-        callback_run = self.callbacks.get("run_kimi")
+        callback_run = self.callbacks.get("run_ai")
         if callback_run:
             return callback_run(full_prompt, phase_name, timeout_seconds, agent_id)
 
@@ -193,8 +193,8 @@ class Orchestrator(threading.Thread):
 
             self._callback("on_started", self.ticket)
             self._set_phase("orchestrator", "in-design", 5)
-            self._ensure_agent("orchestrator", "Orchestrator Principal", "orchestrator", None, "running", 5)
-            self.log("Ticket movido a Ready for work. Iniciando software factory loop...")
+            self._ensure_agent("orchestrator", "Main Orchestrator", "orchestrator", None, "running", 5)
+            self.log("Ticket moved to Ready for work. Starting software factory loop...")
 
             # Initialize the shared Environment and coordinator swarm.
             self.env = Environment()
@@ -258,13 +258,13 @@ class Orchestrator(threading.Thread):
                     return
 
             self._set_phase("orchestrator", "completed", 100)
-            self._update_agent("orchestrator", status="done", progress=100, log="Loop completado. Ticket marcado como Done.", log_level="success")
+            self._update_agent("orchestrator", status="done", progress=100, log="Loop completed. Ticket marked as Done.", log_level="success")
             self._callback("on_complete", True)
-            self.log("Loop completado. Ticket marcado como Done.", "success")
+            self.log("Loop completed. Ticket marked as Done.", "success")
 
         except Exception as exc:
-            self.log(f"Error en el loop: {exc}", "error")
-            self._update_agent("orchestrator", status="failed", log=f"Error en el loop: {exc}", log_level="error")
+            self.log(f"Loop error: {exc}", "error")
+            self._update_agent("orchestrator", status="failed", log=f"Loop error: {exc}", log_level="error")
             self._callback("on_complete", False)
 
     def _run_legacy_wrapper(self) -> None:
@@ -339,13 +339,13 @@ class Orchestrator(threading.Thread):
         try:
             path.write_text(json.dumps(state, indent=2, ensure_ascii=False), encoding="utf-8")
         except Exception as exc:
-            self.log(f"No se pudo guardar estado de reanudación: {exc}", "warning")
+            self.log(f"Could not save resume state: {exc}", "warning")
 
     # ------------------------------------------------------------------
     # Phase 1: PM Analysis
     # ------------------------------------------------------------------
     def _run_phase_1_pm_analysis(self) -> None:
-        self.log("Fase 1/5: PM Analysis — generando plan detallado con subagentes.")
+        self.log("Phase 1/5: PM Analysis: generating a detailed plan with subagents.")
         self._set_phase("pm-research-agents", "in-design", 10)
         self._ensure_agent("pm-research-agents", "PM Research Agents", "lead", "orchestrator", "running", 10)
         for sub_id, sub_name, _ in pm_analysis.DEFAULT_SUBAGENTS:
@@ -356,27 +356,27 @@ class Orchestrator(threading.Thread):
 
         generated_prd = pm_analysis.run_pm_analysis(
             self.ticket,
-            run_kimi=self._run_kimi,
+            run_ai=self._run_ai,
             max_rounds=10,
             log_callback=log_callback,
         )
 
         if generated_prd and generated_prd.exists():
-            self.log(f"Plan detallado guardado en {generated_prd}")
+            self.log(f"Detailed plan saved at {generated_prd}")
         else:
-            self.log("No se generó PRD; usando fallback local.", "warning")
+            self.log("No PRD was generated; using local fallback.", "warning")
             pm_analysis.write_fallback_prd(self._prd_path(), self.ticket.get("title", ""), self.ticket.get("description", ""))
 
         for sub_id, sub_name, _ in pm_analysis.DEFAULT_SUBAGENTS:
-            self._update_agent(sub_id, status="done", progress=100, log=f"{sub_name} completado.")
-        self._update_agent("pm-research-agents", status="done", progress=100, log="PM Research Agents consolidaron el PRD.")
+            self._update_agent(sub_id, status="done", progress=100, log=f"{sub_name} completed.")
+        self._update_agent("pm-research-agents", status="done", progress=100, log="PM Research Agents consolidated the PRD.")
         self._set_phase("pm-lead", "in-design", 35)
 
     # ------------------------------------------------------------------
     # Phase 2: Architecture
     # ------------------------------------------------------------------
     def _run_phase_2_architecture(self) -> None:
-        self.log("Fase 2/5: Architecture — definiendo patrones técnicos globales.")
+        self.log("Phase 2/5: Architecture: defining global technical patterns.")
         self._set_phase("architect", "in-design", 40)
         self._ensure_agent("architect", "Architect", "lead", "orchestrator", "running", 40)
 
@@ -386,7 +386,7 @@ class Orchestrator(threading.Thread):
         if self.env is None:
             self.env = Environment()
         architect = ArchitectRole(
-            run_kimi=self._run_kimi,
+            run_ai=self._run_ai,
             prd_path=prd_path,
             architecture_path=architecture_path,
             ticket_title=self.ticket.get("title", ""),
@@ -398,7 +398,7 @@ class Orchestrator(threading.Thread):
         self.env.add_role(architect)
 
         self.env.publish_message(Message(
-            content=f"PRD listo en {prd_path}",
+            content=f"PRD ready at {prd_path}",
             sent_from="orchestrator",
             cause_by="prd_ready",
             send_to={"architect"},
@@ -409,9 +409,9 @@ class Orchestrator(threading.Thread):
 
         ready_msg = self._latest_message("architecture_ready")
         if ready_msg:
-            self._update_agent("architect", status="done", progress=100, log=f"Arquitectura guardada en {ready_msg.metadata.get('path', architecture_path)}.")
+            self._update_agent("architect", status="done", progress=100, log=f"Architecture saved at {ready_msg.metadata.get('path', architecture_path)}.")
         else:
-            self._update_agent("architect", status="done", progress=100, log="Arquitectura finalizada.")
+            self._update_agent("architect", status="done", progress=100, log="Architecture finished.")
 
     # ------------------------------------------------------------------
     # Phase 2.5: Design Review
@@ -420,15 +420,15 @@ class Orchestrator(threading.Thread):
         # If the architect emitted design_review_requested, ask the user.
         review_request = self._latest_message("design_review_requested")
         if not review_request:
-            self.log("No se detectaron decisiones de diseño pendientes; continuando.")
+            self.log("No pending design decisions detected; continuing.")
             return
 
         questions = review_request.metadata.get("questions", [])
         if not questions:
-            self.log("No se detectaron preguntas de diseño; continuando.")
+            self.log("No design questions detected; continuing.")
             return
 
-        self.log("Fase 2.5/5: Design Review — esperando confirmación de decisiones técnicas.")
+        self.log("Phase 2.5/5: Design Review: waiting for technical decision confirmation.")
         self._set_phase("design-review", "design-review", 55)
 
         formatted = [
@@ -450,13 +450,13 @@ class Orchestrator(threading.Thread):
         ))
 
         self._run_environment_rounds()
-        self.log(f"Respuestas de design review: {answers}")
+        self.log(f"Design review answers: {answers}")
 
     # ------------------------------------------------------------------
     # Phase 3: Planning
     # ------------------------------------------------------------------
     def _run_phase_3_planning(self) -> None:
-        self.log("Fase 3/5: Planning & Dispatch — armando batches y DAG de dependencias.")
+        self.log("Phase 3/5: Planning & Dispatch: building batches and dependency DAG.")
         self._set_phase("project-manager", "in-design", 60)
         self._ensure_agent("project-manager", "Project Manager", "lead", "orchestrator", "running", 60)
 
@@ -465,7 +465,7 @@ class Orchestrator(threading.Thread):
             self.env = Environment()
 
         planner = PlannerRole(
-            run_kimi=self._run_kimi,
+            run_ai=self._run_ai,
             ticket_id=self.ticket_id,
             ticket_title=self.ticket.get("title", ""),
             ticket_description=self.ticket.get("description", ""),
@@ -483,7 +483,7 @@ class Orchestrator(threading.Thread):
             metadata["architecture_path"] = str(architecture_path)
 
         self.env.publish_message(Message(
-            content=f"Planificar tareas a partir de {self._prd_path()}",
+            content=f"Plan tasks from {self._prd_path()}",
             sent_from="orchestrator",
             cause_by="prd_ready",
             send_to={"planner"},
@@ -493,7 +493,7 @@ class Orchestrator(threading.Thread):
         # If architecture is available, also publish architecture_ready so the planner uses it.
         if architecture_path.exists():
             self.env.publish_message(Message(
-                content=f"Arquitectura lista en {architecture_path}",
+                content=f"Architecture ready at {architecture_path}",
                 sent_from="orchestrator",
                 cause_by="architecture_ready",
                 send_to={"planner"},
@@ -508,36 +508,36 @@ class Orchestrator(threading.Thread):
             try:
                 tasks = json.loads(Path(plan_msg.metadata["path"]).read_text(encoding="utf-8"))
             except Exception as exc:
-                self.log(f"No se pudo leer plan de tareas: {exc}", "warning")
+                self.log(f"Could not read task plan: {exc}", "warning")
 
         if not tasks:
             tasks = self._fallback_tasks()
             self._tasks_path().write_text(json.dumps(tasks, indent=2, ensure_ascii=False), encoding="utf-8")
 
-        self._update_agent("project-manager", status="done", progress=100, log=f"Plan generado con {len(tasks)} tareas.")
+        self._update_agent("project-manager", status="done", progress=100, log=f"Generated plan with {len(tasks)} tasks.")
         self._set_phase("project-manager", "in-progress", 65)
 
     def _fallback_tasks(self) -> List[Dict[str, Any]]:
-        title = self.ticket.get("title", "Implementación")
+        title = self.ticket.get("title", "Implementation")
         description = self.ticket.get("description", "")
         return [
             {
                 "id": f"{self.ticket_id}-T1",
-                "title": f"Implementar: {title}",
+                "title": f"Implement: {title}",
                 "description": description,
                 "dependencies": [],
                 "files_to_touch": [],
                 "complexity": "M",
-                "qa_checklist": ["Validar que cumple la descripción del ticket."],
+                "qa_checklist": ["Validate that it satisfies the ticket description."],
             },
             {
                 "id": f"{self.ticket_id}-T2",
-                "title": "Agregar tests unitarios",
-                "description": "Cobertura mínima para el cambio implementado.",
+                "title": "Add unit tests",
+                "description": "Minimum coverage for the implemented change.",
                 "dependencies": [f"{self.ticket_id}-T1"],
                 "files_to_touch": [],
                 "complexity": "S",
-                "qa_checklist": ["Los tests pasan localmente."],
+                "qa_checklist": ["Tests pass locally."],
             },
         ]
 
@@ -545,32 +545,32 @@ class Orchestrator(threading.Thread):
     # Phase 4: Execution
     # ------------------------------------------------------------------
     def _run_phase_4_execution(self) -> None:
-        self.log("Fase 4/5: Parallel Execution — implementando tareas en paralelo.")
+        self.log("Phase 4/5: Parallel Execution: implementing tasks in parallel.")
         self._set_phase("engineer-squad", "in-progress", 75)
         self._ensure_agent("engineer-squad", "Engineer Squad", "lead", "orchestrator", "running", 75)
 
         tasks_path = self._tasks_path()
         if not tasks_path.exists():
-            self.log("No se encontró tasks.json; saltando ejecución.", "warning")
-            self._update_agent("engineer-squad", status="done", progress=100, log="No había tareas para ejecutar.")
+            self.log("tasks.json was not found; skipping execution.", "warning")
+            self._update_agent("engineer-squad", status="done", progress=100, log="No tasks to execute.")
             return
 
         try:
             tasks = json.loads(tasks_path.read_text(encoding="utf-8"))
         except Exception as exc:
-            self.log(f"Error leyendo tasks.json: {exc}", "error")
-            self._update_agent("engineer-squad", status="failed", progress=100, log=f"Error leyendo tasks: {exc}")
+            self.log(f"Error reading tasks.json: {exc}", "error")
+            self._update_agent("engineer-squad", status="failed", progress=100, log=f"Error reading tasks: {exc}")
             return
 
         if not tasks:
-            self.log("Planner no generó tareas; saltando ejecución.", "warning")
-            self._update_agent("engineer-squad", status="done", progress=100, log="No había tareas para ejecutar.")
+            self.log("Planner did not generate tasks; skipping execution.", "warning")
+            self._update_agent("engineer-squad", status="done", progress=100, log="No tasks to execute.")
             return
 
         repo_path = self._repo_path()
         if not repo_path:
-            self.log("No hay repo configurado; saltando ejecución.", "warning")
-            self._update_agent("engineer-squad", status="done", progress=100, log="No hay repo configurado.")
+            self.log("No repository configured; skipping execution.", "warning")
+            self._update_agent("engineer-squad", status="done", progress=100, log="No repository configured.")
             return
 
         if self.env is None:
@@ -578,7 +578,7 @@ class Orchestrator(threading.Thread):
 
         # Add the squad lead so it coordinates engineers and resolves blockers.
         squad = EngineerSquadRole(
-            run_kimi=self._run_kimi,
+            run_ai=self._run_ai,
             ticket_id=self.ticket_id,
             ticket_title=self.ticket.get("title", ""),
             ticket_description=self.ticket.get("description", ""),
@@ -608,7 +608,7 @@ class Orchestrator(threading.Thread):
             tid = task["id"]
             agent_id = f"engineer-{tid}"
             self._ensure_agent(agent_id, f"Engineer {tid}", "sub", "engineer-squad", "running", 0)
-            self._update_agent(agent_id, progress=20, log=f"Iniciando tarea: {task.get('title', tid)}")
+            self._update_agent(agent_id, progress=20, log=f"Starting task: {task.get('title', tid)}")
 
             deps = task.get("dependencies", []) or []
             dependencies_context = self._get_dependency_context(deps)
@@ -616,7 +616,7 @@ class Orchestrator(threading.Thread):
             role = EngineerRole(
                 role_id=agent_id,
                 focus=task.get("title", tid),
-                run_kimi=self._run_kimi,
+                run_ai=self._run_ai,
                 repo_path=repo_path,
                 branch_prefix="feature",
                 update_agent=lambda agent_id, **kwargs: self._update_agent(agent_id, **kwargs),
@@ -639,7 +639,7 @@ class Orchestrator(threading.Thread):
             }
 
             self.env.publish_message(Message(
-                content=f"Implementar tarea {tid}",
+                content=f"Implement task {tid}",
                 sent_from="orchestrator",
                 cause_by="task_assigned",
                 send_to={agent_id},
@@ -661,7 +661,7 @@ class Orchestrator(threading.Thread):
                         latest_completed = m
                         break
                 if latest_completed:
-                    self._update_agent(agent_id, status="done", progress=100, log=f"Tarea {tid} completada.")
+                    self._update_agent(agent_id, status="done", progress=100, log=f"Task {tid} completed.")
                     self._collect_outputs(agent_id, repo_path)
                     with lock:
                         status[tid] = "done"
@@ -669,14 +669,14 @@ class Orchestrator(threading.Thread):
                     return
 
             # If we exhausted rounds without completion, mark failed.
-            self._update_agent(agent_id, status="failed", progress=100, log=f"Tarea {tid} no finalizó a tiempo.")
+            self._update_agent(agent_id, status="failed", progress=100, log=f"Task {tid} did not finish in time.")
             with lock:
                 status[tid] = "failed"
                 failed.add(tid)
             stop_event.set()
 
         pending = set(t["id"] for t in tasks if status.get(t["id"]) == "queued")
-        self.log(f"[execution] {len(pending)} tareas pendientes.")
+        self.log(f"[execution] {len(pending)} pending tasks.")
 
         while pending or running_threads:
             if stop_event.is_set() or self._should_stop_or_pause():
@@ -686,7 +686,7 @@ class Orchestrator(threading.Thread):
                     for tid in list(pending):
                         status[tid] = "blocked"
                         self._ensure_agent(f"engineer-{tid}", f"Engineer {tid}", "sub", "engineer-squad", "blocked", 0)
-                        self._update_agent(f"engineer-{tid}", status="blocked", progress=0, log="Bloqueado por fallo en dependencia.")
+                        self._update_agent(f"engineer-{tid}", status="blocked", progress=0, log="Blocked by dependency failure.")
                 break
 
             while len(running_threads) < max_workers and pending:
@@ -712,29 +712,29 @@ class Orchestrator(threading.Thread):
                 time.sleep(0.5)
 
         successful = sum(1 for s in status.values() if s == "done")
-        self.log(f"Ejecución paralela finalizada: {successful}/{len(tasks)} exitosas.")
-        self._update_agent("engineer-squad", status="done", progress=100, log=f"Ejecución completada: {successful}/{len(tasks)}.")
+        self.log(f"Parallel execution finished: {successful}/{len(tasks)} successful.")
+        self._update_agent("engineer-squad", status="done", progress=100, log=f"Execution completed: {successful}/{len(tasks)}.")
         self._set_phase("engineer-squad", "in-progress", 85)
 
     # ------------------------------------------------------------------
     # Phase 5: QA Review
     # ------------------------------------------------------------------
     def _run_phase_5_qa(self) -> None:
-        self.log("Fase 5/5: QA Review — revisando integración del batch.")
+        self.log("Phase 5/5: QA Review: reviewing batch integration.")
         self._set_phase("qa-engineer", "in-review", 90)
         self._ensure_agent("qa-engineer", "QA Engineer", "lead", "orchestrator", "running", 90)
 
         tasks_path = self._tasks_path()
         if not tasks_path.exists():
-            self.log("No se encontró tasks.json; saltando QA.", "warning")
-            self._update_agent("qa-engineer", status="done", progress=100, log="No había tareas para revisar.")
+            self.log("tasks.json was not found; skipping QA.", "warning")
+            self._update_agent("qa-engineer", status="done", progress=100, log="No tasks to review.")
             return
 
         try:
             tasks = json.loads(tasks_path.read_text(encoding="utf-8"))
         except Exception as exc:
-            self.log(f"Error leyendo tasks.json: {exc}", "error")
-            self._update_agent("qa-engineer", status="done", progress=100, log="Error leyendo tareas.")
+            self.log(f"Error reading tasks.json: {exc}", "error")
+            self._update_agent("qa-engineer", status="done", progress=100, log="Error reading tasks.")
             return
 
         repo_path = self._repo_path()
@@ -755,7 +755,7 @@ class Orchestrator(threading.Thread):
             test_output = completed.metadata.get("test_output", "") if completed else ""
             self._ensure_agent(f"qa-{tid}", f"QA {tid}", "qa", "qa-engineer", "queued", 90)
             self.env.publish_message(Message(
-                content=f"Revisar tarea {tid}",
+                content=f"Review task {tid}",
                 sent_from="orchestrator",
                 cause_by="request_review",
                 send_to={"qa-lead"},
@@ -772,12 +772,12 @@ class Orchestrator(threading.Thread):
             review_requested = True
 
         if not review_requested:
-            self.log("No hay tareas para revisar.")
-            self._update_agent("qa-engineer", status="done", progress=100, log="No había tareas para revisar.")
+            self.log("No tasks to review.")
+            self._update_agent("qa-engineer", status="done", progress=100, log="No tasks to review.")
             return
 
         qa_lead = QARole(
-            run_kimi=self._run_kimi,
+            run_ai=self._run_ai,
             max_rounds=self._max_qa_rounds,
         )
         self.env.add_role(qa_lead)
@@ -787,6 +787,6 @@ class Orchestrator(threading.Thread):
         approved = [m for m in self.env.history() if m.cause_by == "review_approved"]
         rejected = [m for m in self.env.history() if m.cause_by == "reject_with_feedback"]
 
-        self.log(f"QA: {len(approved)} aprobado(s), {len(rejected)} rechazo(s).")
-        self._update_agent("qa-engineer", status="done", progress=100, log=f"QA Review completado: {len(approved)} aprobados, {len(rejected)} rechazos.")
+        self.log(f"QA: {len(approved)} approved, {len(rejected)} rejected.")
+        self._update_agent("qa-engineer", status="done", progress=100, log=f"QA Review completed: {len(approved)} approved, {len(rejected)} rejected.")
         self._set_phase("qa-engineer", "in-review", 95)

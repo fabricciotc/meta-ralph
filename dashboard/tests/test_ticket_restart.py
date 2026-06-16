@@ -6,7 +6,7 @@ import time
 from pathlib import Path
 from unittest.mock import patch
 
-sys.path.insert(0, "/Users/fabricciotornero/.kimi-code/skills/meta-ralph/dashboard")
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import server
 
@@ -34,7 +34,7 @@ def _stub_run(self):
         self.ticket_id,
         startedAt=server.datetime.now(server.timezone.utc).isoformat(),
         elapsedSeconds=0,
-        summary="Simulando ejecución...",
+        summary="Simulating execution...",
     )
     server.update_ticket_status(self.ticket_id, "done")
     with server.run_lock:
@@ -123,4 +123,4 @@ def test_restart_ticket_clears_state_and_artifacts():
 def test_restart_ticket_not_found():
     ok, msg = server.restart_ticket("TKT-NONEXISTENT")
     assert not ok
-    assert "no encontrado" in msg.lower()
+    assert "not found" in msg.lower()

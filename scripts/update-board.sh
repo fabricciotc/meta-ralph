@@ -1,6 +1,6 @@
 #!/bin/bash
-# update-board.sh — Actualiza el estado de un ticket en board.json de forma segura
-# Uso: update-board.sh <ticket_id> <status> [blocked]
+# update-board.sh: safely update a ticket status in board.json.
+# Usage: update-board.sh <ticket_id> <status> [blocked]
 
 set -e
 
@@ -9,7 +9,7 @@ STATUS="$2"
 BLOCKED="${3:-}"
 
 if [ -z "$TICKET_ID" ] || [ -z "$STATUS" ]; then
-  echo "Uso: $0 <ticket_id> <status> [blocked]"
+  echo "Usage: $0 <ticket_id> <status> [blocked]"
   exit 1
 fi
 
@@ -17,7 +17,7 @@ META_DIR="${META_DIR:-scripts/meta-ralph}"
 BOARD_FILE="$META_DIR/state/board.json"
 
 if [ ! -f "$BOARD_FILE" ]; then
-  echo "❌ No se encontró $BOARD_FILE"
+  echo "Error: could not find $BOARD_FILE"
   exit 1
 fi
 
@@ -36,4 +36,4 @@ JQ_FILTER="
 "
 
 jq "$JQ_FILTER" "$BOARD_FILE" > "$BOARD_FILE.tmp" && mv "$BOARD_FILE.tmp" "$BOARD_FILE"
-echo "✅ Ticket $TICKET_ID → $STATUS"
+echo "Ticket $TICKET_ID -> $STATUS"

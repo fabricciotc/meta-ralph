@@ -9,12 +9,12 @@ from core.models import Message
 
 
 class ArchitectAction(Action):
-    """Generates an architecture.md artifact from a PRD via the Kimi runner."""
+    """Generates an architecture.md artifact from a PRD via the configured runner."""
 
     async def run(
         self,
         context: List[Message],
-        run_kimi: Optional[Any] = None,
+        run_ai: Optional[Any] = None,
         **kwargs,
     ) -> Message:
         required_keys = [
@@ -46,7 +46,7 @@ class ArchitectAction(Action):
 
         prd_content = prd_path.read_text(encoding="utf-8")
 
-        if run_kimi is None:
+        if run_ai is None:
             content = self._write_fallback_architecture(
                 architecture_path,
                 ticket_title,
@@ -76,7 +76,7 @@ class ArchitectAction(Action):
             review_answers,
         )
 
-        raw = run_kimi(prompt, phase_name, timeout_seconds, agent_id="architect")
+        raw = run_ai(prompt, phase_name, timeout_seconds, agent_id="architect")
         if inspect.isawaitable(raw):
             output = await raw
         else:
@@ -122,28 +122,28 @@ class ArchitectAction(Action):
         review_section = ""
         if review_answers:
             review_section = (
-                "\n\nRESPUESTAS DEL DESIGN REVIEW (aplica estas decisiones):\n"
+                "\n\nDESIGN REVIEW ANSWERS (apply these decisions):\n"
                 f"{review_answers}\n"
             )
 
         return (
-            "Eres el Arquitecto de AgentFlow, una software factory estilo MetaGPT. "
-            "Diseña la arquitectura técnica global para el siguiente ticket. "
-            "NO implementes código; define patrones, APIs, estructura de directorios, "
-            "convenciones y decisiones técnicas que los engineers deberán seguir.\n\n"
-            f"TICKET:\nTÍTULO: {title}\nDESCRIPCIÓN: {description}\n\n"
+            "You are the AgentFlow Architect in a MetaGPT-style software factory. "
+            "Design the global technical architecture for the following ticket. "
+            "Do NOT implement code; define patterns, APIs, directory structure, "
+            "conventions, and technical decisions that Engineers must follow.\n\n"
+            f"TICKET:\nTITLE: {title}\nDESCRIPTION: {description}\n\n"
             f"PRD:\n{prd_content}\n\n"
-            "Genera un documento de arquitectura en markdown con estas secciones:\n"
-            "1. Resumen arquitectónico\n"
-            "2. Decisiones técnicas principales\n"
-            "3. Estructura de directorios y módulos recomendados\n"
-            "4. APIs/interfaces y contratos\n"
-            "5. Patrones y convenciones de código\n"
-            "6. Riesgos y mitigaciones\n\n"
-            f"Escribe el documento completo en formato markdown en este archivo: {architecture_path}\n\n"
-            "Responde en español. Al final confirma brevemente que guardaste la arquitectura. "
-            "Si detectas decisiones de diseño pendientes, listalas claramente bajo el encabezado "
-            "'DECISIONES PENDIENTES:'."
+            "Generate a markdown architecture document with these sections:\n"
+            "1. Architecture summary\n"
+            "2. Key technical decisions\n"
+            "3. Recommended directories and modules\n"
+            "4. APIs, interfaces, and contracts\n"
+            "5. Code patterns and conventions\n"
+            "6. Risks and mitigations\n\n"
+            f"Write the complete markdown document to this file: {architecture_path}\n\n"
+            "Respond in English. At the end, briefly confirm that you saved the architecture. "
+            "If you detect pending design decisions, list them clearly under the heading "
+            "'PENDING DECISIONS:'."
             + review_section
         )
 
@@ -158,7 +158,7 @@ class ArchitectAction(Action):
         capture = False
         for line in lines:
             stripped = line.strip()
-            if stripped.startswith("# Arquitectura") or stripped.startswith("# 1."):
+            if stripped.startswith("# Architecture") or stripped.startswith("# 1."):
                 capture = True
             if capture:
                 arch_lines.append(line)
@@ -170,18 +170,15 @@ class ArchitectAction(Action):
             if any(
                 skip in line
                 for skip in [
-                    "K2.7 Code",
                     "context:",
-                    "yolo",
                     "MCP server",
                     "thinking...",
                     "working...",
-                    "Welcome to Kimi",
                 ]
             ):
                 continue
             filtered.append(line)
-        return f"# Arquitectura: {title}\n\n**Descripción:**\n\n{description}\n\n---\n\n" + "\n".join(filtered[-200:])
+        return f"# Architecture: {title}\n\n**Description:**\n\n{description}\n\n---\n\n" + "\n".join(filtered[-200:])
 
     def _write_fallback_architecture(
         self,
@@ -191,15 +188,15 @@ class ArchitectAction(Action):
         prd_content: str,
     ) -> str:
         content = (
-            f"# Arquitectura: {title}\n\n"
-            f"**Descripción:** {description}\n\n"
-            "## Decisiones técnicas\n"
-            "- Mantener el stack y patrones existentes del proyecto.\n\n"
-            "## Estructura sugerida\n"
-            "- Reutilizar módulos existentes; agregar componentes solo si el PRD lo indica.\n\n"
-            "## Convenciones\n"
-            "- Seguir las convenciones del proyecto y los patrones ya establecidos.\n\n"
-            "## Notas del PRD\n"
+            f"# Architecture: {title}\n\n"
+            f"**Description:** {description}\n\n"
+            "## Technical Decisions\n"
+            "- Preserve the project's existing stack and patterns.\n\n"
+            "## Suggested Structure\n"
+            "- Reuse existing modules; add components only when the PRD requires them.\n\n"
+            "## Conventions\n"
+            "- Follow project conventions and established patterns.\n\n"
+            "## PRD Notes\n"
             f"{prd_content[:500]}\n"
         )
         architecture_path.write_text(content, encoding="utf-8")

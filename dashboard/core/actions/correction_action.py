@@ -20,21 +20,21 @@ def default_build_correction_prompt(
     files_str = ", ".join(str(f) for f in files) if files else "N/A"
 
     return (
-        "Eres un Senior Engineer. Genera un prompt de corrección claro y accionable para que "
-        "otro ingeniero arregle los problemas detectados por QA.\n\n"
-        f"TAREA: {task.get('id', '')} - {task.get('title', '')}\n"
-        f"DESCRIPCIÓN: {task.get('description', '')}\n"
-        f"COMPLEJIDAD: {task.get('complexity', 'M')}\n"
-        f"ARCHIVOS: {files_str}\n\n"
+        "You are a Senior Engineer. Generate a clear, actionable correction prompt so "
+        "another Engineer can fix the issues found by QA.\n\n"
+        f"TASK: {task.get('id', '')} - {task.get('title', '')}\n"
+        f"DESCRIPTION: {task.get('description', '')}\n"
+        f"COMPLEXITY: {task.get('complexity', 'M')}\n"
+        f"FILES: {files_str}\n\n"
         f"REPO: {repo_path}\n"
-        f"RAMA: {branch or 'N/A'}\n\n"
-        f"MOTIVO DEL RECHAZO:\n{reason}\n\n"
-        f"SUGERENCIA DE QA:\n{suggested_fix or '(ninguna proporcionada)'}\n\n"
-        "El prompt de corrección debe:\n"
-        "1. Resumir el problema en una oración.\n"
-        "2. Listar los pasos concretos para corregirlo.\n"
-        "3. Indicar cómo validar localmente antes de volver a solicitar revisión.\n\n"
-        "Responde en español."
+        f"BRANCH: {branch or 'N/A'}\n\n"
+        f"REJECTION REASON:\n{reason}\n\n"
+        f"QA SUGGESTION:\n{suggested_fix or '(none provided)'}\n\n"
+        "The correction prompt must:\n"
+        "1. Summarize the problem in one sentence.\n"
+        "2. List concrete steps to fix it.\n"
+        "3. Explain how to validate locally before requesting review again.\n\n"
+        "Respond in English."
     )
 
 
@@ -43,8 +43,8 @@ def default_extract_correction_prompt(output: Optional[str]) -> str:
     if output and output.strip():
         return output.strip()
     return (
-        "Corregir los problemas señalados por QA y volver a solicitar revisión. "
-        "Verificar localmente build/tests antes de enviar."
+        "Fix the issues flagged by QA and request review again. "
+        "Verify build/tests locally before submitting."
     )
 
 
@@ -54,7 +54,7 @@ class CorrectionAction(Action):
     async def run(
         self,
         context: List[Message],
-        run_kimi: Optional[Any] = None,
+        run_ai: Optional[Any] = None,
         **kwargs,
     ) -> Message:
         required_keys = [
@@ -92,10 +92,10 @@ class CorrectionAction(Action):
             branch=branch,
         )
 
-        if run_kimi is None:
+        if run_ai is None:
             content = extract_correction_prompt("")
         else:
-            raw = run_kimi(
+            raw = run_ai(
                 prompt,
                 phase_name,
                 timeout_seconds,

@@ -22,14 +22,14 @@ class TestResearchAction(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.tmpdir, ignore_errors=True)
 
-    def test_research_action_writes_file_and_calls_kimi(self):
+    def test_research_action_writes_file_and_calls_ai_runner(self):
         output_dir = Path(self.tmpdir) / "pm-research"
         output_dir.mkdir()
 
-        kimi_calls = []
+        ai_calls = []
 
-        def mock_run_kimi(prompt, phase_name, timeout_seconds, agent_id=None):
-            kimi_calls.append({
+        def mock_run_ai(prompt, phase_name, timeout_seconds, agent_id=None):
+            ai_calls.append({
                 "prompt": prompt,
                 "phase_name": phase_name,
                 "timeout_seconds": timeout_seconds,
@@ -49,7 +49,7 @@ class TestResearchAction(unittest.TestCase):
 
         msg = asyncio.run(action.run(
             context=[],
-            run_kimi=mock_run_kimi,
+            run_ai=mock_run_ai,
             sub_id="pm-domain",
             sub_name="Domain Analyst",
             focus="domain analysis",
@@ -69,11 +69,11 @@ class TestResearchAction(unittest.TestCase):
         self.assertTrue(expected_path.exists())
         self.assertEqual(expected_path.read_text(encoding="utf-8"), "# Hallazgos\n- Punto clave")
 
-        self.assertEqual(len(kimi_calls), 1)
-        self.assertEqual(kimi_calls[0]["phase_name"], "pm_research")
-        self.assertEqual(kimi_calls[0]["timeout_seconds"], 120)
-        self.assertEqual(kimi_calls[0]["agent_id"], "pm-domain")
-        self.assertEqual(kimi_calls[0]["prompt"], "PROMPT pm-domain domain analysis Login Allow users to log in Check OAuth")
+        self.assertEqual(len(ai_calls), 1)
+        self.assertEqual(ai_calls[0]["phase_name"], "pm_research")
+        self.assertEqual(ai_calls[0]["timeout_seconds"], 120)
+        self.assertEqual(ai_calls[0]["agent_id"], "pm-domain")
+        self.assertEqual(ai_calls[0]["prompt"], "PROMPT pm-domain domain analysis Login Allow users to log in Check OAuth")
 
         self.assertEqual(len(update_calls), 2)
         self.assertEqual(update_calls[0][0], "pm-domain")
@@ -95,7 +95,7 @@ class TestResearchAction(unittest.TestCase):
         output_dir = Path(self.tmpdir) / "pm-research"
         output_dir.mkdir()
 
-        def mock_run_kimi(prompt, phase_name, timeout_seconds, agent_id=None):
+        def mock_run_ai(prompt, phase_name, timeout_seconds, agent_id=None):
             return None
 
         def mock_update_agent(agent_id, **kwargs):
@@ -108,7 +108,7 @@ class TestResearchAction(unittest.TestCase):
 
         msg = asyncio.run(action.run(
             context=[],
-            run_kimi=mock_run_kimi,
+            run_ai=mock_run_ai,
             sub_id="pm-domain",
             sub_name="Domain Analyst",
             focus="domain analysis",
@@ -131,11 +131,11 @@ class TestResearchAction(unittest.TestCase):
         self.assertEqual(msg.send_to, {"pm-research-agents"})
         self.assertEqual(msg.metadata.get("sub_id"), "pm-domain")
 
-    def test_research_action_async_run_kimi(self):
+    def test_research_action_async_run_ai(self):
         output_dir = Path(self.tmpdir) / "pm-research"
         output_dir.mkdir()
 
-        async def mock_run_kimi(prompt, phase_name, timeout_seconds, agent_id=None):
+        async def mock_run_ai(prompt, phase_name, timeout_seconds, agent_id=None):
             await asyncio.sleep(0)
             return "# Async findings"
 
@@ -151,7 +151,7 @@ class TestResearchAction(unittest.TestCase):
 
         msg = asyncio.run(action.run(
             context=[],
-            run_kimi=mock_run_kimi,
+            run_ai=mock_run_ai,
             sub_id="pm-domain",
             sub_name="Domain Analyst",
             focus="domain analysis",
@@ -172,12 +172,12 @@ class TestResearchAction(unittest.TestCase):
         self.assertEqual(update_calls[-1][1]["status"], "done")
         self.assertEqual(update_calls[-1][1]["progress"], 100)
 
-    def test_research_action_run_kimi_exception_sets_error_and_propagates(self):
+    def test_research_action_run_ai_exception_sets_error_and_propagates(self):
         output_dir = Path(self.tmpdir) / "pm-research"
         output_dir.mkdir()
 
-        def mock_run_kimi(prompt, phase_name, timeout_seconds, agent_id=None):
-            raise RuntimeError("kimi exploded")
+        def mock_run_ai(prompt, phase_name, timeout_seconds, agent_id=None):
+            raise RuntimeError("AI runner exploded")
 
         update_calls = []
 
@@ -192,7 +192,7 @@ class TestResearchAction(unittest.TestCase):
         with self.assertRaises(RuntimeError) as cm:
             asyncio.run(action.run(
                 context=[],
-                run_kimi=mock_run_kimi,
+                run_ai=mock_run_ai,
                 sub_id="pm-domain",
                 sub_name="Domain Analyst",
                 focus="domain analysis",
@@ -206,7 +206,7 @@ class TestResearchAction(unittest.TestCase):
                 timeout_seconds=120,
             ))
 
-        self.assertEqual(str(cm.exception), "kimi exploded")
+        self.assertEqual(str(cm.exception), "AI runner exploded")
 
         error_calls = [call for call in update_calls if call[1].get("status") == "error"]
         self.assertEqual(len(error_calls), 1)
@@ -235,10 +235,10 @@ class TestPMResearchRole(unittest.TestCase):
         output_dir = Path(self.tmpdir) / "pm-research"
         output_dir.mkdir()
 
-        kimi_calls = []
+        ai_calls = []
 
-        def mock_run_kimi(prompt, phase_name, timeout_seconds, agent_id=None):
-            kimi_calls.append({
+        def mock_run_ai(prompt, phase_name, timeout_seconds, agent_id=None):
+            ai_calls.append({
                 "prompt": prompt,
                 "phase_name": phase_name,
                 "timeout_seconds": timeout_seconds,
@@ -253,7 +253,7 @@ class TestPMResearchRole(unittest.TestCase):
             return f"PROMPT {sub_id} {focus}"
 
         role = PMResearchRole("pm-domain", "Domain Analyst", "domain analysis")
-        role.run_kimi = mock_run_kimi
+        role.run_ai = mock_run_ai
         env.add_role(role)
 
         request = Message(
@@ -277,8 +277,8 @@ class TestPMResearchRole(unittest.TestCase):
 
         asyncio.run(env.run_round())
 
-        self.assertEqual(len(kimi_calls), 1)
-        self.assertEqual(kimi_calls[0]["agent_id"], "pm-domain")
+        self.assertEqual(len(ai_calls), 1)
+        self.assertEqual(ai_calls[0]["agent_id"], "pm-domain")
 
         expected_path = output_dir / "TKT-001-pm-domain.md"
         self.assertTrue(expected_path.exists())

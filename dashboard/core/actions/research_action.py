@@ -9,12 +9,12 @@ from core.models import Message
 
 
 class ResearchAction(Action):
-    """Executes a research request by invoking the Kimi runner and writing results to disk."""
+    """Executes a research request by invoking the configured runner and writing results to disk."""
 
     async def run(
         self,
         context: List[Message],
-        run_kimi: Optional[Any] = None,
+        run_ai: Optional[Any] = None,
         **kwargs,
     ) -> Message:
         required_keys = [
@@ -51,15 +51,15 @@ class ResearchAction(Action):
             sub_id,
             status="running",
             progress=10,
-            log=f"{sub_name} analizando...",
+            log=f"{sub_name} analyzing...",
         )
 
         try:
             prompt = build_prompt(sub_id, focus, ticket_title, ticket_description, follow_up)
 
             output: Optional[str] = None
-            if run_kimi is not None:
-                raw = run_kimi(prompt, phase_name, timeout_seconds, agent_id=sub_id)
+            if run_ai is not None:
+                raw = run_ai(prompt, phase_name, timeout_seconds, agent_id=sub_id)
                 if inspect.isawaitable(raw):
                     output = await raw
                 else:
@@ -82,7 +82,7 @@ class ResearchAction(Action):
                 sub_id,
                 status="done",
                 progress=100,
-                log=f"{sub_name} finalizó su análisis.",
+                log=f"{sub_name} finished analysis.",
             )
 
             return Message(

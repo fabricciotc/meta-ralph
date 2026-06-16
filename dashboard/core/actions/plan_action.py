@@ -15,7 +15,7 @@ class PlanAction(Action):
     async def run(
         self,
         context: List[Message],
-        run_kimi: Optional[Any] = None,
+        run_ai: Optional[Any] = None,
         **kwargs,
     ) -> Message:
         required_keys = [
@@ -47,7 +47,7 @@ class PlanAction(Action):
         architecture_content = self._read_file(architecture_path) if architecture_path else ""
 
         # No runner available: emit a fallback plan immediately.
-        if run_kimi is None:
+        if run_ai is None:
             tasks = self._write_fallback_plan(
                 write_fallback_plan,
                 tasks_path,
@@ -76,7 +76,7 @@ class PlanAction(Action):
                 tasks_path,
             )
 
-        raw = run_kimi(prompt, phase_name, timeout_seconds, agent_id="planner")
+        raw = run_ai(prompt, phase_name, timeout_seconds, agent_id="planner")
         if inspect.isawaitable(raw):
             output = await raw
         else:
@@ -183,21 +183,21 @@ class PlanAction(Action):
         return [
             {
                 "id": f"{ticket_id}-T1",
-                "title": f"Implementar: {title}",
+                "title": f"Implement: {title}",
                 "description": description,
                 "dependencies": [],
                 "files_to_touch": [],
                 "complexity": "M",
-                "qa_checklist": ["Validar que cumple la descripción del ticket."],
+                "qa_checklist": ["Validate that it satisfies the ticket description."],
             },
             {
                 "id": f"{ticket_id}-T2",
-                "title": "Agregar tests unitarios",
-                "description": "Cobertura mínima para el cambio implementado.",
+                "title": "Add unit tests",
+                "description": "Minimum coverage for the implemented change.",
                 "dependencies": [f"{ticket_id}-T1"],
                 "files_to_touch": [],
                 "complexity": "S",
-                "qa_checklist": ["Los tests pasan localmente."],
+                "qa_checklist": ["Tests pass locally."],
             },
         ]
 
@@ -259,21 +259,21 @@ class PlanAction(Action):
     ) -> str:
         architecture_section = ""
         if architecture_content:
-            architecture_section = f"\n\nARQUITECTURA:\n{architecture_content}"
+            architecture_section = f"\n\nARCHITECTURE:\n{architecture_content}"
         return (
-            "Eres el Planner de AgentFlow, una software factory estilo MetaGPT. "
-            "Tu trabajo es generar un plan de tareas técnicas a partir del PRD y la arquitectura proporcionados.\n\n"
-            f"TICKET:\nID: {ticket_id}\nTÍTULO: {title}\nDESCRIPCIÓN: {description}\n\n"
+            "You are the Planner for AgentFlow, a MetaGPT-style software factory. "
+            "Your job is to generate a technical task plan from the provided PRD and architecture.\n\n"
+            f"TICKET:\nID: {ticket_id}\nTITLE: {title}\nDESCRIPTION: {description}\n\n"
             f"PRD:\n{prd_content}"
             f"{architecture_section}\n\n"
-            "Genera un JSON con un array de tareas. Cada tarea debe incluir obligatoriamente estos campos:\n"
-            "- id: string único\n"
+            "Generate JSON with an array of tasks. Each task must include these fields:\n"
+            "- id: unique string\n"
             "- title: string\n"
             "- description: string\n"
-            "- dependencies: array de strings (ids de tareas previas)\n"
-            "- files_to_touch: array de strings (rutas relativas de archivos)\n"
-            "- complexity: 'S', 'M' o 'L'\n"
-            "- qa_checklist: array de strings\n\n"
-            f"El plan debe guardarse en: {tasks_path}\n\n"
-            "Responde ÚNICAMENTE con el JSON válido, sin texto adicional."
+            "- dependencies: array of strings (previous task IDs)\n"
+            "- files_to_touch: array of strings (relative file paths)\n"
+            "- complexity: 'S', 'M', or 'L'\n"
+            "- qa_checklist: array of strings\n\n"
+            f"The plan must be saved at: {tasks_path}\n\n"
+            "Respond ONLY with valid JSON, without additional text."
         )

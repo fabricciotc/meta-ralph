@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="es">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -25,20 +25,20 @@
       </div>
 
       <div class="global-header-center" id="global-header-center">
-        <div class="header-path-bar" title="Ruta del repo del ticket activo">
+        <div class="header-path-bar" title="Active ticket repository path">
           <i data-lucide="folder-open" class="header-path-icon"></i>
           <span class="header-path-value" id="nav-path">—</span>
         </div>
       </div>
 
       <div class="global-header-right">
-        <div class="header-pill"><span class="pill-label">Modelo</span><span class="pill-value" id="nav-model">—</span></div>
-        <div class="header-pill"><span class="pill-label">Estado</span><span class="pill-value" id="nav-status">Sin actividad</span></div>
+        <div class="header-pill"><span class="pill-label">Model</span><span class="pill-value" id="nav-model">—</span></div>
+        <div class="header-pill"><span class="pill-label">Status</span><span class="pill-value" id="nav-status">Idle</span></div>
         <div class="header-pill"><span class="pill-label">Ticket</span><span class="pill-value" id="nav-ticket">—</span></div>
-        <div class="header-pill connection" id="nav-connection" title="Conexión"><i data-lucide="wifi-off" class="status-icon"></i></div>
-        <button type="button" class="btn-ghost btn-small" id="btn-tickets" title="Ver tickets"><i data-lucide="layers"></i> Tickets</button>
-        <button type="button" class="btn-primary btn-small" id="btn-new-ticket"><i data-lucide="plus"></i> Nuevo</button>
-        <button type="button" id="btn-theme-toggle" class="btn-icon" title="Cambiar tema" aria-label="Cambiar tema"><i data-lucide="moon"></i></button>
+        <div class="header-pill connection" id="nav-connection" title="Connection"><i data-lucide="wifi-off" class="status-icon"></i></div>
+        <button type="button" class="btn-ghost btn-small" id="btn-tickets" title="View tickets"><i data-lucide="layers"></i> Tickets</button>
+        <button type="button" class="btn-primary btn-small" id="btn-new-ticket"><i data-lucide="plus"></i> New</button>
+        <button type="button" id="btn-theme-toggle" class="btn-icon" title="Toggle theme" aria-label="Toggle theme"><i data-lucide="moon"></i></button>
       </div>
     </header>
 
@@ -64,12 +64,12 @@
           <span class="badge-live"><span class="live-dot"></span> live</span>
         </div>
         <div class="traces-list" id="traces-list">
-          <div class="traces-empty">Esperando actividad del runner...</div>
+          <div class="traces-empty">Waiting for runner activity...</div>
         </div>
       </aside>
 
       <main class="main-area">
-        <section class="top-zone" aria-label="Agentes">
+        <section class="top-zone" aria-label="Agents">
           <div class="panel-header">
             <span class="panel-title"><i data-lucide="git-fork"></i> Behaviors</span>
             <span class="badge-live"><span class="live-dot"></span> live</span>
@@ -85,7 +85,7 @@
               </svg>
               <div class="graph-nodes" id="graph-nodes"></div>
             </div>
-            <div class="graph-empty" id="graph-empty">Sin agentes activos</div>
+            <div class="graph-empty" id="graph-empty">No active agents</div>
             <div class="graph-legend">
               <span><i class="legend-dot" style="background:var(--ok)"></i> ok</span>
               <span><i class="legend-dot" style="background:var(--err)"></i> err</span>
@@ -96,12 +96,12 @@
         </section>
 
         <section class="bottom-zone">
-          <div class="ticket-status-panel" aria-label="Estado del ticket">
+          <div class="ticket-status-panel" aria-label="Ticket status">
             <div class="panel-header">
               <span class="panel-title"><i data-lucide="ticket"></i> Ticket</span>
             </div>
             <div class="ticket-status-body" id="ticket-status-body">
-              <div class="status-empty">No hay ticket seleccionado</div>
+              <div class="status-empty">No ticket selected</div>
             </div>
           </div>
 
@@ -117,15 +117,15 @@
         </section>
       </main>
 
-      <aside class="chat-panel" aria-label="Chat con agentes">
+      <aside class="chat-panel" aria-label="Agent chat">
         <div class="panel-header">
           <span class="panel-title"><i data-lucide="message-circle"></i> Chat</span>
           <span class="badge-live"><span class="live-dot"></span> live</span>
         </div>
         <div class="chat-agent-bar">
-          <label for="chat-agent-select">Para</label>
-          <select id="chat-agent-select" aria-label="Seleccionar agente">
-            <option value="orchestrator">Orchestrator Principal</option>
+          <label for="chat-agent-select">To</label>
+          <select id="chat-agent-select" aria-label="Select agent">
+            <option value="orchestrator">Lead Orchestrator</option>
             <option value="product_manager">Product Manager</option>
             <option value="architect">Architect</option>
             <option value="project_manager">Project Manager</option>
@@ -135,11 +135,11 @@
           </select>
         </div>
         <div class="chat-messages" id="chat-messages">
-          <div class="chat-empty">Selecciona un agente y escribe un mensaje o instrucción.</div>
+          <div class="chat-empty">Select an agent and write a message or instruction.</div>
         </div>
         <form class="chat-form" id="chat-form">
-          <textarea id="chat-input" rows="2" placeholder="Escribe instrucciones, preguntas o /reactivar..." aria-label="Mensaje"></textarea>
-          <button type="submit" class="btn-primary" aria-label="Enviar mensaje"><i data-lucide="send"></i></button>
+          <textarea id="chat-input" rows="2" placeholder="Write instructions, questions, or /reactivate..." aria-label="Message"></textarea>
+          <button type="submit" class="btn-primary" aria-label="Send message"><i data-lucide="send"></i></button>
         </form>
       </aside>
     </div>
@@ -150,12 +150,12 @@
         <span class="debug-meta" id="debug-meta">—</span>
       </div>
       <div class="debug-log" id="debug-log">
-        <div class="debug-empty">Sin logs recientes</div>
+        <div class="debug-empty">No recent logs</div>
       </div>
     </footer>
   </div>
 
-  <!-- Modal / lista de tickets -->
+  <!-- Tickets modal -->
   <div class="modal" id="tickets-modal">
     <div class="modal-content tickets-modal-content">
       <div class="modal-header">
@@ -163,11 +163,11 @@
           <span class="modal-header-icon"><i data-lucide="layers"></i></span>
           <div>
             <h2>Tickets</h2>
-            <span class="modal-header-subtitle">Board activo</span>
+            <span class="modal-header-subtitle">Active board</span>
           </div>
         </div>
-        <button type="button" class="btn-primary btn-small" id="btn-new-ticket-modal"><i data-lucide="plus"></i> Nuevo ticket</button>
-        <button type="button" class="btn-close" id="btn-close-tickets" aria-label="Cerrar">&times;</button>
+        <button type="button" class="btn-primary btn-small" id="btn-new-ticket-modal"><i data-lucide="plus"></i> New ticket</button>
+        <button type="button" class="btn-close" id="btn-close-tickets" aria-label="Close">&times;</button>
       </div>
       <div class="modal-body adaline-list-body">
         <div class="tickets-list" id="tickets-list"></div>
@@ -175,31 +175,31 @@
     </div>
   </div>
 
-  <!-- Modal de ticket -->
+  <!-- Ticket modal -->
   <div class="modal" id="ticket-modal">
     <div class="modal-content ticket-modal-content">
       <div class="modal-header">
         <div class="modal-header-left">
           <span class="modal-header-icon"><i data-lucide="ticket"></i></span>
           <div>
-            <h2 id="modal-title">Nuevo ticket</h2>
-            <span class="modal-header-subtitle" id="modal-subtitle">Crear ticket para el board</span>
+            <h2 id="modal-title">New ticket</h2>
+            <span class="modal-header-subtitle" id="modal-subtitle">Create a ticket for the board</span>
           </div>
         </div>
-        <button type="button" class="btn-close" id="btn-close-modal" aria-label="Cerrar">&times;</button>
+        <button type="button" class="btn-close" id="btn-close-modal" aria-label="Close">&times;</button>
       </div>
       <form id="ticket-form" class="adaline-form">
         <input type="hidden" id="ticket-id">
 
         <div class="form-section">
-          <span class="form-section-label">Información principal</span>
+          <span class="form-section-label">Main information</span>
           <div class="form-group">
-            <label for="ticket-title">Título</label>
-            <input type="text" id="ticket-title" required placeholder="Ej: Crear modelo User">
+            <label for="ticket-title">Title</label>
+            <input type="text" id="ticket-title" required placeholder="Example: Create User model">
           </div>
           <div class="form-group">
-            <label for="ticket-description">Descripción</label>
-            <textarea id="ticket-description" rows="3" placeholder="Describe el ticket..."></textarea>
+            <label for="ticket-description">Description</label>
+            <textarea id="ticket-description" rows="3" placeholder="Describe the ticket..."></textarea>
           </div>
         </div>
 
@@ -209,19 +209,19 @@
             <label for="ticket-repo-path">Repo folder</label>
             <div class="repo-input-row">
               <input type="text" id="ticket-repo-path" placeholder="/Users/.../AppWeb.Scord.NetCore">
-              <button type="button" class="btn-secondary btn-small" id="btn-pick-repo">Seleccionar</button>
+              <button type="button" class="btn-secondary btn-small" id="btn-pick-repo">Select</button>
             </div>
             <input type="file" id="ticket-repo-picker" webkitdirectory directory style="display:none">
-            <span class="field-hint">Ruta absoluta del repo Git. En navegadores normales escribe/pegue la ruta; en apps nativas (Electron/Tauri) usa Seleccionar.</span>
+            <span class="field-hint">Absolute path to the Git repository. In regular browsers, type or paste the path; in native apps such as Electron or Tauri, use Select.</span>
             <span id="repo-picker-message" class="field-message" style="display:none"></span>
           </div>
         </div>
 
         <div class="form-section">
-          <span class="form-section-label">Asignación</span>
+          <span class="form-section-label">Assignment</span>
           <div class="form-row">
             <div class="form-group">
-              <label for="ticket-status">Estado</label>
+              <label for="ticket-status">Status</label>
               <select id="ticket-status">
                 <option value="backlog">Backlog</option>
                 <option value="ready-for-work">Ready for Work</option>
@@ -232,14 +232,14 @@
               </select>
             </div>
             <div class="form-group">
-              <label for="ticket-role">Rol asignado</label>
-              <input type="text" id="ticket-role" placeholder="Ej: backend-api-engineer">
+              <label for="ticket-role">Assigned role</label>
+              <input type="text" id="ticket-role" placeholder="Example: backend-api-engineer">
             </div>
           </div>
           <div class="form-row">
             <div class="form-group">
               <label for="ticket-focus">Feature Focus</label>
-              <input type="text" id="ticket-focus" placeholder="Ej: Definir y persistir el modelo de datos de usuario">
+              <input type="text" id="ticket-focus" placeholder="Example: Define and persist the user data model">
             </div>
             <div class="form-group">
               <label for="ticket-labels">Labels</label>
@@ -249,82 +249,82 @@
         </div>
 
         <div class="modal-actions">
-          <button type="button" class="btn-secondary" id="btn-cancel">Cancelar</button>
-          <button type="submit" class="btn-primary">Guardar</button>
-          <button type="button" class="btn-danger" id="btn-delete" style="display:none;">Eliminar</button>
+          <button type="button" class="btn-secondary" id="btn-cancel">Cancel</button>
+          <button type="submit" class="btn-primary">Save</button>
+          <button type="button" class="btn-danger" id="btn-delete" style="display:none;">Delete</button>
         </div>
       </form>
     </div>
   </div>
 
-  <!-- Modal de pregunta -->
+  <!-- Question modal -->
   <div class="modal" id="question-modal">
     <div class="modal-content question-modal-content">
       <div class="modal-header">
-        <h2 id="question-modal-title">Decisión requerida</h2>
+        <h2 id="question-modal-title">Decision Required</h2>
       </div>
       <div class="question-body">
-        <div class="question-agent" id="question-agent"><i data-lucide="bot"></i> <span>Agente</span></div>
+        <div class="question-agent" id="question-agent"><i data-lucide="bot"></i> <span>Agent</span></div>
         <p class="question-text" id="question-text"></p>
         <div class="question-context" id="question-context"></div>
         <div class="question-options" id="question-options"></div>
         <div class="question-custom-answer" id="question-custom-answer" style="display:none;">
-          <label for="question-answer-input">Tu respuesta</label>
-          <textarea id="question-answer-input" rows="3" placeholder="Escribe tu respuesta..."></textarea>
+          <label for="question-answer-input">Your answer</label>
+          <textarea id="question-answer-input" rows="3" placeholder="Write your answer..."></textarea>
         </div>
       </div>
       <div class="modal-actions">
         <div class="question-countdown" id="question-countdown">02:00</div>
         <div class="question-actions-right">
-          <button type="button" class="btn-secondary" id="btn-question-custom">Respuesta libre</button>
-          <button type="button" class="btn-ghost" id="btn-question-skip">Decide solo</button>
-          <button type="button" class="btn-primary" id="btn-question-submit">Responder</button>
+          <button type="button" class="btn-secondary" id="btn-question-custom">Custom answer</button>
+          <button type="button" class="btn-ghost" id="btn-question-skip">Decide automatically</button>
+          <button type="button" class="btn-primary" id="btn-question-submit">Answer</button>
         </div>
       </div>
     </div>
   </div>
 
-  <!-- Modal de revisión de diseño -->
+  <!-- Design review modal -->
   <div class="modal" id="design-review-modal">
     <div class="modal-content design-review-modal-content">
       <div class="modal-header">
         <div class="modal-header-left">
           <span class="modal-header-icon"><i data-lucide="clipboard-check"></i></span>
           <div>
-            <h2>Revisión de diseño</h2>
-            <span class="modal-header-subtitle">Valida las decisiones técnicas asumidas</span>
+            <h2>Design Review</h2>
+            <span class="modal-header-subtitle">Validate the assumed technical decisions</span>
           </div>
         </div>
         <div class="design-review-header-actions">
           <span class="design-review-countdown" id="design-review-countdown">01:00</span>
-          <button type="button" class="btn-close" id="btn-design-review-close" aria-label="Cerrar">&times;</button>
+          <button type="button" class="btn-close" id="btn-design-review-close" aria-label="Close">&times;</button>
         </div>
       </div>
       <div class="modal-body design-review-body">
-        <p class="design-review-intro">El análisis generó las siguientes decisiones técnicas. Revisa las respuestas asumidas; si no respondes en <strong>1 minuto</strong>, se usarán automáticamente.</p>
+        <p class="design-review-intro">The analysis produced the following technical decisions. Review the assumed answers; if you do not respond within <strong>1 minute</strong>, they will be used automatically.</p>
         <div class="design-review-questions" id="design-review-questions"></div>
       </div>
       <div class="modal-actions">
-        <button type="button" class="btn-secondary" id="btn-design-extend">Pedir más tiempo</button>
-        <button type="button" class="btn-ghost" id="btn-design-later">Más tarde</button>
-        <button type="button" class="btn-primary" id="btn-design-submit">Subir respuesta</button>
+        <button type="button" class="btn-secondary" id="btn-design-extend">Ask for more time</button>
+        <button type="button" class="btn-ghost" id="btn-design-later">Later</button>
+        <button type="button" class="btn-primary" id="btn-design-submit">Submit answers</button>
       </div>
     </div>
   </div>
 
-  <!-- Modal de confirmación -->
+  <!-- Confirmation modal -->
   <div class="modal" id="confirm-modal">
     <div class="modal-content confirm-modal-content">
       <div class="modal-header">
-        <h2 id="confirm-modal-title">Confirmar</h2>
-        <button type="button" class="btn-close" id="btn-close-confirm" aria-label="Cerrar">&times;</button>
+        <h2 id="confirm-modal-title">Confirm</h2>
+        <button type="button" class="btn-close" id="btn-close-confirm" aria-label="Close">&times;</button>
       </div>
       <div class="modal-body">
         <p id="confirm-modal-message"></p>
       </div>
       <div class="modal-actions">
-        <button type="button" class="btn-secondary" id="btn-confirm-cancel">Cancelar</button>
-        <button type="button" class="btn-primary" id="btn-confirm-ok">Confirmar</button>
+        <button type="button" class="btn-secondary" id="btn-confirm-cancel">Cancel</button>
+        <button type="button" class="btn-primary" id="btn-confirm-ok">Confirm</button>
       </div>
     </div>
   </div>

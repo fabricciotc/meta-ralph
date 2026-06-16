@@ -30,7 +30,7 @@ class ImplementAction(Action):
     async def run(
         self,
         context: List[Message],
-        run_kimi: Optional[Any] = None,
+        run_ai: Optional[Any] = None,
         **kwargs,
     ) -> Message:
         required_keys = [
@@ -69,7 +69,7 @@ class ImplementAction(Action):
             agent_id,
             status="running",
             progress=10,
-            log=f"Engineer {agent_id} iniciando implementación de {task_title}...",
+            log=f"Engineer {agent_id} starting implementation for {task_title}...",
         )
 
         try:
@@ -85,8 +85,8 @@ class ImplementAction(Action):
             )
 
             output: Optional[str] = None
-            if run_kimi is not None:
-                raw = run_kimi(prompt, phase_name, timeout_seconds, agent_id=agent_id)
+            if run_ai is not None:
+                raw = run_ai(prompt, phase_name, timeout_seconds, agent_id=agent_id)
                 if inspect.isawaitable(raw):
                     output = await raw
                 else:
@@ -106,7 +106,7 @@ class ImplementAction(Action):
                 agent_id,
                 status="running",
                 progress=50,
-                log=f"Engineer {agent_id} ejecutando build/test para {task_title}...",
+            log=f"Engineer {agent_id} running build/test for {task_title}...",
             )
 
             build_output, test_output, executable_ok, executable_reason = self._run_executable_feedback(
@@ -118,7 +118,7 @@ class ImplementAction(Action):
                     agent_id,
                     status="error",
                     progress=0,
-                    log=f"Engineer {agent_id} falló en build/test: {executable_reason}",
+                    log=f"Engineer {agent_id} failed build/test: {executable_reason}",
                 )
                 return Message(
                     content=executable_reason,
@@ -141,7 +141,7 @@ class ImplementAction(Action):
                 agent_id,
                 status="done",
                 progress=100,
-                log=f"Engineer {agent_id} completó {task_title}.",
+                log=f"Engineer {agent_id} completed {task_title}.",
             )
 
             return Message(
@@ -155,7 +155,7 @@ class ImplementAction(Action):
                     "repo_path": str(repo_path),
                     "branch": branch,
                     "summary": summary,
-                    "fallback": run_kimi is None,
+                    "fallback": run_ai is None,
                     "build_output": build_output,
                     "test_output": test_output,
                 },
@@ -165,7 +165,7 @@ class ImplementAction(Action):
                 agent_id,
                 status="error",
                 progress=0,
-                log=f"Engineer {agent_id} falló: {exc}",
+                log=f"Engineer {agent_id} failed: {exc}",
             )
             return Message(
                 content=str(exc),
@@ -198,21 +198,21 @@ class ImplementAction(Action):
 
         dotnet = shutil.which("dotnet")
         if not dotnet:
-            return "", "", True, "dotnet no encontrado; se omite validación ejecutable"
+            return "", "", True, "dotnet not found; executable validation skipped"
 
         rc, build_output, build_err = self._run_shell(
             [dotnet, "build"], repo_path, timeout=command_timeout
         )
         build_full = self._combine_output(build_output, build_err)
         if rc != 0:
-            return build_full, "", False, f"dotnet build falló para tarea {task_id}"
+            return build_full, "", False, f"dotnet build failed for task {task_id}"
 
         rc, test_output, test_err = self._run_shell(
             [dotnet, "test"], repo_path, timeout=command_timeout
         )
         test_full = self._combine_output(test_output, test_err)
         if rc != 0:
-            return build_full, test_full, False, f"dotnet test falló para tarea {task_id}"
+            return build_full, test_full, False, f"dotnet test failed for task {task_id}"
 
         return build_full, test_full, True, ""
 
@@ -265,14 +265,14 @@ class ImplementAction(Action):
 
         files_to_touch = task.get("files_to_touch", []) or []
         content = (
-            f"# Implementación: {task.get('title', task_id)}\n\n"
+            f"# Implementation: {task.get('title', task_id)}\n\n"
             f"**Branch:** {branch}\n\n"
-            f"**Descripción:**\n{task.get('description', '')}\n\n"
-            f"**Archivos a modificar:**\n"
+            f"**Description:**\n{task.get('description', '')}\n\n"
+            f"**Files to modify:**\n"
             + "\n".join(f"- {f}" for f in files_to_touch)
             + "\n\n"
-            f"**Contexto de dependencias:**\n{dependencies_context or 'Ninguno'}\n\n"
-            "Esta nota fue generada localmente porque no hay runner de Kimi disponible.\n"
+            f"**Dependency context:**\n{dependencies_context or 'None'}\n\n"
+            "This note was generated locally because no AI runner is available.\n"
         )
         note_path.write_text(content, encoding="utf-8")
         return content

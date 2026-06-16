@@ -1,10 +1,9 @@
 #!/bin/bash
-# meta-ralph — MetaGPT Multi-Agent Orchestrator launcher
-# Uso: meta-ralph [init|run|status|stop|dashboard] [opciones]
-
-DASHBOARD_PORT=5050
+# meta-ralph: MetaGPT multi-agent orchestrator launcher.
 
 set -e
+
+DASHBOARD_PORT="${META_RALPH_DASHBOARD_PORT:-5050}"
 
 SCRIPT_SOURCE="${BASH_SOURCE[0]}"
 if [ -L "$SCRIPT_SOURCE" ]; then
@@ -17,29 +16,34 @@ MAX_WORKERS=20
 
 show_help() {
   cat <<EOF
-Meta-Ralph — MetaGPT Multi-Agent Orchestrator para Kimi Code CLI
+Meta-Ralph: MetaGPT multi-agent orchestrator
 
-Uso:
-  meta-ralph init                       Inicializa meta-ralph en el proyecto
-  meta-ralph run [opciones]             Ejecuta el loop multi-agente y abre dashboard
-  meta-ralph status                     Muestra estado de workers activos
-  meta-ralph stop                       Detiene todos los workers activos y el dashboard
-  meta-ralph dashboard [--port N]       Lanza solo el dashboard web
-  meta-ralph --help                     Muestra esta ayuda
+Usage:
+  meta-ralph init                       Initialize meta-ralph in the current project
+  meta-ralph run [options]              Run the multi-agent loop and start the dashboard
+  meta-ralph status                     Show active worker state
+  meta-ralph stop                       Stop active workers and the dashboard
+  meta-ralph dashboard [--port N]       Start only the web dashboard
+  meta-ralph --help                     Show this help
 
-Opciones de run:
-  --max-workers N       Máximo de workers en paralelo (default: 20)
-  --skip-pm             Saltar fase 1 (usar prd-expanded.json existente)
-  --skip-architect      Saltar fase 2 (usar architecture.md existente)
-  --skip-planner        Saltar fase 3 (usar execution-plan.json existente)
-  --max-time TIME       Tiempo máximo total (ej: 60m, 2h)
-  --no-dashboard        No lanzar el dashboard web en meta-ralph run
+Run options:
+  --max-workers N       Maximum parallel workers (default: 20)
+  --skip-pm             Skip phase 1 and use an existing prd-expanded.json
+  --skip-architect      Skip phase 2 and use an existing architecture.md
+  --skip-planner        Skip phase 3 and use an existing execution-plan.json
+  --max-time TIME       Maximum total run time, for example 60m or 2h
+  --no-dashboard        Do not start the web dashboard during meta-ralph run
+
+Backend options:
+  META_RALPH_BACKEND=auto|kimi|claude|cursor|codex|openai_api|custom
+  META_RALPH_BACKENDS="kimi claude cursor codex openai_api"
+  META_RALPH_RUNNER_COMMAND='my-agent --prompt-file "$META_RALPH_PROMPT_FILE"'
 EOF
 }
 
 cmd_init() {
   if [ ! -d ".git" ]; then
-    echo "❌ Error: Debes ejecutar meta-ralph init dentro de un repo git."
+    echo "Error: run 'meta-ralph init' inside a git repository."
     exit 1
   fi
 
@@ -54,12 +58,12 @@ cmd_init() {
   "lastUpdated": ""
 }
 JSON
-    echo "📋 Board inicial creado en $META_DIR/state/board.json"
+    echo "Created board at $META_DIR/state/board.json"
   fi
 
   if [ ! -f "$META_DIR/prd.json" ]; then
     cp "$SKILL_DIR/assets/prd-template.json" "$META_DIR/prd.json"
-    echo "📝 Template de PRD creado en $META_DIR/prd.json"
+    echo "Created PRD template at $META_DIR/prd.json"
   fi
 
   if [ ! -f "$META_DIR/progress.txt" ]; then
@@ -68,18 +72,18 @@ JSON
     echo "---" >> "$META_DIR/progress.txt"
   fi
 
-  echo "✅ Meta-Ralph inicializado en $META_DIR/"
-  echo "   Edita $META_DIR/prd.json con tus historias de usuario y luego corre: meta-ralph run"
+  echo "Meta-Ralph initialized in $META_DIR/"
+  echo "Edit $META_DIR/prd.json, then run: meta-ralph run"
 }
 
 cmd_status() {
   if [ ! -d "$META_DIR/state/workers" ]; then
-    echo "⚠️  Meta-Ralph no está inicializado. Ejecuta: meta-ralph init"
+    echo "Meta-Ralph is not initialized. Run: meta-ralph init"
     exit 1
   fi
 
-  echo "📊 Meta-Ralph Status"
-  echo "--------------------"
+  echo "Meta-Ralph Status"
+  echo "-----------------"
 
   local active=0
   for f in "$META_DIR/state/workers"/*.json; do
@@ -89,29 +93,29 @@ cmd_status() {
     local task_id
     task_id=$(jq -r '.task_id // "unknown"' "$f" 2>/dev/null || echo "unknown")
     if [ "$status" = "running" ]; then
-      echo "  🟡 Worker $task_id — RUNNING"
+      echo "  Worker $task_id: RUNNING"
       active=$((active + 1))
     elif [ "$status" = "completed" ]; then
-      echo "  🟢 Worker $task_id — COMPLETED"
+      echo "  Worker $task_id: COMPLETED"
     elif [ "$status" = "failed" ]; then
-      echo "  🔴 Worker $task_id — FAILED"
+      echo "  Worker $task_id: FAILED"
     fi
   done
 
   if [ "$active" -eq 0 ]; then
-    echo "  ⚪ No hay workers activos."
+    echo "  No active workers."
   else
-    echo "  Total activos: $active"
+    echo "  Active workers: $active"
   fi
 }
 
 cmd_stop() {
   if [ ! -d "$META_DIR/state" ]; then
-    echo "⚠️  Meta-Ralph no está inicializado."
+    echo "Meta-Ralph is not initialized."
     exit 1
   fi
 
-  echo "🛑 Deteniendo workers de Meta-Ralph..."
+  echo "Stopping Meta-Ralph workers..."
   for f in "$META_DIR/state/workers"/*.json; do
     [ -e "$f" ] || continue
     local status
@@ -119,33 +123,33 @@ cmd_stop() {
     if [ "$status" = "running" ]; then
       local task_id
       task_id=$(jq -r '.task_id // ""' "$f" 2>/dev/null || echo "")
-      echo "  - Deteniendo worker $task_id"
+      echo "  Stopping worker $task_id"
       jq '.status = "stopped"' "$f" > "$f.tmp" && mv "$f.tmp" "$f"
     fi
   done
 
-  local DASHBOARD_PID_FILE="$META_DIR/state/dashboard.pid"
-  if [ -f "$DASHBOARD_PID_FILE" ]; then
+  local dashboard_pid_file="$META_DIR/state/dashboard.pid"
+  if [ -f "$dashboard_pid_file" ]; then
     local pid
-    pid=$(cat "$DASHBOARD_PID_FILE")
+    pid=$(cat "$dashboard_pid_file")
     if kill -0 "$pid" 2>/dev/null; then
-      echo "🛑 Deteniendo dashboard (PID $pid)..."
+      echo "Stopping dashboard (PID $pid)..."
       kill "$pid" 2>/dev/null || true
     fi
-    rm -f "$DASHBOARD_PID_FILE"
+    rm -f "$dashboard_pid_file"
   fi
 
-  echo "✅ Workers y dashboard detenidos."
+  echo "Workers and dashboard stopped."
 }
 
 dashboard_venv() {
-  local VENV_DIR="$SKILL_DIR/dashboard/.venv"
-  if [ ! -d "$VENV_DIR" ]; then
-    echo "⚙️  Instalando dependencias del dashboard..."
-    python3 -m venv "$VENV_DIR"
-    "$VENV_DIR/bin/pip" install -q -r "$SKILL_DIR/dashboard/requirements.txt"
+  local venv_dir="$SKILL_DIR/dashboard/.venv"
+  if [ ! -d "$venv_dir" ]; then
+    echo "Installing dashboard dependencies..."
+    python3 -m venv "$venv_dir"
+    "$venv_dir/bin/pip" install -q -r "$SKILL_DIR/dashboard/requirements.txt"
   fi
-  echo "$VENV_DIR"
+  echo "$venv_dir"
 }
 
 cmd_dashboard() {
@@ -172,33 +176,150 @@ cmd_dashboard() {
     esac
   done
 
-  local VENV_DIR
-  VENV_DIR=$(dashboard_venv)
+  local venv_dir
+  venv_dir=$(dashboard_venv)
 
-  local BOARD_FILE
-  BOARD_FILE="$(pwd)/$META_DIR/state/board.json"
+  local board_file
+  board_file="$(pwd)/$META_DIR/state/board.json"
 
-  if [ ! -f "$BOARD_FILE" ]; then
-    echo "⚠️  No se encontró $BOARD_FILE. Ejecuta primero: meta-ralph init"
+  if [ ! -f "$board_file" ]; then
+    echo "Could not find $board_file. Run first: meta-ralph init"
     exit 1
   fi
 
-  echo "🌐 Lanzando Meta-Ralph Dashboard en http://localhost:$port"
-  "$VENV_DIR/bin/python" "$SKILL_DIR/dashboard/server.py" --port "$port" --board "$BOARD_FILE" $no_browser
+  echo "Starting Meta-Ralph Dashboard at http://localhost:$port"
+  "$venv_dir/bin/python" "$SKILL_DIR/dashboard/server.py" --port "$port" --board "$board_file" $no_browser
+}
+
+command_exists() {
+  command -v "$1" >/dev/null 2>&1
+}
+
+run_with_backend() {
+  local backend="$1"
+  local prompt_file="$2"
+  local prompt
+  prompt="$(cat "$prompt_file")"
+
+  export META_RALPH_PROMPT="$prompt"
+  export META_RALPH_PROMPT_FILE="$prompt_file"
+
+  case "$backend" in
+    kimi)
+      if command_exists kimi; then
+        kimi -p "$prompt"
+        return $?
+      fi
+      ;;
+    claude)
+      if command_exists claude; then
+        claude -p "$prompt"
+        return $?
+      fi
+      ;;
+    cursor)
+      if command_exists cursor-agent; then
+        cursor-agent -p "$prompt"
+        return $?
+      fi
+      if command_exists cursor; then
+        cursor -p "$prompt"
+        return $?
+      fi
+      ;;
+    codex)
+      if command_exists codex; then
+        codex exec "$prompt"
+        return $?
+      fi
+      ;;
+    openai_api)
+      if [ -n "$OPENAI_API_KEY" ]; then
+        python3 - "$prompt_file" <<'PY'
+import json
+import os
+import sys
+import urllib.request
+
+prompt_path = sys.argv[1]
+with open(prompt_path, "r", encoding="utf-8") as fh:
+    prompt = fh.read()
+
+model = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
+base_url = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
+payload = json.dumps({
+    "model": model,
+    "messages": [{"role": "user", "content": prompt}],
+}).encode("utf-8")
+request = urllib.request.Request(
+    f"{base_url}/chat/completions",
+    data=payload,
+    headers={
+        "Authorization": f"Bearer {os.environ['OPENAI_API_KEY']}",
+        "Content-Type": "application/json",
+    },
+    method="POST",
+)
+with urllib.request.urlopen(request, timeout=3600) as response:
+    data = json.loads(response.read().decode("utf-8"))
+print(data["choices"][0]["message"]["content"])
+PY
+        return $?
+      fi
+      ;;
+    custom)
+      if [ -n "$META_RALPH_RUNNER_COMMAND" ]; then
+        bash -lc "$META_RALPH_RUNNER_COMMAND"
+        return $?
+      fi
+      ;;
+  esac
+
+  return 127
+}
+
+run_ai_prompt() {
+  local prompt_file="$1"
+  local backend="${META_RALPH_BACKEND:-auto}"
+  local backends="${META_RALPH_BACKENDS:-kimi claude cursor codex openai_api}"
+
+  if [ "$backend" != "auto" ]; then
+    echo "Running orchestrator with backend: $backend"
+    run_with_backend "$backend" "$prompt_file"
+    return $?
+  fi
+
+  local candidate
+  for candidate in $backends; do
+    echo "Trying AI backend: $candidate"
+    if run_with_backend "$candidate" "$prompt_file"; then
+      return 0
+    fi
+    echo "Backend unavailable or failed: $candidate"
+  done
+
+  if [ -n "$META_RALPH_RUNNER_COMMAND" ]; then
+    echo "Trying custom AI backend."
+    run_with_backend custom "$prompt_file"
+    return $?
+  fi
+
+  echo "Error: no usable AI backend found."
+  echo "Set META_RALPH_BACKEND, META_RALPH_BACKENDS, or META_RALPH_RUNNER_COMMAND."
+  return 1
 }
 
 cmd_run() {
   if [ ! -d "$META_DIR" ]; then
-    echo "❌ Error: Meta-Ralph no está inicializado. Ejecuta primero: meta-ralph init"
+    echo "Error: Meta-Ralph is not initialized. Run first: meta-ralph init"
     exit 1
   fi
 
   if [ ! -f "$META_DIR/prd.json" ]; then
-    echo "❌ Error: No se encontró $META_DIR/prd.json. Edítalo con tus historias."
+    echo "Error: could not find $META_DIR/prd.json. Edit it with your user stories."
     exit 1
   fi
 
-  # Parse args
   local skip_pm=""
   local skip_architect=""
   local skip_planner=""
@@ -245,39 +366,36 @@ cmd_run() {
     esac
   done
 
-  # Build orchestrator prompt from template
-  local PROMPT_FILE
-  PROMPT_FILE=$(mktemp)
+  local prompt_file
+  prompt_file=$(mktemp)
 
-  ORCH_TEMPLATE="$SKILL_DIR/references/orchestrator-prompt.md"
-  if [ ! -f "$ORCH_TEMPLATE" ]; then
-    echo "❌ Error: No se encontró $ORCH_TEMPLATE"
+  local orch_template="$SKILL_DIR/references/orchestrator-prompt.md"
+  if [ ! -f "$orch_template" ]; then
+    echo "Error: could not find $orch_template"
     exit 1
   fi
 
-  # Launch dashboard in background unless --no-dashboard
   if [ "$no_dashboard" != "true" ]; then
-    local DASHBOARD_PID_FILE="$META_DIR/state/dashboard.pid"
-    if [ -f "$DASHBOARD_PID_FILE" ] && kill -0 "$(cat "$DASHBOARD_PID_FILE")" 2>/dev/null; then
-      echo "🌐 Dashboard ya está corriendo en http://localhost:$DASHBOARD_PORT"
+    local dashboard_pid_file="$META_DIR/state/dashboard.pid"
+    if [ -f "$dashboard_pid_file" ] && kill -0 "$(cat "$dashboard_pid_file")" 2>/dev/null; then
+      echo "Dashboard is already running at http://localhost:$DASHBOARD_PORT"
     else
-      local VENV_DIR
-      VENV_DIR=$(dashboard_venv)
-      local BOARD_FILE
-      BOARD_FILE="$(pwd)/$META_DIR/state/board.json"
+      local venv_dir
+      venv_dir=$(dashboard_venv)
+      local board_file
+      board_file="$(pwd)/$META_DIR/state/board.json"
       mkdir -p "$META_DIR/state"
-      nohup "$VENV_DIR/bin/python" "$SKILL_DIR/dashboard/server.py" \
+      nohup "$venv_dir/bin/python" "$SKILL_DIR/dashboard/server.py" \
         --port "$DASHBOARD_PORT" \
-        --board "$BOARD_FILE" \
+        --board "$board_file" \
         --no-browser > "$META_DIR/state/dashboard.log" 2>&1 &
-      echo $! > "$DASHBOARD_PID_FILE"
-      echo "🌐 Dashboard lanzado en http://localhost:$DASHBOARD_PORT"
+      echo $! > "$dashboard_pid_file"
+      echo "Dashboard started at http://localhost:$DASHBOARD_PORT"
     fi
   fi
 
   BASE_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||' || git branch --show-current 2>/dev/null || echo "main")
 
-  # Read template and substitute variables
   sed -e "s|{{PROJECT_ROOT}}|$(pwd)|g" \
       -e "s|{{META_DIR}}|$META_DIR|g" \
       -e "s|{{MAX_WORKERS}}|$MAX_WORKERS|g" \
@@ -287,18 +405,20 @@ cmd_run() {
       -e "s|{{MAX_TIME}}|$max_time|g" \
       -e "s|{{BASE_BRANCH}}|$BASE_BRANCH|g" \
       -e "s|{{SKILL_DIR}}|$SKILL_DIR|g" \
-      "$ORCH_TEMPLATE" > "$PROMPT_FILE"
+      "$orch_template" > "$prompt_file"
 
-  echo "🚀 Lanzando Meta-Ralph Orchestrator..."
-  echo "   Max workers: $MAX_WORKERS"
-  echo "   PRD: $META_DIR/prd.json"
-  echo "   Base branch: $BASE_BRANCH"
+  echo "Starting Meta-Ralph Orchestrator..."
+  echo "  Max workers: $MAX_WORKERS"
+  echo "  PRD: $META_DIR/prd.json"
+  echo "  Base branch: $BASE_BRANCH"
+  echo "  Backend: ${META_RALPH_BACKEND:-auto}"
 
-  kimi --print --yes --prompt "$(cat "$PROMPT_FILE")"
-  rm -f "$PROMPT_FILE"
+  run_ai_prompt "$prompt_file"
+  local exit_code=$?
+  rm -f "$prompt_file"
+  return $exit_code
 }
 
-# Entry
 CMD="${1:-}"
 shift || true
 
@@ -322,11 +442,11 @@ case "$CMD" in
     show_help
     ;;
   "")
-    echo "❌ Error: Falta comando. Usa meta-ralph --help para ver opciones."
+    echo "Error: missing command. Use meta-ralph --help."
     exit 1
     ;;
   *)
-    echo "❌ Error: Comando desconocido: $CMD"
+    echo "Error: unknown command: $CMD"
     show_help
     exit 1
     ;;

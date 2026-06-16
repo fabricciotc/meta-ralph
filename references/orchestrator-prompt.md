@@ -64,7 +64,7 @@ bash {{SKILL_DIR}}/scripts/update-board.sh <ticket_id> <status> [blocked]
 
 ## Phase Execution
 
-### Phase 0 — Board Sync (always)
+### Phase 0: Board Sync (always)
 
 1. Read `{{META_DIR}}/state/board.json`. If it does not exist, create it with empty tickets array.
 2. Read `{{META_DIR}}/prd.json`. For every user story without a matching ticket in the board, create a ticket:
@@ -81,12 +81,13 @@ bash {{SKILL_DIR}}/scripts/update-board.sh <ticket_id> <status> [blocked]
 
 ### Phase 1 — PM Analysis (skip if SKIP_PM=true)
 
-1. **Parallel Research**: For each backlog ticket, spawn up to 20 PM Research Agents in parallel with:
+1. **Parallel Research**: For each backlog ticket, spawn up to 20 PM Research Agents in parallel when the host supports child agents:
    - `subagent_type`: default explore (read-only) or coder
    - `prompt`: "You are a PM Research Agent. Read {{META_DIR}}/prd.json and investigate the assigned area/ticket: <ticket_id>. Look at existing project files, identify domain concepts, risks, implicit requirements, and integration points. Write your findings to {{META_DIR}}/state/pm-research/<agent_id>.md. Do NOT write code or detailed technical design."
    - `run_in_background`: true
-   - Save each `agent_id` and poll with `TaskOutput` until all finish.
+   - Save each `agent_id` and poll or collect output using the host's available task-output primitive until all finish.
    - **Board update**: When a research agent starts on a ticket, update its status to `in-design`. When all research agents finish, update those tickets back to `backlog` unless they need more research.
+   - If the host does not support child agents or background tasks, run the PM research prompts sequentially and keep the same files and board transitions.
 
 2. **Consolidation**: Spawn ONE Product Manager Agent with:
    - `subagent_type`: default coder
@@ -99,14 +100,14 @@ bash {{SKILL_DIR}}/scripts/update-board.sh <ticket_id> <status> [blocked]
 
 ### Phase 2 — Architecture (skip if SKIP_ARCHITECT=true)
 
-Spawn ONE Agent with:
+Spawn one Architect agent when child agents are available, or execute the Architect role directly as a separate phase in CLI mode:
 - `subagent_type`: default coder
 - `prompt`: "You are the Architect. Read {{META_DIR}}/prd-expanded.json. Write {{META_DIR}}/architecture.md with global technical patterns: stack, directory structure, design patterns, naming conventions, API contracts, data model, cross-cutting concerns, and explicit anti-patterns. No concrete implementation code."
 - `run_in_background`: false
 
 ### Phase 3 — Planning (skip if SKIP_PLANNER=true)
 
-Spawn ONE Agent with:
+Spawn one Project Manager agent when child agents are available, or execute the Project Manager role directly as a separate phase in CLI mode:
 - `subagent_type`: default coder
 - `prompt`: "You are the Project Manager. Read {{META_DIR}}/prd-expanded.json and {{META_DIR}}/architecture.md. Build a DAG of task dependencies. Group tasks with no pending dependencies into batches of at most {{MAX_WORKERS}}. Write {{META_DIR}}/execution-plan.json with: maxWorkers, batches[], taskMap{}. Prefer tasks touching different areas in the same batch. Mark large-effort tasks for enhanced QA."
 - `run_in_background`: false
@@ -122,24 +123,25 @@ For each batch in `execution-plan.json`:
    bash {{SKILL_DIR}}/scripts/create-worktree.sh <task_id> <base_branch>
    ```
 
-2. **Board Update — In Progress**: Before dispatching workers, move each ticket matching the batch tasks from `backlog` to `in-progress`. If a ticket is `blocked=true` but the blocker was resolved, set `blocked=false`.
+2. **Board Update: In Progress**: Before dispatching workers, move each ticket matching the batch tasks from `backlog` to `in-progress`. If a ticket is `blocked=true` but the blocker was resolved, set `blocked=false`.
 
-3. **Dispatch Workers in Parallel**: For each task, spawn an Agent with:
+3. **Dispatch Workers in Parallel**: For each task, spawn a worker using the host's child-agent primitive when available:
    - `subagent_type`: default coder
    - `prompt`: Use the Worker Prompt Template from {{SKILL_DIR}}/references/worker-prompt-template.md, filling variables: TASK_ID, TASK_TITLE, TASK_DESCRIPTION, ACCEPTANCE_CRITERIA, AFFECTED_AREAS, ROLE_CONTEXT, FEATURE_FOCUS, PROJECT_ROOT, META_DIR, WORKTREE_DIR, BRANCH_NAME, BASE_BRANCH. Ensure each worker knows its specific role context and feature focus.
    - `run_in_background`: true
    - Save each returned `agent_id` along with its task_id.
+   - If the host does not support background workers, run workers sequentially but still use isolated worktrees, worker state files, and QA gates.
 
-4. **Poll**: Use `TaskOutput` to poll each worker until all are done. Use a polling loop with 10-second sleeps.
+4. **Collect Output**: Use the host's task-output primitive to collect each worker result until all are done. In CLI or sequential mode, read worker state files and captured output instead.
 
 5. **Collect Results**: For each completed worker, inspect the output for:
    - `WORKER_COMPLETE <task_id> <commit_hash>` → success
    - `WORKER_BLOCKED <task_id> <reason>` → set ticket `blocked=true`, keep in `in-progress`, stop batch, escalate
    - `WORKER_ESCALATE <task_id> <reason>` → escalate to user
 
-6. **Board Update — In Review**: If all workers succeeded, move those tickets from `in-progress` to `in-review`.
+6. **Board Update: In Review**: If all workers succeeded, move those tickets from `in-progress` to `in-review`.
 
-7. **QA Review**: If all workers succeeded, spawn QA Agent with:
+7. **QA Review**: If all workers succeeded, spawn or run the QA role with:
    - `subagent_type`: default explore (read-only) or coder
    - `prompt`: Use the QA Prompt Template from {{SKILL_DIR}}/references/qa-prompt-template.md, filling BATCH_ID, TASK_LIST, WORKER_RESULTS, META_DIR.
    - `run_in_background`: false
@@ -162,7 +164,7 @@ For each batch in `execution-plan.json`:
 
 9. **Progress Log**: Append to `progress.txt`:
    ```
-   ## Batch X — [status]
+   ## Batch X: [status]
    - Tasks: [list]
    - QA verdict: [verdict]
    - Findings: [summary]
@@ -240,9 +242,10 @@ Stop immediately and ask the user if:
 
 ## Tool Usage
 
-- Use `Shell` for git operations and helper scripts.
-- Use `Agent` to spawn PM, Architect, PMgr, Workers, QA.
-- Use `TaskOutput` to poll background workers.
-- Use `Read` to inspect PRDs, architecture, worker state, and `board.json`.
-- Use `Write` / `Edit` to update `progress.txt`, PRD status, and `board.json`.
+- Use shell access for git operations and helper scripts.
+- Use the host's child-agent primitive to spawn PM, Architect, Project Manager, Workers, and QA when available.
+- Use the host's task-output primitive to poll background workers when available.
+- If child agents are not available, run phases sequentially while preserving role boundaries in separate prompts.
+- Read PRDs, architecture, worker state, and `board.json` before changing them.
+- Write or edit `progress.txt`, PRD status, and `board.json` as needed.
 - Use `bash {{SKILL_DIR}}/scripts/update-board.sh` to update ticket status safely.

@@ -17,7 +17,7 @@ class PlannerRole(Role):
     def __init__(
         self,
         actions: Optional[List[Any]] = None,
-        run_kimi: Optional[Any] = None,
+        run_ai: Optional[Any] = None,
         ticket_id: str = "",
         ticket_title: str = "",
         ticket_description: str = "",
@@ -36,7 +36,7 @@ class PlannerRole(Role):
             actions=actions,
             addresses=self.addresses,
         )
-        self.run_kimi = run_kimi
+        self.run_ai = run_ai
         self.ticket_id = ticket_id
         self.ticket_title = ticket_title
         self.ticket_description = ticket_description
@@ -143,7 +143,7 @@ class PlannerRole(Role):
         tasks_path = self.tasks_path or self._default_tasks_path(prd_path, self.ticket_id)
 
         action_kwargs = {
-            "run_kimi": self.run_kimi,
+            "run_ai": self.run_ai,
             "ticket_id": self.ticket_id,
             "ticket_title": self.ticket_title,
             "ticket_description": self.ticket_description,

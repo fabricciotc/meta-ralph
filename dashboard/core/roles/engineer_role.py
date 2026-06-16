@@ -22,7 +22,7 @@ class EngineerRole(Role):
         self,
         role_id: str,
         focus: str,
-        run_kimi: Optional[Any] = None,
+        run_ai: Optional[Any] = None,
         repo_path: Optional[Any] = None,
         branch_prefix: str = "feature",
         update_agent: Optional[Any] = None,
@@ -36,7 +36,7 @@ class EngineerRole(Role):
             addresses={role_id},
         )
         self.focus = focus
-        self.run_kimi = run_kimi
+        self.run_ai = run_ai
         self.repo_path = Path(repo_path) if repo_path else None
         self.branch_prefix = branch_prefix
         self.update_agent = update_agent or self._default_update_agent
@@ -127,7 +127,7 @@ class EngineerRole(Role):
         architecture_path = trigger.metadata.get("architecture_path") or kwargs.get("architecture_path")
 
         action_kwargs = {
-            "run_kimi": self.run_kimi,
+            "run_ai": self.run_ai,
             "task": task,
             "repo_path": repo_path,
             "branch": branch,
@@ -197,11 +197,11 @@ class EngineerRole(Role):
         files_section = ""
         files_to_touch = task.get("files_to_touch", []) or []
         if files_to_touch:
-            files_section = "\nArchivos a modificar:\n" + "\n".join(f"- {f}" for f in files_to_touch)
+            files_section = "\nFiles to modify:\n" + "\n".join(f"- {f}" for f in files_to_touch)
 
         deps_section = ""
         if dependencies_context:
-            deps_section = f"\n\nContexto de dependencias completadas:\n{dependencies_context}"
+            deps_section = f"\n\nCompleted dependency context:\n{dependencies_context}"
 
         prd_section = ""
         if prd_path and prd_path.exists():
@@ -212,19 +212,19 @@ class EngineerRole(Role):
             arch_section = f"\n\nArchitecture: {architecture_path}"
 
         return (
-            "Eres un ingeniero de software senior en una software factory estilo MetaGPT. "
-            f"Tu identidad es {self.role_id} y tu foco es: {self.focus}.\n\n"
-            "Implementa la siguiente tarea en el repositorio dado, en la rama indicada. "
-            "No escribas explicaciones fuera del código; genera cambios reales, tests si aplica, "
-            "y respeta las convenciones del proyecto.\n\n"
+            "You are a senior software Engineer in a MetaGPT-style software factory. "
+            f"Your identity is {self.role_id} and your focus is: {self.focus}.\n\n"
+            "Implement the following task in the given repository and branch. "
+            "Do not write explanations instead of code; generate real changes, tests when applicable, "
+            "and respect project conventions.\n\n"
             f"TICKET: {ticket_title}\n"
-            f"DESCRIPCIÓN: {ticket_description}\n\n"
-            f"TAREA: {task.get('title', '')}\n"
-            f"ID TAREA: {task.get('id', '')}\n"
-            f"DESCRIPCIÓN TAREA: {task.get('description', '')}\n"
+            f"DESCRIPTION: {ticket_description}\n\n"
+            f"TASK: {task.get('title', '')}\n"
+            f"TASK ID: {task.get('id', '')}\n"
+            f"TASK DESCRIPTION: {task.get('description', '')}\n"
             f"REPO: {repo_path}\n"
             f"BRANCH: {branch}{files_section}{deps_section}{prd_section}{arch_section}\n\n"
-            "Responde con un resumen breve de los cambios realizados."
+            "Respond with a brief summary of the changes made."
         )
 
     def _default_update_agent(self, agent_id: str, **kwargs) -> None:

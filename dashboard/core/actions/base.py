@@ -16,7 +16,7 @@ class Action(ABC):
     async def run(
         self,
         context: List[Message],
-        run_kimi: Optional[Any] = None,
+        run_ai: Optional[Any] = None,
         **kwargs,
     ) -> Message:
         """Execute the action and return a Message with the result."""

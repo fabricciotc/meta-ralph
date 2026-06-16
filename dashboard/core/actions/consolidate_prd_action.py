@@ -9,12 +9,12 @@ from core.models import Message
 
 
 class ConsolidatePRDAction(Action):
-    """Consolidates PM research findings into a PRD via the Kimi runner."""
+    """Consolidates PM research findings into a PRD via the configured AI runner."""
 
     async def run(
         self,
         context: List[Message],
-        run_kimi: Optional[Any] = None,
+        run_ai: Optional[Any] = None,
         **kwargs,
     ) -> Message:
         required_keys = [
@@ -51,7 +51,7 @@ class ConsolidatePRDAction(Action):
         prd_path = Path(prd_path)
 
         # Fallback when there is no research or no runner available.
-        if not research_files or run_kimi is None:
+        if not research_files or run_ai is None:
             content = self._write_prd(
                 write_fallback_prd,
                 prd_path,
@@ -80,7 +80,7 @@ class ConsolidatePRDAction(Action):
             prd_path,
         )
 
-        raw = run_kimi(prompt, phase_name, timeout_seconds, agent_id="pm-research-agents")
+        raw = run_ai(prompt, phase_name, timeout_seconds, agent_id="pm-research-agents")
         if inspect.isawaitable(raw):
             output = await raw
         else:

@@ -1,21 +1,21 @@
 {
-  "projectName": "Mi Proyecto",
-  "branchName": "meta-ralph/feature-inicial",
+  "projectName": "My Project",
+  "branchName": "meta-ralph/initial-feature",
   "stories": [
     {
       "id": "US-001",
-      "title": "Título de la historia de usuario",
-      "description": "Como [rol], quiero [objetivo] para que [beneficio].",
+      "title": "User story title",
+      "description": "As a [role], I want [goal] so that [benefit].",
       "acceptanceCriteria": [
-        "Criterio de aceptación medible 1",
-        "Criterio de aceptación medible 2"
+        "Measurable acceptance criterion 1",
+        "Measurable acceptance criterion 2"
       ],
       "passes": false
     }
   ],
   "meta": {
-    "techStack": "[Opcional: stack técnico confirmado]",
-    "notes": "[Notas adicionales para el equipo]",
+    "techStack": "[Optional: confirmed technical stack]",
+    "notes": "[Additional notes for the team]",
     "priority": "high"
   }
 }

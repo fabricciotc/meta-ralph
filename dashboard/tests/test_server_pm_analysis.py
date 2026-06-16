@@ -39,14 +39,14 @@ class TestServerPMAnalysisIntegration(unittest.TestCase):
 
         calls = []
 
-        def mock_run_kimi(prompt, phase_name, timeout_seconds, agent_id=None):
+        def mock_run_ai(prompt, phase_name, timeout_seconds, agent_id=None):
             calls.append({"phase": phase_name, "agent_id": agent_id})
             if agent_id == "pm-research-agents":
                 return "# PRD\n\nConsolidated PRD content."
             return f"# {agent_id}\n\nResearch findings."
 
         runner = server.AgentRunner(ticket)
-        with patch.object(runner, "_run_kimi_prompt", side_effect=mock_run_kimi):
+        with patch.object(runner, "_run_ai_prompt", side_effect=mock_run_ai):
             runner.run_pm_analysis()
 
         prd_path = Path(self.tmpdir) / "scripts" / "meta-ralph" / "state" / "prd-INT-001.md"
@@ -73,11 +73,11 @@ class TestServerPMAnalysisIntegration(unittest.TestCase):
 
         calls = []
 
-        def mock_run_kimi(prompt, phase_name, timeout_seconds, agent_id=None):
+        def mock_run_ai(prompt, phase_name, timeout_seconds, agent_id=None):
             calls.append({"phase": phase_name, "agent_id": agent_id})
             return "# PRD\n\nNew content."
 
-        with patch.object(runner, "_run_kimi_prompt", side_effect=mock_run_kimi):
+        with patch.object(runner, "_run_ai_prompt", side_effect=mock_run_ai):
             runner.run_pm_analysis()
 
         self.assertEqual(len(calls), 0)

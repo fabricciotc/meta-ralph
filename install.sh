@@ -1,71 +1,85 @@
 #!/bin/bash
-# Instala meta-ralph como skill de Kimi Code CLI y como comando global.
+# Install meta-ralph as an assistant skill and global CLI command.
 
 set -e
 
 SKILL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SKILL_NAME="meta-ralph"
-KIMI_SKILLS_DIR="${KIMI_SKILLS_DIR:-$HOME/.kimi-code/skills}"
-TARGET_SKILL_DIR="$KIMI_SKILLS_DIR/$SKILL_NAME"
 SCRIPT="$SKILL_DIR/scripts/meta-ralph.sh"
 
 if [ ! -f "$SCRIPT" ]; then
-  echo "❌ No se encontró $SCRIPT"
+  echo "Error: $SCRIPT was not found."
   exit 1
 fi
 
 chmod +x "$SCRIPT"
 
-# Python check
 if ! command -v python3 >/dev/null 2>&1; then
-  echo "❌ python3 no está instalado. meta-ralph requiere Python 3.10+."
+  echo "Error: python3 is not installed. Meta-Ralph requires Python 3.10+."
   exit 1
 fi
 
 PY_MAJOR=$(python3 -c 'import sys; print(sys.version_info.major)')
 PY_MINOR=$(python3 -c 'import sys; print(sys.version_info.minor)')
 if [ "$PY_MAJOR" -lt 3 ] || { [ "$PY_MAJOR" -eq 3 ] && [ "$PY_MINOR" -lt 10 ]; }; then
-  echo "❌ Se requiere Python 3.10+. Versión detectada: $PY_MAJOR.$PY_MINOR"
+  echo "Error: Python 3.10+ is required. Detected: $PY_MAJOR.$PY_MINOR"
   exit 1
 fi
 
-# Git check
 if ! command -v git >/dev/null 2>&1; then
-  echo "❌ git no está instalado. meta-ralph requiere git."
+  echo "Error: git is not installed. Meta-Ralph requires git."
   exit 1
 fi
 
-# Registrar skill
-if [ "$SKILL_DIR" != "$TARGET_SKILL_DIR" ]; then
-  mkdir -p "$KIMI_SKILLS_DIR"
-  if [ -e "$TARGET_SKILL_DIR" ] || [ -L "$TARGET_SKILL_DIR" ]; then
-    if [ "$(readlink -f "$TARGET_SKILL_DIR" 2>/dev/null || echo "")" != "$SKILL_DIR" ]; then
-      echo "⚠️  $TARGET_SKILL_DIR ya existe y apunta a otro lugar."
-      echo "   Elimínalo manualmente si quieres reinstalar este skill."
-      exit 1
-    fi
-  else
-    ln -sf "$SKILL_DIR" "$TARGET_SKILL_DIR"
-    echo "🔗 Skill registrado: $TARGET_SKILL_DIR → $SKILL_DIR"
-  fi
-else
-  echo "ℹ️  El skill ya está en $TARGET_SKILL_DIR"
-fi
+register_skill_dir() {
+  local label="$1"
+  local base_dir="$2"
+  local target="$base_dir/$SKILL_NAME"
 
-# Crear venv para el dashboard
+  if [ -z "$base_dir" ]; then
+    return
+  fi
+
+  mkdir -p "$base_dir"
+
+  if [ "$SKILL_DIR" = "$target" ]; then
+    echo "Skill already lives in the $label skill directory: $target"
+    return
+  fi
+
+  if [ -e "$target" ] || [ -L "$target" ]; then
+    local resolved
+    resolved="$(readlink -f "$target" 2>/dev/null || echo "")"
+    if [ "$resolved" = "$SKILL_DIR" ]; then
+      echo "$label skill already registered: $target"
+      return
+    fi
+    echo "Warning: $target already exists and points elsewhere. Skipping $label registration."
+    return
+  fi
+
+  ln -sf "$SKILL_DIR" "$target"
+  echo "Registered $label skill: $target -> $SKILL_DIR"
+}
+
+register_skill_dir "Kimi Code" "${KIMI_CODE_SKILLS_DIR:-$HOME/.kimi-code/skills}"
+register_skill_dir "Kimi" "${KIMI_SKILLS_DIR:-$HOME/.kimi/skills}"
+register_skill_dir "Claude" "${CLAUDE_SKILLS_DIR:-$HOME/.claude/skills}"
+register_skill_dir "Cursor" "${CURSOR_SKILLS_DIR:-$HOME/.cursor/skills-cursor}"
+register_skill_dir "Codex" "${CODEX_SKILLS_DIR:-$HOME/.codex/skills}"
+
 DASHBOARD_DIR="$SKILL_DIR/dashboard"
 VENV_DIR="$DASHBOARD_DIR/.venv"
 if [ ! -d "$VENV_DIR" ]; then
-  echo "⚙️  Creando entorno virtual para el dashboard..."
+  echo "Creating dashboard virtual environment..."
   python3 -m venv "$VENV_DIR"
   "$VENV_DIR/bin/pip" install -q --upgrade pip
   "$VENV_DIR/bin/pip" install -q -r "$DASHBOARD_DIR/requirements.txt"
-  echo "✅ Dashboard dependencies instaladas"
+  echo "Dashboard dependencies installed."
 else
-  echo "ℹ️  Entorno virtual del dashboard ya existe"
+  echo "Dashboard virtual environment already exists."
 fi
 
-# Crear estructura de proyecto de ejemplo
 META_DIR="$SKILL_DIR/scripts/meta-ralph"
 mkdir -p "$META_DIR/state"
 if [ ! -f "$META_DIR/config.json" ]; then
@@ -85,26 +99,25 @@ if [ ! -f "$META_DIR/config.json" ]; then
   "api_key_path": "~/.config/meta-ralph/openai_api_key"
 }
 EOF
-  echo "✅ Configuración inicial creada en $META_DIR/config.json"
+  echo "Created default config at $META_DIR/config.json"
 fi
 
 if [ ! -f "$META_DIR/prd.json" ]; then
   cat > "$META_DIR/prd.json" <<'EOF'
 {
-  "projectName": "Ejemplo",
+  "projectName": "Example",
   "stories": [
     {
       "id": "US-001",
-      "title": "Historia de ejemplo",
-      "description": "Descripción de la historia de usuario."
+      "title": "Example story",
+      "description": "Describe the user story here."
     }
   ]
 }
 EOF
-  echo "✅ PRD de ejemplo creado en $META_DIR/prd.json"
+  echo "Created example PRD at $META_DIR/prd.json"
 fi
 
-# Detectar shell y archivo de configuración
 SHELL_NAME="$(basename "$SHELL")"
 case "$SHELL_NAME" in
   zsh)
@@ -125,7 +138,6 @@ case "$SHELL_NAME" in
     ;;
 esac
 
-# Crear symlink en ~/.local/bin si existe, sino en ~/.bin
 if [ -d "$HOME/.local/bin" ]; then
   BIN_DIR="$HOME/.local/bin"
 else
@@ -134,70 +146,64 @@ else
 fi
 
 ln -sf "$SCRIPT" "$BIN_DIR/meta-ralph"
-echo "🔗 Symlink creado: $BIN_DIR/meta-ralph → $SCRIPT"
+echo "Created CLI symlink: $BIN_DIR/meta-ralph -> $SCRIPT"
 
-# Asegurar que BIN_DIR esté en PATH
 if [ "$SHELL_NAME" = "fish" ]; then
   if ! grep -q "$BIN_DIR" "$RC_FILE" 2>/dev/null; then
     echo "" >> "$RC_FILE"
     echo "# Meta-Ralph CLI" >> "$RC_FILE"
     echo "fish_add_path $BIN_DIR" >> "$RC_FILE"
-    echo "✅ Agregado $BIN_DIR a PATH en $RC_FILE"
+    echo "Added $BIN_DIR to PATH in $RC_FILE"
   else
-    echo "ℹ️  $BIN_DIR ya está en PATH"
+    echo "$BIN_DIR is already in PATH configuration."
   fi
 else
   if ! grep -q "$BIN_DIR" "$RC_FILE" 2>/dev/null; then
     echo "" >> "$RC_FILE"
     echo "# Meta-Ralph CLI" >> "$RC_FILE"
     echo "export PATH=\"$BIN_DIR:\$PATH\"" >> "$RC_FILE"
-    echo "✅ Agregado $BIN_DIR a PATH en $RC_FILE"
+    echo "Added $BIN_DIR to PATH in $RC_FILE"
   else
-    echo "ℹ️  $BIN_DIR ya está en PATH"
+    echo "$BIN_DIR is already in PATH configuration."
   fi
 fi
 
-# Reporte de backends detectados
 echo ""
-echo "🔍 Backends de IA detectados:"
+echo "Detected AI backends:"
 BACKENDS_FOUND=0
 detect_backend() {
   if command -v "$1" >/dev/null 2>&1; then
-    echo "  ✅ $1"
+    echo "  ok: $1"
     BACKENDS_FOUND=$((BACKENDS_FOUND + 1))
   else
-    echo "  ❌ $1 (no instalado)"
+    echo "  missing: $1"
   fi
 }
+
 detect_backend kimi
 detect_backend claude
 detect_backend cursor
 detect_backend codex
 if [ -n "$OPENAI_API_KEY" ]; then
-  echo "  ✅ openai_api (OPENAI_API_KEY configurada)"
+  echo "  ok: openai_api (OPENAI_API_KEY is set)"
   BACKENDS_FOUND=$((BACKENDS_FOUND + 1))
 else
-  echo "  ❌ openai_api (OPENAI_API_KEY no configurada)"
+  echo "  missing: openai_api (OPENAI_API_KEY is not set)"
 fi
 
 if [ "$BACKENDS_FOUND" -eq 0 ]; then
   echo ""
-  echo "⚠️  No se detectó ningún backend de IA. meta-ralph no podrá ejecutar prompts."
-  echo "   Instala al menos uno de los siguientes:"
-  echo "   - Kimi Code CLI: https://kimi.com/download"
-  echo "   - Claude Code: https://claude.ai/download"
-  echo "   - Cursor: https://cursor.com"
-  echo "   - OpenAI Codex CLI: npm install -g @openai/codex"
-  echo "   - O configura OPENAI_API_KEY para usar la API de OpenAI."
+  echo "Warning: no AI backend was detected. Meta-Ralph will not be able to run prompts yet."
+  echo "Install at least one backend or set META_RALPH_RUNNER_COMMAND for a custom runner."
 fi
 
 echo ""
-echo "✅ Meta-Ralph instalado como skill en $TARGET_SKILL_DIR"
-echo "✅ Comando 'meta-ralph' disponible en $BIN_DIR"
+echo "Meta-Ralph installed."
+echo "CLI command: $BIN_DIR/meta-ralph"
 echo ""
-echo "Reinicia tu terminal o ejecuta:"
-echo "   source $RC_FILE"
+echo "Restart your terminal or run:"
+echo "  source $RC_FILE"
 echo ""
-echo "Luego, en un proyecto git:"
-echo "   meta-ralph init"
-echo "   meta-ralph run"
+echo "Then, in a git project:"
+echo "  meta-ralph init"
+echo "  meta-ralph run"

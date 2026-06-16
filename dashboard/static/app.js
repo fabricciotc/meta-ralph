@@ -305,10 +305,10 @@ function showToast(message, duration = 2200) {
    ============================================================ */
 
 const STATUS_LABELS = {
-  idle: 'Sin actividad',
-  running: 'En ejecución',
-  paused: 'Pausado',
-  queued: 'En cola'
+  idle: 'Idle',
+  running: 'Running',
+  paused: 'Paused',
+  queued: 'Queued'
 };
 
 function renderHeader() {
@@ -331,7 +331,7 @@ function renderHeader() {
     const activeTicket = (boardData.tickets || []).find(t => t.id === runState.ticketId);
     const repoPath = activeTicket && activeTicket.repoPath ? activeTicket.repoPath : '';
     navPath.textContent = repoPath ? truncatePath(repoPath, 55) : '—';
-    navPath.title = repoPath || 'Sin ruta de repo';
+    navPath.title = repoPath || 'No repository path';
   }
 }
 
@@ -365,7 +365,7 @@ function updateConnectionStatus(connected) {
   navConnection.innerHTML = connected
     ? '<i data-lucide="wifi" class="status-icon"></i>'
     : '<i data-lucide="wifi-off" class="status-icon"></i>';
-  navConnection.title = connected ? 'Conectado al servidor (WebSocket)' : 'Desconectado; reconectando...';
+  navConnection.title = connected ? 'Connected to server (WebSocket)' : 'Disconnected; reconnecting...';
   if (window.lucide) lucide.createIcons();
 }
 
@@ -740,7 +740,7 @@ function renderDebugFooter() {
   lastRenderedDebugKey = key;
 
   if (!tail.length) {
-    debugLog.innerHTML = '<div class="debug-empty">Sin logs recientes</div>';
+    debugLog.innerHTML = '<div class="debug-empty">No recent logs</div>';
     if (debugMeta) debugMeta.textContent = '—';
     return;
   }
@@ -756,7 +756,7 @@ function renderDebugFooter() {
   if (debugMeta) {
     const active = (runState.agents || []).filter(a => a.status === 'running').length;
     const total = (runState.agents || []).length;
-    debugMeta.textContent = `${total} agente${total !== 1 ? 's' : ''} · ${active} running · ${tail.length} logs`;
+    debugMeta.textContent = `${total} agent${total !== 1 ? 's' : ''} · ${active} running · ${tail.length} logs`;
   }
 
   const nearBottom = debugLog.scrollHeight - debugLog.scrollTop - debugLog.clientHeight < 80;
@@ -771,7 +771,7 @@ function renderTicketsList() {
   if (!ticketsList) return;
   const tickets = boardData.tickets || [];
   if (!tickets.length) {
-    ticketsList.innerHTML = '<div class="tickets-empty">No hay tickets. Crea uno nuevo para empezar.</div>';
+    ticketsList.innerHTML = '<div class="tickets-empty">No tickets yet. Create one to get started.</div>';
     return;
   }
 
@@ -782,12 +782,12 @@ function renderTicketsList() {
     const isRunnable = ['idle', 'queued', 'paused'].includes(runStatus) && ['backlog', 'ready-for-work', 'in-design', 'in-progress', 'in-review'].includes(ticket.status);
     const showRestart = ['ready-for-work', 'in-design', 'in-progress', 'in-review', 'done'].includes(ticket.status);
     const runAction = runStatus === 'running'
-      ? `<button type="button" class="btn-icon btn-small ticket-action-pause" data-id="${escapeHtml(ticket.id)}" title="Pausar"><i data-lucide="pause"></i></button>`
+      ? `<button type="button" class="btn-icon btn-small ticket-action-pause" data-id="${escapeHtml(ticket.id)}" title="Pause"><i data-lucide="pause"></i></button>`
       : isRunnable
-        ? `<button type="button" class="btn-icon btn-small ticket-action-play" data-id="${escapeHtml(ticket.id)}" title="${runStatus === 'paused' ? 'Reanudar' : 'Ejecutar'}"><i data-lucide="play"></i></button>`
+        ? `<button type="button" class="btn-icon btn-small ticket-action-play" data-id="${escapeHtml(ticket.id)}" title="${runStatus === 'paused' ? 'Resume' : 'Run'}"><i data-lucide="play"></i></button>`
         : '';
     const restartAction = showRestart
-      ? `<button type="button" class="btn-icon btn-small ticket-action-restart" data-id="${escapeHtml(ticket.id)}" title="Reiniciar desde cero"><i data-lucide="refresh-cw"></i></button>`
+      ? `<button type="button" class="btn-icon btn-small ticket-action-restart" data-id="${escapeHtml(ticket.id)}" title="Restart from scratch"><i data-lucide="refresh-cw"></i></button>`
       : '';
 
     const row = document.createElement('div');
@@ -800,15 +800,15 @@ function renderTicketsList() {
       <div class="ticket-row-actions">
         ${runAction}
         ${restartAction}
-        <button type="button" class="btn-icon btn-small" title="Editar"><i data-lucide="pencil"></i></button>
-        <button type="button" class="btn-icon btn-small" title="Eliminar"><i data-lucide="trash-2"></i></button>
+        <button type="button" class="btn-icon btn-small" title="Edit"><i data-lucide="pencil"></i></button>
+        <button type="button" class="btn-icon btn-small" title="Delete"><i data-lucide="trash-2"></i></button>
       </div>
     `;
-    row.querySelector('[title="Editar"]').addEventListener('click', (e) => {
+    row.querySelector('[title="Edit"]').addEventListener('click', (e) => {
       e.stopPropagation();
       openTicketModal(ticket);
     });
-    row.querySelector('[title="Eliminar"]').addEventListener('click', (e) => {
+    row.querySelector('[title="Delete"]').addEventListener('click', (e) => {
       e.stopPropagation();
       deleteTicketById(ticket.id);
     });
@@ -865,19 +865,19 @@ async function pauseTicket(ticketId) {
 
 async function restartTicket(ticketId) {
   const confirmed = await showConfirmModal({
-    title: 'Reiniciar ticket',
-    message: `¿Reiniciar el ticket ${ticketId} desde cero?\n\nSe borrarán el progreso del run, snapshots y los artefactos generados (PRD, plan de tareas, arquitectura). Los cambios de código en el repositorio no se eliminarán.`,
-    okText: 'Reiniciar',
-    cancelText: 'Cancelar',
+    title: 'Restart ticket',
+    message: `Restart ticket ${ticketId} from scratch?\n\nRun progress, snapshots, and generated artifacts such as the PRD, task plan, and architecture will be removed. Repository code changes will not be deleted.`,
+    okText: 'Restart',
+    cancelText: 'Cancel',
   });
   if (!confirmed) return;
   try {
     const res = await fetch(`/api/tickets/${ticketId}/restart`, { method: 'POST' });
     const data = await res.json();
     if (!res.ok) throw new Error(data.message || 'Error');
-    showToast(data.message || 'Ticket reiniciado');
+    showToast(data.message || 'Ticket restarted');
   } catch (err) {
-    showToast('Error reiniciando ticket: ' + err.message, 4000);
+    showToast('Error restarting ticket: ' + err.message, 4000);
   }
 }
 
@@ -898,7 +898,7 @@ function closeTicketsModal() {
 
 function openTicketModal(ticket = null) {
   const isEdit = !!ticket;
-  if (modalTitle) modalTitle.textContent = isEdit ? 'Editar ticket' : 'Nuevo ticket';
+  if (modalTitle) modalTitle.textContent = isEdit ? 'Edit ticket' : 'New ticket';
   document.getElementById('ticket-id').value = ticket ? ticket.id : '';
   document.getElementById('ticket-title').value = ticket ? ticket.title : '';
   document.getElementById('ticket-description').value = ticket ? ticket.description || '' : '';
@@ -938,9 +938,9 @@ async function saveTicket(e) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     });
-    if (!res.ok) throw new Error('Error guardando ticket');
+    if (!res.ok) throw new Error('Error saving ticket');
     closeTicketModal();
-    showToast(id ? 'Ticket actualizado' : 'Ticket creado');
+    showToast(id ? 'Ticket updated' : 'Ticket created');
   } catch (err) {
     alert(err.message);
   }
@@ -949,7 +949,7 @@ async function saveTicket(e) {
 async function deleteTicket() {
   const id = document.getElementById('ticket-id').value;
   if (!id) return;
-  if (!confirm('¿Eliminar este ticket?')) return;
+  if (!confirm('Delete this ticket?')) return;
   await deleteTicketById(id);
   closeTicketModal();
 }
@@ -957,8 +957,8 @@ async function deleteTicket() {
 async function deleteTicketById(id) {
   try {
     const res = await fetch(`/api/tickets/${id}`, { method: 'DELETE' });
-    if (!res.ok) throw new Error('Error eliminando ticket');
-    showToast('Ticket eliminado');
+    if (!res.ok) throw new Error('Error deleting ticket');
+    showToast('Ticket deleted');
   } catch (err) {
     alert(err.message);
   }
@@ -991,7 +991,7 @@ function renderTicketStatus() {
   const agents = runState.agents || [];
 
   if (!activeTicket && agents.length === 0) {
-    ticketStatusBody.innerHTML = '<div class="status-empty">No hay ticket seleccionado</div>';
+    ticketStatusBody.innerHTML = '<div class="status-empty">No ticket selected</div>';
     return;
   }
 
@@ -1020,15 +1020,15 @@ function renderTicketStatus() {
         <span class="value">${escapeHtml(runState.ticketId || '—')}</span>
       </div>
       <div class="status-card-row">
-        <span>Estado</span>
+        <span>Status</span>
         <span class="status-badge status-${runState.status || 'idle'}">${runState.status || 'idle'}</span>
       </div>
       <div class="status-card-row">
-        <span>Progreso</span>
+        <span>Progress</span>
         <span class="value">${progress}%</span>
       </div>
       <div class="status-card-row">
-        <span>Tiempo</span>
+        <span>Time</span>
         <span class="value">${formatElapsed(runState.elapsedSeconds)}</span>
       </div>
       <div class="agent-status-list">
@@ -1054,7 +1054,7 @@ function renderMessaging() {
     const answeredAt = msg.answeredAt ? formatTime(msg.answeredAt) : '';
     const answerBlock = msg.answer
       ? `<div class="comm-item-answer"><strong>${escapeHtml(stripEmojis(msg.to))}:</strong> ${escapeHtml(stripEmojis(msg.answer))}</div>`
-      : '<div class="comm-item-answer">Esperando respuesta...</div>';
+      : '<div class="comm-item-answer">Waiting for response...</div>';
     el.innerHTML = `
       <div class="comm-item-header">
         <span>${escapeHtml(stripEmojis(msg.from))} → ${escapeHtml(stripEmojis(msg.to))}</span>
@@ -1062,7 +1062,7 @@ function renderMessaging() {
       </div>
       <div class="comm-item-body">${escapeHtml(stripEmojis(msg.question))}</div>
       ${answerBlock}
-      ${answeredAt ? `<div class="comm-item-answer">Respondido ${answeredAt}</div>` : ''}
+      ${answeredAt ? `<div class="comm-item-answer">Answered ${answeredAt}</div>` : ''}
     `;
     messagingFeed.appendChild(el);
   });
@@ -1076,7 +1076,7 @@ function renderMessaging() {
    ============================================================ */
 
 const DEFAULT_CHAT_AGENTS = [
-  { id: 'orchestrator', name: 'Orchestrator Principal' },
+  { id: 'orchestrator', name: 'Lead Orchestrator' },
   { id: 'product_manager', name: 'Product Manager' },
   { id: 'architect', name: 'Architect' },
   { id: 'project_manager', name: 'Project Manager' },
@@ -1122,7 +1122,7 @@ function renderChat() {
   lastRenderedChatKey = key;
 
   if (!log.length) {
-    chatMessages.innerHTML = '<div class="chat-empty">Selecciona un agente y escribe un mensaje o instrucción.</div>';
+    chatMessages.innerHTML = '<div class="chat-empty">Select an agent and write a message or instruction.</div>';
     return;
   }
 
@@ -1131,7 +1131,7 @@ function renderChat() {
     const from = entry.from || 'system';
     const text = (entry.payload && entry.payload.text) || '';
     const side = from === 'user' ? 'user' : (from === 'system' ? 'system' : 'agent');
-    const displayName = from === 'user' ? 'Tú' : (from === 'system' ? 'Sistema' : stripEmojis(from));
+    const displayName = from === 'user' ? 'You' : (from === 'system' ? 'System' : stripEmojis(from));
 
     const el = document.createElement('div');
     el.className = `chat-message ${side}`;
@@ -1161,8 +1161,8 @@ async function sendChatMessage(e) {
   try {
     socket.emit('chat_send', { to, message: text });
   } catch (err) {
-    console.error('Error enviando chat:', err);
-    showToast('No se pudo enviar el mensaje', 3000);
+    console.error('Error sending chat:', err);
+    showToast('Could not send the message', 3000);
   } finally {
     setTimeout(() => {
       chatInput.disabled = false;
@@ -1200,9 +1200,9 @@ function renderDesignReview(state) {
     const div = document.createElement('div');
     div.className = 'design-review-question';
     div.innerHTML = `
-      <div class="design-review-question-label"><i data-lucide="help-circle"></i> Pregunta ${idx + 1}</div>
+      <div class="design-review-question-label"><i data-lucide="help-circle"></i> Question ${idx + 1}</div>
       <p class="design-review-question-text">${escapeHtml(q.question)}</p>
-      <input type="text" data-id="${escapeHtml(q.id)}" value="${escapeHtml(q.assumedAnswer || '')}" placeholder="Respuesta asumida...">
+      <input type="text" data-id="${escapeHtml(q.id)}" value="${escapeHtml(q.assumedAnswer || '')}" placeholder="Assumed answer...">
     `;
     if (designReviewQuestions) designReviewQuestions.appendChild(div);
   });
@@ -1366,7 +1366,7 @@ async function submitQuestionAnswer() {
     answer = selected ? selected.value : '';
   }
   if (!answer) {
-    alert('Por favor selecciona una opción o escribe una respuesta.');
+    alert('Please select an option or write an answer.');
     return;
   }
   await sendQuestionResponse('/answer', { answer });
@@ -1381,7 +1381,7 @@ async function sendQuestionResponse(endpointSuffix, body) {
   if (!currentQuestion) return;
   if (btnQuestionSubmit) btnQuestionSubmit.disabled = true;
   if (btnQuestionSkip) btnQuestionSkip.disabled = true;
-  if (btnQuestionSubmit) btnQuestionSubmit.textContent = 'Enviando...';
+  if (btnQuestionSubmit) btnQuestionSubmit.textContent = 'Sending...';
   try {
     const res = await fetch(`/api/questions/${encodeURIComponent(currentQuestion.id)}${endpointSuffix}`, {
       method: 'POST',
@@ -1390,7 +1390,7 @@ async function sendQuestionResponse(endpointSuffix, body) {
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || 'Error enviando respuesta');
+      throw new Error(err.error || 'Error sending response');
     }
     closeQuestionModal();
   } catch (err) {
@@ -1398,7 +1398,7 @@ async function sendQuestionResponse(endpointSuffix, body) {
   } finally {
     if (btnQuestionSubmit) btnQuestionSubmit.disabled = false;
     if (btnQuestionSkip) btnQuestionSkip.disabled = false;
-    if (btnQuestionSubmit) btnQuestionSubmit.textContent = 'Responder';
+    if (btnQuestionSubmit) btnQuestionSubmit.textContent = 'Answer';
   }
 }
 
@@ -1410,7 +1410,7 @@ async function loadPendingQuestions() {
     const pending = (data.questions || []).filter(q => q.status === 'pending');
     if (pending.length > 0 && !currentQuestion) openQuestionModal(pending[0]);
   } catch (err) {
-    console.warn('Error cargando preguntas pendientes:', err);
+    console.warn('Error loading pending questions:', err);
   }
 }
 
@@ -1418,7 +1418,7 @@ async function loadPendingQuestions() {
    Confirm modal
    ============================================================ */
 
-function showConfirmModal({ title = 'Confirmar', message = '¿Estás seguro?', okText = 'Confirmar', cancelText = 'Cancelar' } = {}) {
+function showConfirmModal({ title = 'Confirm', message = 'Are you sure?', okText = 'Confirm', cancelText = 'Cancel' } = {}) {
   return new Promise((resolve) => {
     if (!confirmModal) {
       resolve(false);
@@ -1448,23 +1448,23 @@ function closeConfirmModal(result = false) {
 async function restartAgent(agentId) {
   const ticketId = runState.ticketId;
   if (!ticketId) {
-    await showConfirmModal({ title: 'Sin ticket activo', message: 'No hay un ticket activo para reiniciar el agente.', okText: 'Aceptar' });
+    await showConfirmModal({ title: 'No active ticket', message: 'There is no active ticket for restarting this agent.', okText: 'OK' });
     return;
   }
   const confirmed = await showConfirmModal({
-    title: 'Reiniciar agente',
-    message: `¿Reiniciar agente ${agentId}?`,
-    okText: 'Reiniciar',
-    cancelText: 'Cancelar'
+    title: 'Restart agent',
+    message: `Restart agent ${agentId}?`,
+    okText: 'Restart',
+    cancelText: 'Cancel'
   });
   if (!confirmed) return;
   try {
     const res = await fetch(`/api/tickets/${ticketId}/agents/${encodeURIComponent(agentId)}/restart`, { method: 'POST' });
     if (!res.ok) throw new Error(await res.text());
-    showToast('Agente reiniciado');
+    showToast('Agent restarted');
   } catch (err) {
     console.error(err);
-    await showConfirmModal({ title: 'Error', message: 'No se pudo reiniciar el agente: ' + err.message, okText: 'Aceptar' });
+    await showConfirmModal({ title: 'Error', message: 'Could not restart the agent: ' + err.message, okText: 'OK' });
   }
 }
 
@@ -1479,7 +1479,7 @@ async function openPath(path, folder = false) {
     if (!res.ok) throw new Error(await res.text());
   } catch (err) {
     console.error(err);
-    alert('No se pudo abrir: ' + err.message);
+    alert('Could not open: ' + err.message);
   }
 }
 
@@ -1496,7 +1496,7 @@ async function readFileContent(path) {
     return data.content || '';
   } catch (err) {
     console.error(err);
-    alert('No se pudo leer el archivo: ' + err.message);
+    alert('Could not read the file: ' + err.message);
     return null;
   }
 }
@@ -1529,7 +1529,7 @@ async function pollRunState() {
     lastFetchError = false;
   } catch (err) {
     if (!lastFetchError) {
-      console.warn('Error cargando run-state; se reintentará automáticamente.');
+      console.warn('Error loading run-state; retrying automatically.');
       lastFetchError = true;
     }
     updateConnectionStatus(false);
@@ -1562,7 +1562,7 @@ if (btnPickRepo && repoPicker) {
       hideRepoMessage();
     } else if (file.webkitRelativePath) {
       const topFolder = file.webkitRelativePath.split('/')[0];
-      showRepoMessage(`Seleccionaste "${topFolder}". El navegador no entrega la ruta absoluta; escríbela en el campo Repo folder.`);
+      showRepoMessage(`You selected "${topFolder}". The browser does not provide the absolute path; type it in the Repo folder field.`);
       repoPathInput.focus();
     }
     repoPicker.value = '';

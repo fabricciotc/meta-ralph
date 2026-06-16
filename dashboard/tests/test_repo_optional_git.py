@@ -6,13 +6,13 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
-sys.path.insert(0, "/Users/fabricciotornero/.kimi-code/skills/meta-ralph/dashboard")
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import server
 
 
 def fast_run(self):
-    """Simula un AgentRunner que completa el ticket rápidamente."""
+    """Simulate an AgentRunner that completes the ticket quickly."""
     def wait_or_stop(seconds):
         for _ in range(int(seconds * 10)):
             if self._stop_event.is_set():
@@ -42,7 +42,7 @@ def fast_run(self):
             self.ticket_id,
             startedAt=server.datetime.now(server.timezone.utc).isoformat(),
             elapsedSeconds=0,
-            summary="Simulando ejecución...",
+            summary="Simulating execution...",
         )
         if not wait_or_stop(0.3):
             return
@@ -61,7 +61,7 @@ def fast_run(self):
                 state["progress"] = 100
                 server.save_run_state(state)
     except Exception as exc:
-        print(f"Error en fast_run: {exc}")
+        print(f"Error in fast_run: {exc}")
         with server.run_lock:
             state = server.load_run_state()
             if state.get("ticketId") == self.ticket_id:
@@ -84,8 +84,8 @@ def wait_for(condition, timeout=10, interval=0.2):
 
 def main():
     tmpdir = Path(tempfile.mkdtemp(prefix="agentflow-test-no-git-"))
-    print(f"Directorio de prueba: {tmpdir}")
-    no_git_repo = tmpdir / "repo-sin-git"
+    print(f"Test directory: {tmpdir}")
+    no_git_repo = tmpdir / "repo-without-git"
     no_git_repo.mkdir()
     try:
         board_path = tmpdir / "board.json"
@@ -94,7 +94,7 @@ def main():
             "tickets": [
                 {
                     "id": "TKT-NOGIT",
-                    "title": "Ticket sin git",
+                    "title": "Ticket without git",
                     "status": "backlog",
                     "repoPath": str(no_git_repo),
                     "branch": "",
@@ -114,39 +114,39 @@ def main():
         server.RUN_STATE_FILE = tmpdir / "run-state.json"
         server.LOG_FILE = tmpdir / "run.log"
 
-        print(f"Repo sin git: {no_git_repo}")
-        assert not (no_git_repo / ".git").exists(), "El repo de prueba no debería tener .git"
+        print(f"Repo without git: {no_git_repo}")
+        assert not (no_git_repo / ".git").exists(), "The test repo should not have .git"
 
         with patch.object(server.AgentRunner, "run", fast_run):
             ticket = server.load_board()["tickets"][0]
             ticket["status"] = "ready-for-work"
             server.save_board(server.load_board())
 
-            print("Moviendo ticket a ready-for-work (sin git)...")
+            print("Moving ticket to ready-for-work (without git)...")
             err_code, err_msg = server.validate_git_repo(ticket["repoPath"])
-            assert err_code is None, f"validate_git_repo falló: {err_code} - {err_msg}"
+            assert err_code is None, f"validate_git_repo failed: {err_code} - {err_msg}"
 
             branch, err_code, err_msg = server.create_git_branch(
                 ticket["repoPath"], ticket["id"], ticket["title"]
             )
-            assert err_code is None, f"create_git_branch falló: {err_code} - {err_msg}"
-            assert branch == "", f"Sin git la branch debería estar vacía, got: {branch}"
+            assert err_code is None, f"create_git_branch failed: {err_code} - {err_msg}"
+            assert branch == "", f"Without git the branch should be empty, got: {branch}"
 
             ticket["branch"] = branch
             ticket["repoPath"] = server.resolve_repo_path(ticket["repoPath"])
             server.save_board(server.load_board())
 
-            print("Iniciando ejecución automática...")
+            print("Starting automatic execution...")
             server.start_automatic_run(ticket)
 
             ok = wait_for(
                 lambda: next(t for t in server.load_board()["tickets"] if t["id"] == "TKT-NOGIT")["status"] == "done",
                 timeout=15,
             )
-            assert ok, "El ticket no terminó sin git"
+            assert ok, "The ticket did not finish without git"
 
             final_ticket = next(t for t in server.load_board()["tickets"] if t["id"] == "TKT-NOGIT")
-            print(f"✅ Ticket sin git terminado: status={final_ticket['status']}, branch='{final_ticket.get('branch')}'")
+            print(f"OK: Ticket without git finished: status={final_ticket['status']}, branch='{final_ticket.get('branch')}'")
 
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)

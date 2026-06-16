@@ -1,25 +1,37 @@
 # Meta-Ralph
 
-Skill de **Kimi Code CLI** que orquesta un equipo multi-agente estilo **MetaGPT**: PM Research, Architect, Project Manager, Engineers paralelos y QA, con un dashboard web propio para gestionar tickets y visualizar el progreso en tiempo real.
+Meta-Ralph is a MetaGPT-style multi-agent orchestration skill for AI coding assistants. It coordinates PM Research, Architecture, Planning, parallel Engineers, and QA with a local dashboard for ticket management and live progress.
 
-## Qué hace
+## What It Does
 
-- Toma un PRD o ticket y lo ejecuta con un loop de 5 fases: PM Analysis → Architecture → Planning → Parallel Execution → QA Review.
-- Soporta hasta 20 agentes PM de investigación en paralelo y hasta 20 Engineers en paralelo.
-- Cada Engineer trabaja en su propio git worktree aislado.
-- El QA revisa cada batch antes de mergear al trunk.
-- Dashboard Kanban accesible en `http://localhost:5050` con WebSocket para actualizaciones en vivo.
-- Guarda snapshots de run-state por ticket: puedes pausar un ticket, cambiar a otro y volver exactamente donde lo dejaste, incluso después de reiniciar el servidor.
+- Takes a PRD or ticket and executes it through a five-phase loop: PM Analysis -> Architecture -> Planning -> Parallel Execution -> QA Review.
+- Supports multiple PM Research agents and Engineer workers, capped by `--max-workers`.
+- Gives each Engineer its own role context, feature focus, git worktree, and branch.
+- Runs QA before integrating a batch back into trunk.
+- Provides a Kanban dashboard at `http://localhost:5050` with live updates.
+- Saves per-ticket run snapshots so a ticket can be paused, resumed, or restarted after the dashboard server restarts.
 
-## Instalación como skill
+## Installation
 
-### Opción 1 — Clonar directamente en el directorio de skills
+### Option 1: Clone Into A Skill Directory
+
+Choose the directory used by your assistant:
 
 ```bash
+# Kimi
 git clone https://github.com/fabricciotc/meta-ralph.git ~/.kimi-code/skills/meta-ralph
+
+# Claude
+git clone https://github.com/fabricciotc/meta-ralph.git ~/.claude/skills/meta-ralph
+
+# Cursor
+git clone https://github.com/fabricciotc/meta-ralph.git ~/.cursor/skills/meta-ralph
+
+# Codex
+git clone https://github.com/fabricciotc/meta-ralph.git ~/.codex/skills/meta-ralph
 ```
 
-### Opción 2 — Usar `install.sh`
+### Option 2: Use The Installer
 
 ```bash
 git clone https://github.com/fabricciotc/meta-ralph.git
@@ -27,70 +39,104 @@ cd meta-ralph
 ./install.sh
 ```
 
-`install.sh` hará lo siguiente:
+The installer:
 
-1. Registrar el skill en `~/.kimi-code/skills/meta-ralph` (con symlink si es necesario).
-2. Crear el entorno virtual de Python para el dashboard en `dashboard/.venv`.
-3. Instalar las dependencias de `dashboard/requirements.txt`.
-4. Crear el comando `meta-ralph` en tu PATH.
+1. Registers the skill in available assistant skill directories.
+2. Creates a Python virtual environment for the dashboard in `dashboard/.venv`.
+3. Installs `dashboard/requirements.txt`.
+4. Creates a `meta-ralph` command in your PATH.
+5. Reports which AI backends are available.
 
-Reinicia tu terminal o ejecuta `source ~/.zshrc` (o `~/.bashrc`/`~/.bash_profile`) para que el comando esté disponible.
+Restart your terminal or run `source ~/.zshrc`, `source ~/.bashrc`, or `source ~/.bash_profile` so the command is available.
 
-## Uso
+## Requirements
 
-Dentro de un proyecto git:
+- Python 3.10+
+- Git
+- At least one AI runner:
+  - `kimi`
+  - `claude`
+  - `cursor`
+  - `codex`
+  - `OPENAI_API_KEY` for OpenAI-compatible API mode
+- A modern browser for the dashboard
+
+## Usage
+
+Inside a git project:
 
 ```bash
-meta-ralph init      # crea scripts/meta-ralph/ en el proyecto actual
-meta-ralph run       # inicia el loop multi-agente y abre el dashboard
-meta-ralph dashboard # inicia solo el dashboard
-meta-ralph status    # muestra workers activos
-meta-ralph stop      # detiene todos los workers y el dashboard
+meta-ralph init      # create scripts/meta-ralph/ in the current project
+meta-ralph run       # start the multi-agent loop and dashboard
+meta-ralph dashboard # start only the dashboard
+meta-ralph status    # show active workers
+meta-ralph stop      # stop workers and dashboard
 ```
 
-Luego abre `http://localhost:5050` y crea o mueve tickets a **Ready for Work** para que el orchestrador los procese.
+Then open `http://localhost:5050` and create or move tickets into the work queue.
 
-## Estructura del skill
+## Backend Selection
+
+By default, CLI mode tries available backends in this order:
+
+```bash
+META_RALPH_BACKENDS="kimi claude cursor codex openai_api"
+```
+
+Force a backend:
+
+```bash
+META_RALPH_BACKEND=claude meta-ralph run
+META_RALPH_BACKEND=codex meta-ralph run
+META_RALPH_BACKEND=cursor meta-ralph run
+META_RALPH_BACKEND=kimi meta-ralph run
+```
+
+Use a custom runner:
+
+```bash
+META_RALPH_BACKEND=custom \
+META_RALPH_RUNNER_COMMAND='my-agent --prompt-file "$META_RALPH_PROMPT_FILE"' \
+meta-ralph run
+```
+
+## Skill Recognition
+
+Assistants that support skills should load `SKILL.md` when the user asks for:
+
+- "meta ralph"
+- "multi-agent loop"
+- "parallel team"
+- "MetaGPT workflow"
+- "autonomous PRD execution"
+
+If the assistant does not support native skill discovery, use CLI mode.
+
+## Project Layout
 
 ```text
 meta-ralph/
-├── SKILL.md                    # Definición del skill para Kimi Code CLI
-├── README.md                   # Este archivo
-├── install.sh                  # Instalador del skill + CLI
+├── SKILL.md                    # Assistant-facing skill definition
+├── README.md                   # This file
+├── install.sh                  # Skill and CLI installer
 ├── assets/
-│   └── prd-template.json       # Plantilla de PRD de entrada
+│   └── prd-template.json       # Input PRD template
 ├── references/
-│   ├── metagpt-roles.md        # SOPs por rol
+│   ├── metagpt-roles.md        # Role SOPs
 │   ├── orchestrator-prompt.md
 │   ├── worker-prompt-template.md
 │   └── qa-prompt-template.md
 ├── scripts/
-│   ├── meta-ralph.sh           # CLI principal
+│   ├── meta-ralph.sh           # Main CLI
 │   ├── create-worktree.sh
 │   ├── dispatch-workers.sh
 │   └── ...
 └── dashboard/
-    ├── server.py               # Backend Flask + SocketIO
-    ├── static/                 # UI Kanban (HTML/CSS/JS)
+    ├── server.py               # Flask + SocketIO backend
+    ├── static/                 # Kanban UI
     └── requirements.txt
 ```
 
-## Requisitos
-
-- Python 3.10+
-- Git
-- `kimi` CLI instalado y disponible en PATH
-- Navegador moderno para el dashboard
-
-## Cómo funciona el reconocimiento por Kimi
-
-Kimi Code CLI descubre skills automáticamente buscando archivos `SKILL.md` en:
-
-- `~/.kimi-code/skills/<skill-name>/SKILL.md` (skills de usuario)
-- `./.kimi-code/skills/<skill-name>/SKILL.md` (skills de proyecto)
-
-El `SKILL.md` de meta-ralph incluye un frontmatter con `name`, `description`, `allowed-tools` y `user-invocable: true`, por lo que Kimi puede cargarlo cuando el usuario menciona "meta ralph", "multi-agent loop", "parallel team", etc.
-
-## Licencia
+## License
 
 MIT

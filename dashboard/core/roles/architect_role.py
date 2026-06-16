@@ -25,7 +25,7 @@ class ArchitectRole(Role):
     def __init__(
         self,
         actions: Optional[List[Any]] = None,
-        run_kimi: Optional[Any] = None,
+        run_ai: Optional[Any] = None,
         prd_path: Optional[Any] = None,
         architecture_path: Optional[Any] = None,
         ticket_title: str = "",
@@ -46,7 +46,7 @@ class ArchitectRole(Role):
             actions=actions,
             addresses=self.addresses,
         )
-        self.run_kimi = run_kimi
+        self.run_ai = run_ai
         self.prd_path = Path(prd_path) if prd_path else None
         self.architecture_path = Path(architecture_path) if architecture_path else None
         self.ticket_title = ticket_title
@@ -126,7 +126,7 @@ class ArchitectRole(Role):
             return None
 
         base_kwargs = {
-            "run_kimi": self.run_kimi,
+            "run_ai": self.run_ai,
             "prd_path": self.prd_path,
             "architecture_path": self.architecture_path,
             "ticket_title": self.ticket_title,
@@ -155,7 +155,7 @@ class ArchitectRole(Role):
                     desc="Generate design review questions from architecture.",
                 )
                 review_kwargs = {
-                    "run_kimi": self.run_kimi,
+                    "run_ai": self.run_ai,
                     "architecture_content": response.content,
                     "ticket_title": self.ticket_title,
                     "ticket_description": self.ticket_description,
@@ -209,7 +209,7 @@ class ArchitectRole(Role):
         decisions: List[str] = []
         if not content:
             return decisions
-        marker = "DECISIONES PENDIENTES:"
+        marker = "PENDING DECISIONS:"
         idx = content.find(marker)
         if idx == -1:
             return decisions
@@ -221,7 +221,7 @@ class ArchitectRole(Role):
             line = line.strip()
             if not line:
                 continue
-            if line.lower().startswith("sin decisiones"):
+            if line.lower().startswith("no pending decisions"):
                 continue
             if line.startswith(("-", "*")) or (line[0].isdigit() and "." in line[:3]):
                 decisions.append(line)

@@ -15,7 +15,7 @@ class PMResearchRole(Role):
         role_id: str,
         sub_name: str,
         focus: str,
-        run_kimi: Optional[Any] = None,
+        run_ai: Optional[Any] = None,
     ):
         super().__init__(
             role_id=role_id,
@@ -25,7 +25,7 @@ class PMResearchRole(Role):
         )
         self.sub_name = sub_name
         self.focus = focus
-        self.run_kimi = run_kimi
+        self.run_ai = run_ai
         self._processed_trigger_ids: set = set()
         self._base_metadata: Dict[str, Any] = {}
 
@@ -75,7 +75,7 @@ class PMResearchRole(Role):
         action_kwargs.setdefault("sub_id", self.role_id)
         action_kwargs.setdefault("sub_name", self.sub_name)
         action_kwargs.setdefault("focus", self.focus)
-        action_kwargs.setdefault("run_kimi", self.run_kimi)
+        action_kwargs.setdefault("run_ai", self.run_ai)
 
         response = await self.act(action, context, **action_kwargs)
         response.sent_from = self.role_id

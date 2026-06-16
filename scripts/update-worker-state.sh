@@ -1,6 +1,6 @@
 #!/bin/bash
-# Actualiza el estado de un worker
-# Uso: update-worker-state.sh <task_id> <status> [last_commit] [result_json]
+# Update worker state.
+# Usage: update-worker-state.sh <task_id> <status> [last_commit] [result_json]
 
 set -e
 
@@ -11,13 +11,13 @@ RESULT_JSON="${4:-}"
 META_DIR="${META_DIR:-scripts/meta-ralph}"
 
 if [ -z "$TASK_ID" ] || [ -z "$STATUS" ]; then
-  echo "❌ Uso: update-worker-state.sh <task_id> <status> [last_commit] [result_json]"
+  echo "Usage: update-worker-state.sh <task_id> <status> [last_commit] [result_json]"
   exit 1
 fi
 
 WORKER_FILE="$META_DIR/state/workers/$TASK_ID.json"
 if [ ! -f "$WORKER_FILE" ]; then
-  echo "❌ Worker $TASK_ID no existe"
+  echo "Error: worker $TASK_ID does not exist."
   exit 1
 fi
 
@@ -34,4 +34,4 @@ if [ -n "$RESULT_JSON" ]; then
 fi
 
 mv "$TMP" "$WORKER_FILE"
-echo "✅ Worker $TASK_ID actualizado a $STATUS"
+echo "Worker $TASK_ID updated to $STATUS."

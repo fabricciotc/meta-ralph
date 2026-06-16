@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Demo del flujo PM Analysis con roles MetaGPT-style.
+"""Demo for the PM Analysis flow with MetaGPT-style roles.
 
-Ejecuta un análisis de PM end-to-end usando PMResearchRoles y PMLeadRole
-sobre un Environment. Los llamados a Kimi están mockeados para que la demo
-no dependa de una sesión de Kimi activa.
+Runs an end-to-end PM analysis using PMResearchRoles and PMLeadRole
+inside an Environment. Runner calls are mocked so the demo does not
+depend on an active AI session.
 
-Uso:
-    cd /Users/fabricciotornero/.kimi-code/skills/meta-ralph/dashboard
+Usage:
+    cd dashboard
     python demo_pm_roles.py
 """
 
@@ -34,31 +34,31 @@ def main():
         prd_path = Path(tmpdir) / "prd.md"
 
         subagents = [
-            ("pm-domain", "Domain Analyst", "dominio de negocio y reglas"),
-            ("pm-ux", "UX Researcher", "experiencia de usuario y flujos"),
-            ("pm-technical", "Technical Analyst", "stack técnico y arquitectura"),
-            ("pm-integration", "Integration Analyst", "integraciones externas"),
-            ("pm-risk", "Risk Analyst", "riesgos y seguridad"),
+            ("pm-domain", "Domain Analyst", "business domain and rules"),
+            ("pm-ux", "UX Researcher", "user experience and flows"),
+            ("pm-technical", "Technical Analyst", "technical stack and architecture"),
+            ("pm-integration", "Integration Analyst", "external integrations"),
+            ("pm-risk", "Risk Analyst", "risks and security"),
         ]
 
         research_calls = {sid: 0 for sid, _, _ in subagents}
         consolidation_calls = 0
 
-        def run_kimi(prompt, phase_name, timeout_seconds, agent_id=None):
+        def run_ai(prompt, phase_name, timeout_seconds, agent_id=None):
             if agent_id in research_calls:
                 research_calls[agent_id] += 1
-                return f"# Hallazgos de {agent_id}\n\nPunto clave para {agent_id}."
+                return f"# Findings for {agent_id}\n\nKey point for {agent_id}."
             if agent_id == "pm-research-agents":
                 nonlocal consolidation_calls
                 consolidation_calls += 1
                 return (
-                    "# PRD consolidado\n\n"
-                    "## Resumen\n"
-                    "Módulo de autenticación OAuth para Scord V3.\n\n"
-                    "## Historias de usuario\n"
-                    "- Login con Google\n"
-                    "- Logout seguro\n"
-                    "- Refresh de token\n"
+                    "# Consolidated PRD\n\n"
+                    "## Summary\n"
+                    "OAuth authentication module for Scord V3.\n\n"
+                    "## User stories\n"
+                    "- Login with Google\n"
+                    "- Secure logout\n"
+                    "- Token refresh\n"
                 )
             return ""
 
@@ -66,13 +66,13 @@ def main():
             status = kwargs.get("status", "")
             progress = kwargs.get("progress", "")
             log = kwargs.get("log", "")
-            print(f"  [{agent_id}] {status} {progress}% — {log}")
+            print(f"  [{agent_id}] {status} {progress}% - {log}")
 
         def build_prompt(sub_id, focus, title, description, follow_up):
-            return f"Investiga {sub_id} ({focus}) para '{title}'"
+            return f"Research {sub_id} ({focus}) for '{title}'"
 
         def build_consolidator_prompt(title, description, research_files, prd_path):
-            return f"Consolida {list(research_files.keys())} en PRD para '{title}'"
+            return f"Consolidate {list(research_files.keys())} into a PRD for '{title}'"
 
         def extract_prd(output, title, description):
             return output
@@ -86,39 +86,39 @@ def main():
             return content
 
         def send_completion(prd_path, preview):
-            print(f"\n  ✅ PRD guardado en {prd_path}")
+            print(f"\n  OK: PRD saved at {prd_path}")
             print(f"     Preview: {preview[:120]}...")
 
         env = Environment()
 
         for sub_id, sub_name, focus in subagents:
             role = PMResearchRole(sub_id, sub_name, focus)
-            role.run_kimi = run_kimi
+            role.run_ai = run_ai
             env.add_role(role)
 
         lead = PMLeadRole(
-            run_kimi=run_kimi,
+            run_ai=run_ai,
             ticket_title="Login OAuth",
-            ticket_description="Agregar login con Google al sistema",
+            ticket_description="Add Google login to the system",
             prd_path=prd_path,
             build_consolidator_prompt=build_consolidator_prompt,
             extract_prd=extract_prd,
             parse_clarifications=parse_clarifications,
             write_fallback_prd=write_fallback_prd,
-            send_clarification=lambda sid, q: print(f"  ❓ Clarificación para {sid}: {q}"),
+            send_clarification=lambda sid, q: print(f"  Clarification for {sid}: {q}"),
             send_completion=send_completion,
             subagents=[sid for sid, _, _ in subagents],
         )
         env.add_role(lead)
 
         env.publish_message(Message(
-            content="Iniciar análisis de PM",
+            content="Start PM analysis",
             sent_from="orchestrator",
             cause_by="research_request",
             send_to={"all"},
             metadata={
                 "ticket_title": "Login OAuth",
-                "ticket_description": "Agregar login con Google al sistema",
+                "ticket_description": "Add Google login to the system",
                 "ticket_id": "DEMO-OAUTH",
                 "output_dir": output_dir,
                 "build_prompt": build_prompt,
@@ -128,25 +128,25 @@ def main():
             },
         ))
 
-        print("\n🚀 Iniciando demo PM Analysis con roles MetaGPT-style\n")
+        print("\nStarting PM Analysis demo with MetaGPT-style roles\n")
 
         for i in range(10):
-            print(f"— Ronda {i} —")
+            print(f"- Round {i} -")
             active = asyncio.run(env.run_round())
             if not active and env.is_idle():
                 break
 
-        print(f"\n📊 Resumen:")
-        print(f"   Rondas ejecutadas: {i + 1}")
-        print(f"   Llamadas a research: {sum(research_calls.values())}")
-        print(f"   Llamadas a consolidación: {consolidation_calls}")
-        print(f"   PRD listo: {lead.prd_ready}")
+        print(f"\nSummary:")
+        print(f"   Rounds executed: {i + 1}")
+        print(f"   Research calls: {sum(research_calls.values())}")
+        print(f"   Consolidation calls: {consolidation_calls}")
+        print(f"   PRD ready: {lead.prd_ready}")
         print(f"   PRD path: {prd_path}")
 
         if prd_path.exists():
-            print(f"\n📝 Contenido del PRD:\n{prd_path.read_text(encoding='utf-8')[:500]}")
+            print(f"\nPRD content:\n{prd_path.read_text(encoding='utf-8')[:500]}")
         else:
-            print("\n⚠️  El PRD no fue generado.")
+            print("\nWARN: The PRD was not generated.")
 
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)

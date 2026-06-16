@@ -23,21 +23,21 @@ def default_build_review_prompt(
     files_str = ", ".join(str(f) for f in files) if files else "N/A"
 
     return (
-        "Eres un QA Engineer experto. Revisa los cambios de esta tarea y decide si apruebas o rechazas.\n\n"
-        f"TAREA: {task.get('id', '')} - {task.get('title', '')}\n"
-        f"DESCRIPCIÓN: {task.get('description', '')}\n"
-        f"COMPLEJIDAD: {task.get('complexity', 'M')}\n"
-        f"ARCHIVOS: {files_str}\n"
+        "You are an expert QA Engineer. Review this task's changes and decide whether to approve or reject them.\n\n"
+        f"TASK: {task.get('id', '')} - {task.get('title', '')}\n"
+        f"DESCRIPTION: {task.get('description', '')}\n"
+        f"COMPLEXITY: {task.get('complexity', 'M')}\n"
+        f"FILES: {files_str}\n"
         f"CHECKLIST QA:\n{checklist_str}\n\n"
         f"REPO: {repo_path}\n"
-        f"RAMA: {branch or 'N/A'}\n\n"
-        f"DIFF:\n{diff or '(no diff proporcionado)'}\n\n"
+        f"BRANCH: {branch or 'N/A'}\n\n"
+        f"DIFF:\n{diff or '(no diff provided)'}\n\n"
         f"BUILD OUTPUT:\n{build_output or '(no build output)'}\n\n"
         f"TEST OUTPUT:\n{test_output or '(no test output)'}\n\n"
-        "Responde EXACTAMENTE en este formato:\n"
-        "VEREDICTO: APROBADO|RECHAZADO\n"
-        "RAZÓN: <razón concisa>\n"
-        "SUGERENCIA: <sugerencia de corrección si aplica>"
+        "Respond EXACTLY in this format:\n"
+        "VERDICT: APPROVED|REJECTED\n"
+        "REASON: <concise reason>\n"
+        "SUGGESTION: <correction suggestion if applicable>"
     )
 
 
@@ -51,15 +51,15 @@ def default_extract_review_result(output: Optional[str]) -> Dict[str, Any]:
         }
 
     text = output.strip()
-    approved = "APROBADO" in text and "RECHAZADO" not in text
+    approved = "APPROVED" in text and "REJECTED" not in text
     reason = ""
     suggested_fix = ""
 
     for line in text.splitlines():
         stripped = line.strip()
-        if stripped.startswith("RAZÓN:"):
+        if stripped.startswith("REASON:"):
             reason = stripped.split(":", 1)[1].strip()
-        elif stripped.startswith("SUGERENCIA:"):
+        elif stripped.startswith("SUGGESTION:"):
             suggested_fix = stripped.split(":", 1)[1].strip()
 
     if not reason:
@@ -78,7 +78,7 @@ class ReviewAction(Action):
     async def run(
         self,
         context: List[Message],
-        run_kimi: Optional[Any] = None,
+        run_ai: Optional[Any] = None,
         **kwargs,
     ) -> Message:
         required_keys = [
@@ -117,10 +117,10 @@ class ReviewAction(Action):
         )
 
         result: Dict[str, Any]
-        if run_kimi is None:
+        if run_ai is None:
             result = extract_review_result("")
         else:
-            raw = run_kimi(
+            raw = run_ai(
                 prompt,
                 phase_name,
                 timeout_seconds,

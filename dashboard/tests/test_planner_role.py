@@ -47,10 +47,10 @@ class TestPlanAction(unittest.TestCase):
         return kwargs
 
     def test_plan_action_writes_tasks_json(self):
-        kimi_calls = []
+        ai_calls = []
 
-        def mock_run_kimi(prompt, phase_name, timeout_seconds, agent_id=None):
-            kimi_calls.append({
+        def mock_run_ai(prompt, phase_name, timeout_seconds, agent_id=None):
+            ai_calls.append({
                 "prompt": prompt,
                 "phase_name": phase_name,
                 "timeout_seconds": timeout_seconds,
@@ -71,7 +71,7 @@ class TestPlanAction(unittest.TestCase):
         action = PlanAction("create-plan", "Create Task Plan")
         msg = asyncio.run(action.run(
             context=[],
-            run_kimi=mock_run_kimi,
+            run_ai=mock_run_ai,
             **self._default_kwargs(),
         ))
 
@@ -80,12 +80,12 @@ class TestPlanAction(unittest.TestCase):
         self.assertEqual(len(tasks), 1)
         self.assertEqual(tasks[0]["id"], "TKT-001-T1")
 
-        self.assertEqual(len(kimi_calls), 1)
-        self.assertEqual(kimi_calls[0]["phase_name"], "planning")
-        self.assertEqual(kimi_calls[0]["timeout_seconds"], 120)
-        self.assertEqual(kimi_calls[0]["agent_id"], "planner")
-        self.assertIn("PRD", kimi_calls[0]["prompt"])
-        self.assertIn("ARQUITECTURA", kimi_calls[0]["prompt"])
+        self.assertEqual(len(ai_calls), 1)
+        self.assertEqual(ai_calls[0]["phase_name"], "planning")
+        self.assertEqual(ai_calls[0]["timeout_seconds"], 120)
+        self.assertEqual(ai_calls[0]["agent_id"], "planner")
+        self.assertIn("PRD", ai_calls[0]["prompt"])
+        self.assertIn("ARCHITECTURE", ai_calls[0]["prompt"])
 
         self.assertEqual(msg.sent_from, "planner")
         self.assertEqual(msg.cause_by, "plan_ready")
@@ -96,7 +96,7 @@ class TestPlanAction(unittest.TestCase):
         self.assertFalse(msg.metadata.get("fallback", True))
 
     def test_plan_action_uses_wrapped_tasks_key(self):
-        def mock_run_kimi(prompt, phase_name, timeout_seconds, agent_id=None):
+        def mock_run_ai(prompt, phase_name, timeout_seconds, agent_id=None):
             return json.dumps({
                 "tasks": [
                     {
@@ -114,7 +114,7 @@ class TestPlanAction(unittest.TestCase):
         action = PlanAction("create-plan", "Create Task Plan")
         msg = asyncio.run(action.run(
             context=[],
-            run_kimi=mock_run_kimi,
+            run_ai=mock_run_ai,
             **self._default_kwargs(),
         ))
 
@@ -123,11 +123,11 @@ class TestPlanAction(unittest.TestCase):
         self.assertEqual(tasks[0]["id"], "TKT-001-T1")
         self.assertFalse(msg.metadata.get("fallback", True))
 
-    def test_plan_action_fallback_when_no_kimi(self):
+    def test_plan_action_fallback_when_no_ai_runner(self):
         action = PlanAction("create-plan", "Create Task Plan")
         msg = asyncio.run(action.run(
             context=[],
-            run_kimi=None,
+            run_ai=None,
             **self._default_kwargs(),
         ))
 
@@ -141,13 +141,13 @@ class TestPlanAction(unittest.TestCase):
         self.assertTrue(msg.metadata.get("fallback"))
 
     def test_plan_action_fallback_on_invalid_json(self):
-        def mock_run_kimi(prompt, phase_name, timeout_seconds, agent_id=None):
+        def mock_run_ai(prompt, phase_name, timeout_seconds, agent_id=None):
             return "No valid JSON here"
 
         action = PlanAction("create-plan", "Create Task Plan")
         msg = asyncio.run(action.run(
             context=[],
-            run_kimi=mock_run_kimi,
+            run_ai=mock_run_ai,
             **self._default_kwargs(),
         ))
 
@@ -159,13 +159,13 @@ class TestPlanAction(unittest.TestCase):
         self.assertTrue(msg.metadata.get("fallback"))
 
     def test_plan_action_fallback_on_empty_output(self):
-        def mock_run_kimi(prompt, phase_name, timeout_seconds, agent_id=None):
+        def mock_run_ai(prompt, phase_name, timeout_seconds, agent_id=None):
             return None
 
         action = PlanAction("create-plan", "Create Task Plan")
         msg = asyncio.run(action.run(
             context=[],
-            run_kimi=mock_run_kimi,
+            run_ai=mock_run_ai,
             **self._default_kwargs(),
         ))
 
@@ -173,8 +173,8 @@ class TestPlanAction(unittest.TestCase):
         self.assertEqual(msg.cause_by, "plan_ready")
         self.assertTrue(msg.metadata.get("fallback"))
 
-    def test_plan_action_async_run_kimi(self):
-        async def mock_run_kimi(prompt, phase_name, timeout_seconds, agent_id=None):
+    def test_plan_action_async_run_ai(self):
+        async def mock_run_ai(prompt, phase_name, timeout_seconds, agent_id=None):
             await asyncio.sleep(0)
             return json.dumps([
                 {
@@ -191,7 +191,7 @@ class TestPlanAction(unittest.TestCase):
         action = PlanAction("create-plan", "Create Task Plan")
         msg = asyncio.run(action.run(
             context=[],
-            run_kimi=mock_run_kimi,
+            run_ai=mock_run_ai,
             **self._default_kwargs(),
         ))
 
@@ -209,7 +209,7 @@ class TestPlanAction(unittest.TestCase):
         self.assertIn("missing required kwargs", str(cm.exception).lower())
 
     def test_plan_action_without_architecture_path(self):
-        def mock_run_kimi(prompt, phase_name, timeout_seconds, agent_id=None):
+        def mock_run_ai(prompt, phase_name, timeout_seconds, agent_id=None):
             self.assertNotIn("ARQUITECTURA", prompt)
             return json.dumps([
                 {
@@ -228,7 +228,7 @@ class TestPlanAction(unittest.TestCase):
         kwargs["architecture_path"] = None
         msg = asyncio.run(action.run(
             context=[],
-            run_kimi=mock_run_kimi,
+            run_ai=mock_run_ai,
             **kwargs,
         ))
 
@@ -250,7 +250,7 @@ class TestPlannerRole(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.tmpdir, ignore_errors=True)
 
-    def _create_role(self, env=None, run_kimi=None, **kwargs):
+    def _create_role(self, env=None, run_ai=None, **kwargs):
         defaults = {
             "ticket_id": "TKT-001",
             "ticket_title": "Login",
@@ -261,7 +261,7 @@ class TestPlannerRole(unittest.TestCase):
             "timeout_seconds": 120,
         }
         defaults.update(kwargs)
-        role = PlannerRole(run_kimi=run_kimi, **defaults)
+        role = PlannerRole(run_ai=run_ai, **defaults)
         if env is not None:
             env.add_role(role)
         return role
@@ -269,7 +269,7 @@ class TestPlannerRole(unittest.TestCase):
     def test_planner_role_triggers_on_architecture_ready(self):
         env = Environment()
 
-        def mock_run_kimi(prompt, phase_name, timeout_seconds, agent_id=None):
+        def mock_run_ai(prompt, phase_name, timeout_seconds, agent_id=None):
             return json.dumps([
                 {
                     "id": "TKT-001-T1",
@@ -282,7 +282,7 @@ class TestPlannerRole(unittest.TestCase):
                 }
             ])
 
-        role = self._create_role(env=env, run_kimi=mock_run_kimi)
+        role = self._create_role(env=env, run_ai=mock_run_ai)
         env.publish_message(Message(
             content="PRD ready",
             sent_from="pm-lead",
@@ -309,7 +309,7 @@ class TestPlannerRole(unittest.TestCase):
     def test_planner_role_triggers_on_prd_ready_when_no_architect(self):
         env = Environment()
 
-        def mock_run_kimi(prompt, phase_name, timeout_seconds, agent_id=None):
+        def mock_run_ai(prompt, phase_name, timeout_seconds, agent_id=None):
             return json.dumps([
                 {
                     "id": "TKT-001-T1",
@@ -322,7 +322,7 @@ class TestPlannerRole(unittest.TestCase):
                 }
             ])
 
-        role = self._create_role(env=env, run_kimi=mock_run_kimi)
+        role = self._create_role(env=env, run_ai=mock_run_ai)
         env.publish_message(Message(
             content="PRD ready",
             sent_from="pm-lead",
@@ -345,7 +345,7 @@ class TestPlannerRole(unittest.TestCase):
             role_id = "architect"
         env.add_role(FakeArchitect())
 
-        def mock_run_kimi(prompt, phase_name, timeout_seconds, agent_id=None):
+        def mock_run_ai(prompt, phase_name, timeout_seconds, agent_id=None):
             return json.dumps([
                 {
                     "id": "TKT-001-T1",
@@ -358,7 +358,7 @@ class TestPlannerRole(unittest.TestCase):
                 }
             ])
 
-        role = self._create_role(env=env, run_kimi=mock_run_kimi)
+        role = self._create_role(env=env, run_ai=mock_run_ai)
         env.publish_message(Message(
             content="PRD ready",
             sent_from="pm-lead",
@@ -392,7 +392,7 @@ class TestPlannerRole(unittest.TestCase):
 
         call_count = {"n": 0}
 
-        def mock_run_kimi(prompt, phase_name, timeout_seconds, agent_id=None):
+        def mock_run_ai(prompt, phase_name, timeout_seconds, agent_id=None):
             call_count["n"] += 1
             return json.dumps([
                 {
@@ -406,7 +406,7 @@ class TestPlannerRole(unittest.TestCase):
                 }
             ])
 
-        role = self._create_role(env=env, run_kimi=mock_run_kimi)
+        role = self._create_role(env=env, run_ai=mock_run_ai)
         env.publish_message(Message(
             content="Architecture ready",
             sent_from="architect",

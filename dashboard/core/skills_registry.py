@@ -30,7 +30,7 @@ class SkillsRegistry:
         lines = []
         if supports_skill_activation and skills:
             for skill in skills:
-                lines.append(f"Activa la skill '{skill}' y aplica sus convenciones y mejores prácticas.")
+                lines.append(f"Activate the '{skill}' skill and apply its conventions and best practices.")
         elif prefix:
             lines.append(prefix.strip())
         return "\n".join(lines)

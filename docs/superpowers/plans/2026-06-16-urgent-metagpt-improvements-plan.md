@@ -1,57 +1,21 @@
-# Plan urgente: 4 mejoras inspiradas en MetaGPT
+# MetaGPT Improvements Plan
 
-> **Goal:** Aplicar en meta-ralph las 4 mejoras de mayor impacto identificadas del estudio de MetaGPT: `_watch` declarativo, `ActionSet`/`todo`, feedback ejecutable y `Context` global tipado.
+## Goal
 
-**Archivos clave:**
-- `core/roles/base.py` — base `Role`
-- `core/actions/base.py` — base `Action`
-- `core/environment.py` — message pool
-- `core/context.py` — nuevo contexto global
-- `core/orchestrator.py` — orquestador principal
-- `core/roles/engineer_role.py` + `core/actions/implement_action.py` — feedback ejecutable
-- `core/roles/*_role.py` — roles existentes a migrar
-- `tests/` — tests nuevos y existentes
+Improve Meta-Ralph's role separation, planning quality, execution safety, and dashboard observability before publication.
 
----
+## Work Items
 
-## Tarea A: Contexto global tipado (`core/context.py`)
+- Clarify the role SOPs for PM Research, Product Manager, Architect, Project Manager, Engineer, and QA.
+- Ensure Engineer workers always receive a specific role context and feature focus.
+- Keep the Orchestrator out of implementation work.
+- Add or improve batch-level QA gates.
+- Keep dashboard board state synchronized with runtime state.
+- Make backend selection assistant-neutral instead of tied to one CLI.
 
-Crear un objeto `Context` compartido que contenga:
-- `ticket`: dict del ticket
-- `config`: dict de config (`scripts/meta-ralph/config.json`)
-- `prd_path`, `architecture_path`, `tasks_path`: `Path`
-- `repo_path`, `branch`: str
-- `backend_registry`: `BackendRegistry`
-- `skills_registry`: `SkillsRegistry`
-- `callbacks`: dict de callbacks del dashboard
-- `shared`: dict mutable para estado transversal
+## Acceptance Criteria
 
-Integrarlo en `Orchestrator` y pasarlo a los roles/actions via kwargs.
-
-## Tarea B: `_watch` declarativo + `ActionSet`/`todo`
-
-Refactorizar `Role` base para soportar:
-- `_watch`: lista de strings (cause_by) o clases `Action` que activan al rol.
-- `set_actions(actions)`: lista de acciones disponibles.
-- `todo`: acción actual seleccionada.
-- `react_mode`: `"by_order"` | `"react"`.
-- `_think(context)`: elige `todo` según modo y triggers.
-- `_act(context, **kwargs)`: ejecuta `todo.run()`.
-- `run(env, **kwargs)`: observe → think → act → publish.
-
-Actualizar todos los roles existentes para usar `_watch` y `set_actions`.
-
-## Tarea C: Feedback ejecutable real
-
-En `ImplementAction`/`EngineerRole`:
-- Después de generar código, ejecutar `dotnet build` y `dotnet test` en el repo/rama.
-- Capturar stdout/stderr/returncode.
-- Publicar un mensaje `build_result` / `test_result` al `Environment`.
-- Si falla, el `RecoveryRole` o el propio engineer debe reintentar (hasta N rondas).
-- `QARole` usa los resultados reales en lugar de diff vacío.
-
----
-
-## Ejecución
-
-Tareas A, B y C son independientes a nivel de archivos (A toca `context.py` + `orchestrator.py`; B toca `roles/base.py` + roles; C toca `engineer_role.py` + `implement_action.py`). Se ejecutarán en paralelo con subagentes, luego integración y tests.
+- Public documentation is in native English.
+- CLI mode can run with configurable AI backends.
+- Native skill mode includes fallbacks for hosts without background subagents.
+- Dashboard and worker state remain understandable during long runs.

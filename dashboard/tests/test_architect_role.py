@@ -21,7 +21,7 @@ class TestArchitectAction(unittest.TestCase):
         self.tmpdir = tempfile.mkdtemp()
         self.prd_path = Path(self.tmpdir) / "prd.md"
         self.architecture_path = Path(self.tmpdir) / "architecture.md"
-        self.prd_path.write_text("# PRD\n\nImplementar login.", encoding="utf-8")
+        self.prd_path.write_text("# PRD\n\nImplement login.", encoding="utf-8")
 
     def tearDown(self):
         shutil.rmtree(self.tmpdir, ignore_errors=True)
@@ -41,36 +41,36 @@ class TestArchitectAction(unittest.TestCase):
         return kwargs
 
     def test_architect_action_writes_architecture(self):
-        kimi_calls = []
+        ai_calls = []
 
-        def mock_run_kimi(prompt, phase_name, timeout_seconds, agent_id=None):
-            kimi_calls.append({
+        def mock_run_ai(prompt, phase_name, timeout_seconds, agent_id=None):
+            ai_calls.append({
                 "prompt": prompt,
                 "phase_name": phase_name,
                 "timeout_seconds": timeout_seconds,
                 "agent_id": agent_id,
             })
-            return "# Arquitectura\n\n## Decisiones\nUsar OAuth."
+            return "# Architecture\n\n## Decisions\nUse OAuth."
 
         action = ArchitectAction("architect-generate", "Generate Architecture")
         msg = asyncio.run(action.run(
             context=[],
-            run_kimi=mock_run_kimi,
+            run_ai=mock_run_ai,
             **self._default_kwargs(),
         ))
 
         self.assertTrue(self.architecture_path.exists())
         self.assertEqual(
             self.architecture_path.read_text(encoding="utf-8"),
-            "# Arquitectura\n\n## Decisiones\nUsar OAuth.",
+            "# Architecture\n\n## Decisions\nUse OAuth.",
         )
 
-        self.assertEqual(len(kimi_calls), 1)
-        self.assertEqual(kimi_calls[0]["phase_name"], "architect")
-        self.assertEqual(kimi_calls[0]["timeout_seconds"], 120)
-        self.assertEqual(kimi_calls[0]["agent_id"], "architect")
-        self.assertIn("Arquitecto", kimi_calls[0]["prompt"])
-        self.assertIn("PRD:", kimi_calls[0]["prompt"])
+        self.assertEqual(len(ai_calls), 1)
+        self.assertEqual(ai_calls[0]["phase_name"], "architect")
+        self.assertEqual(ai_calls[0]["timeout_seconds"], 120)
+        self.assertEqual(ai_calls[0]["agent_id"], "architect")
+        self.assertIn("Architect", ai_calls[0]["prompt"])
+        self.assertIn("PRD:", ai_calls[0]["prompt"])
 
         self.assertEqual(msg.sent_from, "architect")
         self.assertEqual(msg.cause_by, "architecture_ready")
@@ -80,47 +80,47 @@ class TestArchitectAction(unittest.TestCase):
         self.assertFalse(msg.metadata.get("fallback", True))
 
     def test_architect_action_uses_review_answers(self):
-        kimi_calls = []
+        ai_calls = []
 
-        def mock_run_kimi(prompt, phase_name, timeout_seconds, agent_id=None):
-            kimi_calls.append({"prompt": prompt})
-            return "# Arquitectura\n\nUsar JWT."
+        def mock_run_ai(prompt, phase_name, timeout_seconds, agent_id=None):
+            ai_calls.append({"prompt": prompt})
+            return "# Architecture\n\nUse JWT."
 
         action = ArchitectAction("architect-generate", "Generate Architecture")
         msg = asyncio.run(action.run(
             context=[],
-            run_kimi=mock_run_kimi,
-            **self._default_kwargs({"review_answers": "Usar OAuth2 con Google"}),
+            run_ai=mock_run_ai,
+            **self._default_kwargs({"review_answers": "Use OAuth2 with Google"}),
         ))
 
-        self.assertIn("RESPUESTAS DEL DESIGN REVIEW", kimi_calls[0]["prompt"])
-        self.assertIn("Usar OAuth2 con Google", kimi_calls[0]["prompt"])
+        self.assertIn("DESIGN REVIEW ANSWERS", ai_calls[0]["prompt"])
+        self.assertIn("Use OAuth2 with Google", ai_calls[0]["prompt"])
         self.assertEqual(msg.cause_by, "architecture_ready")
 
     def test_architect_action_fallback_when_no_runner(self):
         action = ArchitectAction("architect-generate", "Generate Architecture")
         msg = asyncio.run(action.run(
             context=[],
-            run_kimi=None,
+            run_ai=None,
             **self._default_kwargs(),
         ))
 
         self.assertTrue(self.architecture_path.exists())
         content = self.architecture_path.read_text(encoding="utf-8")
-        self.assertIn("Arquitectura: Login", content)
-        self.assertIn("Mantener el stack", content)
+        self.assertIn("Architecture: Login", content)
+        self.assertIn("Preserve the project's existing stack", content)
 
         self.assertEqual(msg.cause_by, "architecture_ready")
         self.assertTrue(msg.metadata.get("fallback"))
 
-    def test_architect_action_fallback_on_empty_kimi_output(self):
-        def mock_run_kimi(prompt, phase_name, timeout_seconds, agent_id=None):
+    def test_architect_action_fallback_on_empty_ai_output(self):
+        def mock_run_ai(prompt, phase_name, timeout_seconds, agent_id=None):
             return None
 
         action = ArchitectAction("architect-generate", "Generate Architecture")
         msg = asyncio.run(action.run(
             context=[],
-            run_kimi=mock_run_kimi,
+            run_ai=mock_run_ai,
             **self._default_kwargs(),
         ))
 
@@ -128,19 +128,19 @@ class TestArchitectAction(unittest.TestCase):
         self.assertEqual(msg.cause_by, "architecture_ready")
         self.assertTrue(msg.metadata.get("fallback"))
 
-    def test_architect_action_async_run_kimi(self):
-        async def mock_run_kimi(prompt, phase_name, timeout_seconds, agent_id=None):
+    def test_architect_action_async_run_ai(self):
+        async def mock_run_ai(prompt, phase_name, timeout_seconds, agent_id=None):
             await asyncio.sleep(0)
-            return "# Arquitectura\n\nAsync arch."
+            return "# Architecture\n\nAsync arch."
 
         action = ArchitectAction("architect-generate", "Generate Architecture")
         msg = asyncio.run(action.run(
             context=[],
-            run_kimi=mock_run_kimi,
+            run_ai=mock_run_ai,
             **self._default_kwargs(),
         ))
 
-        self.assertEqual(self.architecture_path.read_text(encoding="utf-8"), "# Arquitectura\n\nAsync arch.")
+        self.assertEqual(self.architecture_path.read_text(encoding="utf-8"), "# Architecture\n\nAsync arch.")
         self.assertEqual(msg.cause_by, "architecture_ready")
         self.assertFalse(msg.metadata.get("fallback", True))
 
@@ -162,7 +162,7 @@ class TestDesignReviewAction(unittest.TestCase):
 
     def _default_kwargs(self, overrides=None):
         kwargs = {
-            "architecture_content": "# Arquitectura\n\n## Decisiones\nDECISIONES PENDIENTES:\n1. ¿OAuth propio o de terceros?\n2. ¿Base de datos relacional o NoSQL?",
+            "architecture_content": "# Architecture\n\n## Decisions\nPENDING DECISIONS:\n1. First-party OAuth or third-party OAuth?\n2. Relational database or NoSQL?",
             "ticket_title": "Login",
             "ticket_description": "Allow users to log in",
             "ticket_id": "TKT-001",
@@ -174,26 +174,26 @@ class TestDesignReviewAction(unittest.TestCase):
         return kwargs
 
     def test_design_review_action_requests_review(self):
-        kimi_calls = []
+        ai_calls = []
 
-        def mock_run_kimi(prompt, phase_name, timeout_seconds, agent_id=None):
-            kimi_calls.append({"prompt": prompt})
+        def mock_run_ai(prompt, phase_name, timeout_seconds, agent_id=None):
+            ai_calls.append({"prompt": prompt})
             return (
-                "DECISIONES PENDIENTES:\n"
-                "1. ¿OAuth propio o de terceros?\n"
-                "2. ¿Base de datos relacional o NoSQL?"
+                "PENDING DECISIONS:\n"
+                "1. First-party OAuth or third-party OAuth?\n"
+                "2. Relational database or NoSQL?"
             )
 
         action = DesignReviewAction("design-review", "Design Review")
         msg = asyncio.run(action.run(
             context=[],
-            run_kimi=mock_run_kimi,
+            run_ai=mock_run_ai,
             **self._default_kwargs(),
         ))
 
-        self.assertEqual(len(kimi_calls), 1)
-        self.assertIn("decisiones de diseño", kimi_calls[0]["prompt"].lower())
-        self.assertIn("TICKET:", kimi_calls[0]["prompt"])
+        self.assertEqual(len(ai_calls), 1)
+        self.assertIn("design decisions", ai_calls[0]["prompt"].lower())
+        self.assertIn("TICKET:", ai_calls[0]["prompt"])
 
         self.assertEqual(msg.sent_from, "architect")
         self.assertEqual(msg.cause_by, "design_review_requested")
@@ -201,30 +201,30 @@ class TestDesignReviewAction(unittest.TestCase):
         questions = msg.metadata.get("questions", [])
         self.assertEqual(len(questions), 2)
         self.assertIn("OAuth", questions[0])
-        self.assertIn("Base de datos", questions[1])
+        self.assertIn("Relational database", questions[1])
 
     def test_design_review_action_returns_assumed_answers_without_runner(self):
         action = DesignReviewAction("design-review", "Design Review")
         msg = asyncio.run(action.run(
             context=[],
-            run_kimi=None,
+            run_ai=None,
             **self._default_kwargs(),
         ))
 
         self.assertEqual(msg.cause_by, "design_review_answered")
         self.assertTrue(msg.metadata.get("assumed"))
         self.assertIn("answers", msg.metadata)
-        self.assertIn("stack/patrones existentes", str(msg.metadata["answers"]))
-        self.assertIn("Respuestas asumidas", msg.content)
+        self.assertIn("current stack and patterns", str(msg.metadata["answers"]))
+        self.assertIn("Assumed answers", msg.content)
 
     def test_design_review_action_answers_when_no_questions_extracted(self):
-        def mock_run_kimi(prompt, phase_name, timeout_seconds, agent_id=None):
-            return "SIN_DECISIONES_PENDIENTES"
+        def mock_run_ai(prompt, phase_name, timeout_seconds, agent_id=None):
+            return "NO_PENDING_DECISIONS"
 
         action = DesignReviewAction("design-review", "Design Review")
         msg = asyncio.run(action.run(
             context=[],
-            run_kimi=mock_run_kimi,
+            run_ai=mock_run_ai,
             **self._default_kwargs(),
         ))
 
@@ -232,15 +232,15 @@ class TestDesignReviewAction(unittest.TestCase):
         self.assertTrue(msg.metadata.get("assumed"))
         self.assertIn("answers", msg.metadata)
 
-    def test_design_review_action_async_run_kimi(self):
-        async def mock_run_kimi(prompt, phase_name, timeout_seconds, agent_id=None):
+    def test_design_review_action_async_run_ai(self):
+        async def mock_run_ai(prompt, phase_name, timeout_seconds, agent_id=None):
             await asyncio.sleep(0)
-            return "1. ¿Usar cache?\n2. ¿Rate limiting?"
+            return "1. Use cache?\n2. Rate limiting?"
 
         action = DesignReviewAction("design-review", "Design Review")
         msg = asyncio.run(action.run(
             context=[],
-            run_kimi=mock_run_kimi,
+            run_ai=mock_run_ai,
             **self._default_kwargs(),
         ))
 
@@ -261,12 +261,12 @@ class TestArchitectRole(unittest.TestCase):
         self.tmpdir = tempfile.mkdtemp()
         self.prd_path = Path(self.tmpdir) / "prd.md"
         self.architecture_path = Path(self.tmpdir) / "architecture.md"
-        self.prd_path.write_text("# PRD\n\nLogin con OAuth.", encoding="utf-8")
+        self.prd_path.write_text("# PRD\n\nLogin with OAuth.", encoding="utf-8")
 
     def tearDown(self):
         shutil.rmtree(self.tmpdir, ignore_errors=True)
 
-    def _create_role(self, run_kimi=None, **kwargs):
+    def _create_role(self, run_ai=None, **kwargs):
         defaults = {
             "prd_path": self.prd_path,
             "architecture_path": self.architecture_path,
@@ -277,19 +277,19 @@ class TestArchitectRole(unittest.TestCase):
             "timeout_seconds": 120,
         }
         defaults.update(kwargs)
-        return ArchitectRole(run_kimi=run_kimi, **defaults)
+        return ArchitectRole(run_ai=run_ai, **defaults)
 
     def test_architect_role_triggers_on_prd_ready(self):
         env = Environment()
 
-        def mock_run_kimi(prompt, phase_name, timeout_seconds, agent_id=None):
-            return "# Arquitectura\n\nUsar JWT para autenticación."
+        def mock_run_ai(prompt, phase_name, timeout_seconds, agent_id=None):
+            return "# Architecture\n\nUse JWT for authentication."
 
-        role = self._create_role(run_kimi=mock_run_kimi)
+        role = self._create_role(run_ai=mock_run_ai)
         env.add_role(role)
 
         env.publish_message(Message(
-            content="PRD listo",
+            content="PRD ready",
             sent_from="pm-research-agents",
             cause_by="prd_ready",
             send_to={"architect"},
@@ -310,29 +310,29 @@ class TestArchitectRole(unittest.TestCase):
         self.assertTrue(self.architecture_path.exists())
         self.assertEqual(
             self.architecture_path.read_text(encoding="utf-8"),
-            "# Arquitectura\n\nUsar JWT para autenticación.",
+            "# Architecture\n\nUse JWT for authentication.",
         )
         self.assertTrue(role._architecture_ready)
 
     def test_architect_role_requests_design_review_for_pending_decisions(self):
         env = Environment()
 
-        def mock_run_kimi(prompt, phase_name, timeout_seconds, agent_id=None):
-            if "decisiones de diseño" in prompt.lower():
-                return "DECISIONES PENDIENTES:\n1. ¿OAuth propio o terceros?\n2. ¿SQL o NoSQL?"
+        def mock_run_ai(prompt, phase_name, timeout_seconds, agent_id=None):
+            if "design decisions" in prompt.lower():
+                return "PENDING DECISIONS:\n1. First-party or third-party OAuth?\n2. SQL or NoSQL?"
             return (
-                "# Arquitectura\n\n"
-                "## Decisiones\n"
-                "DECISIONES PENDIENTES:\n"
-                "1. ¿OAuth propio o terceros?\n"
-                "2. ¿SQL o NoSQL?"
+                "# Architecture\n\n"
+                "## Decisions\n"
+                "PENDING DECISIONS:\n"
+                "1. First-party or third-party OAuth?\n"
+                "2. SQL or NoSQL?"
             )
 
-        role = self._create_role(run_kimi=mock_run_kimi)
+        role = self._create_role(run_ai=mock_run_ai)
         env.add_role(role)
 
         env.publish_message(Message(
-            content="PRD listo",
+            content="PRD ready",
             sent_from="pm-research-agents",
             cause_by="prd_ready",
             send_to={"architect"},
@@ -361,24 +361,24 @@ class TestArchitectRole(unittest.TestCase):
 
         outputs = [
             # First architect call: has pending decisions.
-            "# Arquitectura\n\nDECISIONES PENDIENTES:\n1. ¿OAuth propio o terceros?",
+            "# Architecture\n\nPENDING DECISIONS:\n1. First-party or third-party OAuth?",
             # Design review questions.
-            "DECISIONES PENDIENTES:\n1. ¿OAuth propio o terceros?",
+            "PENDING DECISIONS:\n1. First-party or third-party OAuth?",
             # Second architect call: refined architecture.
-            "# Arquitectura\n\nUsar OAuth2 con Google. Sin decisiones pendientes.",
+            "# Architecture\n\nUse OAuth2 with Google. No pending decisions.",
         ]
         call_index = {"idx": 0}
 
-        def mock_run_kimi(prompt, phase_name, timeout_seconds, agent_id=None):
+        def mock_run_ai(prompt, phase_name, timeout_seconds, agent_id=None):
             output = outputs[call_index["idx"]]
             call_index["idx"] += 1
             return output
 
-        role = self._create_role(run_kimi=mock_run_kimi)
+        role = self._create_role(run_ai=mock_run_ai)
         env.add_role(role)
 
         env.publish_message(Message(
-            content="PRD listo",
+            content="PRD ready",
             sent_from="pm-research-agents",
             cause_by="prd_ready",
             send_to={"architect"},
@@ -393,13 +393,13 @@ class TestArchitectRole(unittest.TestCase):
 
         # Simulate design review answers from orchestrator/user.
         env.publish_message(Message(
-            content="Usar OAuth2 con Google",
+            content="Use OAuth2 with Google",
             sent_from="orchestrator",
             cause_by="design_review_answered",
             send_to={"architect"},
             metadata={
                 "ticket_id": "TKT-001",
-                "answers": {"¿OAuth propio o terceros?": "Usar OAuth2 con Google"},
+                "answers": {"First-party or third-party OAuth?": "Use OAuth2 with Google"},
             },
         ))
 
@@ -409,15 +409,15 @@ class TestArchitectRole(unittest.TestCase):
         self.assertEqual(response.cause_by, "architecture_ready")
         self.assertTrue(role._architecture_ready)
         self.assertFalse(role._pending_review)
-        self.assertIn("OAuth2 con Google", response.content)
+        self.assertIn("OAuth2 with Google", response.content)
 
     def test_architect_role_ignores_irrelevant_messages(self):
         env = Environment()
 
-        def mock_run_kimi(prompt, phase_name, timeout_seconds, agent_id=None):
-            return "# Arquitectura"
+        def mock_run_ai(prompt, phase_name, timeout_seconds, agent_id=None):
+            return "# Architecture"
 
-        role = self._create_role(run_kimi=mock_run_kimi)
+        role = self._create_role(run_ai=mock_run_ai)
         env.add_role(role)
 
         env.publish_message(Message(
@@ -436,7 +436,7 @@ class TestArchitectRole(unittest.TestCase):
 
         context = [
             Message(
-                content="PRD listo",
+                content="PRD ready",
                 sent_from="pm-research-agents",
                 cause_by="prd_ready",
                 send_to={"architect"},

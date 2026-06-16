@@ -17,7 +17,7 @@ class PMLeadRole(Role):
     def __init__(
         self,
         actions: Optional[List[Any]] = None,
-        run_kimi: Optional[Any] = None,
+        run_ai: Optional[Any] = None,
         ticket_title: str = "",
         ticket_description: str = "",
         prd_path: Optional[Any] = None,
@@ -38,7 +38,7 @@ class PMLeadRole(Role):
             actions=actions,
             addresses=self.addresses,
         )
-        self.run_kimi = run_kimi
+        self.run_ai = run_ai
         self.ticket_title = ticket_title
         self.ticket_description = ticket_description
         self.prd_path = Path(prd_path) if prd_path else None
@@ -111,7 +111,7 @@ class PMLeadRole(Role):
             return None
 
         action_kwargs = {
-            "run_kimi": self.run_kimi,
+            "run_ai": self.run_ai,
             "ticket_title": self.ticket_title,
             "ticket_description": self.ticket_description,
             "research_files": dict(self.research_files),

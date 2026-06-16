@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
 AgentFlow Dashboard Server
-Servidor web local tipo Kanban/Jira para visualizar y gestionar tickets,
-con orchestración automática del loop multi-agente cuando un ticket pasa
-a "ready-for-work".
+Local Kanban/Jira-style web server for viewing and managing tickets,
+with automatic multi-agent loop orchestration when a ticket moves to
+"ready-for-work".
 """
 
 import argparse
@@ -28,17 +28,12 @@ import communication_bus as bus
 from core import pm_analysis
 from core.orchestrator import Orchestrator
 
-# Permitir volcar stack traces de todos los threads con SIGUSR1 para debugging
+# Allow dumping stack traces for all threads with SIGUSR1 during debugging.
 faulthandler.enable()
 try:
     faulthandler.register(signal.SIGUSR1, all_threads=True)
 except Exception:
     pass
-
-try:
-    import pexpect
-except ImportError:
-    pexpect = None
 
 from flask import Flask, jsonify, request, send_from_directory
 from flask_socketio import SocketIO, emit
@@ -73,13 +68,12 @@ _ANSI_ESCAPE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
 
 
 def strip_ansi(text):
-    """Elimina códigos de escape ANSI de un texto."""
+    """Remove ANSI escape codes from text."""
     return _ANSI_ESCAPE.sub("", text)
 
 
-# Locks para acceso concurrente
-# run_lock es RLock porque múltiples métodos del runner pueden anidarse
-# (por ejemplo, self.log -> append_log -> with run_lock dentro de otro with run_lock).
+# Locks for concurrent access.
+# run_lock is an RLock because multiple runner methods can be nested.
 run_lock = threading.RLock()
 board_lock = threading.RLock()
 _active_run_thread = None
@@ -87,12 +81,12 @@ paused_run_threads = {}
 
 
 def get_meta_dir():
-    """Devuelve el directorio scripts/meta-ralph relativo al proyecto."""
+    """Return the scripts/meta-ralph directory relative to the project."""
     return Path.cwd() / "scripts" / "meta-ralph"
 
 
 def get_board_path():
-    """Resuelve la ruta del board.json relativa al proyecto actual."""
+    """Resolve the board.json path relative to the current project."""
     global BOARD_FILE
     if BOARD_FILE:
         return BOARD_FILE
@@ -123,12 +117,12 @@ def get_log_path():
 
 
 def get_ticket_snapshot_path(ticket_id):
-    """Ruta del snapshot de run-state para un ticket pausado."""
+    """Path for a paused ticket run-state snapshot."""
     return get_run_state_path().parent / f"run-state.{ticket_id}.json"
 
 
 def save_ticket_snapshot(ticket_id, state):
-    """Guarda una copia del run-state actual para un ticket."""
+    """Save a copy of the current run-state for a ticket."""
     path = get_ticket_snapshot_path(ticket_id)
     path.parent.mkdir(parents=True, exist_ok=True)
     snapshot = dict(state)
@@ -138,11 +132,11 @@ def save_ticket_snapshot(ticket_id, state):
         with open(path, "w", encoding="utf-8") as f:
             json.dump(snapshot, f, indent=2, ensure_ascii=False)
     except (IOError, TypeError) as exc:
-        append_log(f"No se pudo guardar snapshot para {ticket_id}: {exc}", "error")
+        append_log(f"Could not save snapshot for {ticket_id}: {exc}", "error")
 
 
 def load_ticket_snapshot(ticket_id):
-    """Carga el snapshot de run-state de un ticket si existe."""
+    """Load a ticket run-state snapshot if one exists."""
     path = get_ticket_snapshot_path(ticket_id)
     if not path.exists():
         return None
@@ -150,19 +144,19 @@ def load_ticket_snapshot(ticket_id):
         with open(path, "r", encoding="utf-8") as f:
             return json.load(f)
     except (json.JSONDecodeError, IOError) as exc:
-        append_log(f"No se pudo cargar snapshot para {ticket_id}: {exc}", "error")
+        append_log(f"Could not load snapshot for {ticket_id}: {exc}", "error")
         return None
 
 
 def delete_ticket_snapshot(ticket_id):
-    """Elimina el snapshot de un ticket."""
+    """Delete a ticket snapshot."""
     path = get_ticket_snapshot_path(ticket_id)
     if path.exists():
         path.unlink()
 
 
 def list_ticket_snapshots():
-    """Devuelve los ticketIds que tienen snapshot en disco."""
+    """Return ticket IDs that have a snapshot on disk."""
     parent = get_run_state_path().parent
     if not parent.exists():
         return []
@@ -178,7 +172,7 @@ def list_ticket_snapshots():
 
 
 def ensure_default_columns(board):
-    """Migra el board para asegurar que tenga todas las columnas por defecto."""
+    """Migrate the board so all default columns exist."""
     columns = board.get("columns", [])
     if not columns:
         board["columns"] = DEFAULT_COLUMNS.copy()
@@ -195,11 +189,11 @@ def ensure_default_columns(board):
         else:
             new_columns.append(col)
 
-    # Si no había backlog, insertar ready-for-work al inicio
+    # If backlog did not exist, insert ready-for-work at the beginning.
     if not backlog_seen and "ready-for-work" not in new_columns:
         new_columns.insert(0, "ready-for-work")
 
-    # Asegurar que no haya duplicados y mantener orden
+    # Ensure there are no duplicates and preserve order.
     final_columns = []
     for col in DEFAULT_COLUMNS:
         if col in new_columns and col not in final_columns:
@@ -298,24 +292,24 @@ def load_run_state():
 
 
 def compute_run_summary(status, current_agent):
-    """Genera un resumen corto (<=15 palabras) del estado actual del run."""
+    """Generate a short summary of the current run state."""
     if status == "completed":
-        return "Loop completado exitosamente."
+        return "Loop completed successfully."
     if status == "failed":
-        return "El loop falló. Revisa los logs."
+        return "The loop failed. Check the logs."
     if status == "idle":
-        return "Esperando un ticket en Ready for Work."
+        return "Waiting for a ticket in Ready for Work."
     if status == "in-design":
         if current_agent == "architect":
-            return "Definiendo arquitectura y patrones técnicos globales."
+            return "Defining architecture and global technical patterns."
         if current_agent == "project-manager":
-            return "Armando plan de tareas y dependencias."
-        return "Analizando requisitos con 5 PM Research Agents en paralelo."
+            return "Building the task and dependency plan."
+        return "Analyzing requirements with PM Research Agents."
     if status == "in-progress":
-        return "Implementando tareas en paralelo con hasta 10 engineers."
+        return "Implementing tasks with parallel Engineers."
     if status == "in-review":
-        return "Revisando calidad: build y tests."
-    return f"Estado {status}."
+        return "Reviewing quality: build and tests."
+    return f"Status {status}."
 
 
 def save_run_state(state):
@@ -338,21 +332,21 @@ def save_run_state(state):
 
 
 def append_log(message, level="info"):
-    """Agrega una línea al run.log y al run-state."""
+    """Add one line to run.log and run-state."""
     ts = datetime.now(timezone.utc).isoformat()
     entry = {"timestamp": ts, "level": level, "message": message}
 
-    # Archivo de log plano
+    # Plain log file.
     log_path = get_log_path()
     log_path.parent.mkdir(parents=True, exist_ok=True)
     with open(log_path, "a", encoding="utf-8") as f:
         f.write(f"[{ts}] [{level.upper()}] {message}\n")
 
-    # Estado
+    # State.
     with run_lock:
         state = load_run_state()
         state["logs"] = state.get("logs", []) + [entry]
-        # Mantener últimos 500 logs
+        # Keep the latest 500 logs.
         state["logs"] = state["logs"][-500:]
         save_run_state(state)
 
@@ -373,18 +367,18 @@ _clarification_waiters = {}
 
 
 def _extract_ask_json(raw_text):
-    """Extrae y valida el JSON de pregunta entre DECISION_REQUERIDA y FIN_PREGUNTA."""
+    """Extract and validate question JSON between DECISION_REQUIRED and END_QUESTION."""
     if not raw_text:
         return None
     text = strip_ansi(raw_text)
-    start = text.rfind("DECISION_REQUERIDA")
+    start = text.rfind("DECISION_REQUIRED")
     if start == -1:
         return None
-    end = text.find("FIN_PREGUNTA", start)
+    end = text.find("END_QUESTION", start)
     if end == -1:
         return None
-    json_text = text[start + len("DECISION_REQUERIDA"):end].strip()
-    # Debe ser un objeto JSON
+    json_text = text[start + len("DECISION_REQUIRED"):end].strip()
+    # Must be a JSON object.
     if not json_text.startswith("{"):
         return None
     try:
@@ -401,40 +395,40 @@ def _question_id(ticket_id, phase_name, agent_id=None):
 
 
 def _question_answer_path(question):
-    """Devuelve la ruta del archivo de respuesta para una pregunta."""
+    """Return the answer file path for a question."""
     safe_phase = question.get("phase", "").lower().replace(' ', '-')
     return get_meta_dir() / "state" / f"answer-{question['ticketId']}-{safe_phase}.txt"
 
 
 def _write_answer_file(question, answer_text):
-    """Escribe la respuesta en el archivo que expect está esperando."""
+    """Write the answer to the file the runner is waiting for."""
     try:
         answer_path = _question_answer_path(question)
         answer_path.parent.mkdir(parents=True, exist_ok=True)
         answer_path.write_text(answer_text, encoding="utf-8")
         return True
     except Exception as exc:
-        append_log(f"Error escribiendo answer file: {exc}", "error")
+        append_log(f"Error writing answer file: {exc}", "error")
         return False
 
 
 def _auto_answer_question(question_id):
-    """Responde automáticamente una pregunta si el usuario no lo hizo a tiempo."""
-    auto_answer = "Decide solo (timeout)"
+    """Automatically answer a question if the user did not answer in time."""
+    auto_answer = "Decide automatically (timeout)"
     q = answer_user_question(question_id, auto_answer)
     if q:
         _write_answer_file(q, auto_answer)
-        append_log(f"Pregunta {question_id} auto-respondida por timeout.", "warning")
+        append_log(f"Question {question_id} auto-answered after timeout.", "warning")
     _question_timers.pop(question_id, None)
 
 
 def create_user_question(ticket_id, phase_name, agent_id, agent_name, question, context, options):
-    """Registra una pregunta pendiente del usuario y notifica al frontend."""
+    """Register a pending user question and notify the frontend."""
     with run_lock:
         state = load_run_state()
         questions = state.setdefault("pendingQuestions", [])
         qid = _question_id(ticket_id, phase_name, agent_id)
-        # Evitar duplicados para la misma fase/agente
+        # Avoid duplicates for the same phase/agent.
         for q in questions:
             if q.get("id") == qid and q.get("status") == "pending":
                 return q
@@ -458,7 +452,7 @@ def create_user_question(ticket_id, phase_name, agent_id, agent_name, question, 
         save_run_state(state)
         socketio.emit("pending_question", q)
 
-    # Timer: si no responden antes de expiresAt, el agente decide solo
+    # Timer: if no answer arrives before expiresAt, the agent decides automatically.
     delay = max(0.0, q["expiresAt"] - datetime.now(timezone.utc).timestamp())
     timer = threading.Timer(delay, _auto_answer_question, args=[qid])
     timer.daemon = True
@@ -468,7 +462,7 @@ def create_user_question(ticket_id, phase_name, agent_id, agent_name, question, 
 
 
 def answer_user_question(question_id, answer_text):
-    """Guarda la respuesta del usuario y actualiza el estado."""
+    """Save the user answer and update state."""
     timer = _question_timers.pop(question_id, None)
     if timer:
         timer.cancel()
@@ -497,7 +491,7 @@ def answer_user_question(question_id, answer_text):
 
 
 def has_pending_question(ticket_id=None, phase_name=None, agent_id=None):
-    """Devuelve True si existe una pregunta pendiente que coincida con los filtros."""
+    """Return True if a matching pending question exists."""
     with run_lock:
         state = load_run_state()
         for q in state.get("pendingQuestions", []):
@@ -514,7 +508,7 @@ def has_pending_question(ticket_id=None, phase_name=None, agent_id=None):
 
 
 def schedule_pending_question_timers():
-    """Reprograma timers para preguntas pendientes tras un reinicio del servidor."""
+    """Reschedule timers for pending questions after a server restart."""
     with run_lock:
         state = load_run_state()
         pending = [q for q in state.get("pendingQuestions", []) if q.get("status") == "pending"]
@@ -527,22 +521,22 @@ def schedule_pending_question_timers():
         timer.daemon = True
         timer.start()
         _question_timers[qid] = timer
-        print(f"Timer reprogramado para pregunta {qid} (faltan {int(delay)}s)")
+        print(f"Timer rescheduled for question {qid} ({int(delay)}s remaining)")
 
 
 def _agent_log(state, agent_id, message, level="info"):
-    """Añade un log a un agente en run-state."""
+    """Add a log entry to an agent in run-state."""
     ts = datetime.now(timezone.utc).isoformat()
     for agent in state.get("agents", []):
         if agent.get("id") == agent_id:
             agent.setdefault("logs", []).append({"timestamp": ts, "level": level, "message": message})
-            # mantener últimos 100 logs por agente
+            # Keep the latest 100 logs per agent.
             agent["logs"] = agent["logs"][-100:]
             break
 
 
 def _ensure_agent(state, agent_id, name, role, parent_id=None, status="queued", progress=0):
-    """Crea un agente si no existe y devuelvelo."""
+    """Create an agent if missing and return it."""
     for agent in state.get("agents", []):
         if agent.get("id") == agent_id:
             return agent
@@ -561,7 +555,7 @@ def _ensure_agent(state, agent_id, name, role, parent_id=None, status="queued", 
 
 
 def _update_agent(state, agent_id, **kwargs):
-    """Actualiza campos de un agente y añade log opcional."""
+    """Update agent fields and optionally add a log entry."""
     for agent in state.get("agents", []):
         if agent.get("id") == agent_id:
             for key, value in kwargs.items():
@@ -624,7 +618,7 @@ def update_ticket_status(ticket_id, status, extra=None):
 
 
 def update_ticket_runtime(ticket_id, **kwargs):
-    """Actualiza campos de ejecución de un ticket sin tocar su status."""
+    """Update ticket runtime fields without changing status."""
     with board_lock:
         board = load_board()
         ticket = next((t for t in board["tickets"] if t["id"] == ticket_id), None)
@@ -639,38 +633,38 @@ def update_ticket_runtime(ticket_id, **kwargs):
 
 
 def decision_request_instruction():
-    """Instrucción que se añade a prompts para que agentes pidan decisiones al usuario."""
+    """Instruction appended to prompts so agents can request user decisions."""
     return (
-        "\n\n--- INSTRUCCIÓN DE DECISIÓN ---\n"
-        "IMPORTANTE: en el 99% de los casos debes tomar la decisión tú mismo y seguir avanzando. "
-        "Solo usa el formato de abajo cuando te encuentres con un impedimento REAL que te impida continuar "
-        "sin una decisión explícita del usuario (por ejemplo, cambiar una API pública, eliminar datos, "
-        "elegir entre opciones que afecten arquitectura de largo plazo, o costos/riesgos importantes).\n\n"
-        "Si necesitas esa decisión, usa EXACTAMENTE este formato (markdown plano):\n\n"
-        "DECISION_REQUERIDA\n"
+        "\n\n--- DECISION INSTRUCTION ---\n"
+        "IMPORTANT: in 99% of cases, make the decision yourself and keep moving. "
+        "Use the format below only when you hit a REAL blocker that prevents progress "
+        "without an explicit user decision, such as changing a public API, deleting data, "
+        "choosing between options that affect long-term architecture, or taking on major cost/risk.\n\n"
+        "If you need that decision, use EXACTLY this plain markdown format:\n\n"
+        "DECISION_REQUIRED\n"
         "{\n"
-        '  "agent": "tu nombre o rol",\n'
-        '  "question": "¿Pregunta clara para el usuario?",\n'
-        '  "options": ["A) Opción A", "B) Opción B"],\n'
-        '  "context": "Explica por qué es un impedimento y qué implica cada opción."\n'
+        '  "agent": "your name or role",\n'
+        '  "question": "Clear question for the user",\n'
+        '  "options": ["A) Option A", "B) Option B"],\n'
+        '  "context": "Explain why this is a blocker and what each option implies."\n'
         "}\n"
-        "FIN_PREGUNTA\n\n"
-        "Después de escribir esto NO hagas nada más; el sistema pausará la ejecución y te enviará la respuesta del usuario. "
-        "Si el usuario no responde en 2 minutos o elige 'decide solo', deberás tomar la decisión por tu cuenta."
+        "END_QUESTION\n\n"
+        "After writing this, do nothing else; the system will pause execution and send you the user's answer. "
+        "If the user does not answer within 2 minutes or chooses automatic decision, decide on your own."
     )
 
 
 def slugify_title(title, max_length=40):
-    """Genera un slug seguro para nombre de branch a partir del título."""
+    """Generate a safe branch-name slug from a title."""
     if not title:
-        return "sin-titulo"
+        return "untitled"
     text = title.lower()
     replacements = {
-        "á": "a", "é": "e", "í": "i", "ó": "o", "ú": "u",
-        "ü": "u", "ñ": "n", "ç": "c",
-        "à": "a", "è": "e", "ì": "i", "ò": "o", "ù": "u",
-        "â": "a", "ê": "e", "î": "i", "ô": "o", "û": "u",
-        "ä": "a", "ë": "e", "ï": "i", "ö": "o", "ü": "u",
+        "\u00e1": "a", "\u00e9": "e", "\u00ed": "i", "\u00f3": "o", "\u00fa": "u",
+        "\u00fc": "u", "\u00f1": "n", "\u00e7": "c",
+        "\u00e0": "a", "\u00e8": "e", "\u00ec": "i", "\u00f2": "o", "\u00f9": "u",
+        "\u00e2": "a", "\u00ea": "e", "\u00ee": "i", "\u00f4": "o", "\u00fb": "u",
+        "\u00e4": "a", "\u00eb": "e", "\u00ef": "i", "\u00f6": "o",
     }
     for old, new in replacements.items():
         text = text.replace(old, new)
@@ -678,16 +672,16 @@ def slugify_title(title, max_length=40):
     text = re.sub(r"-+", "-", text)
     text = text.strip("-")
     if not text:
-        return "sin-titulo"
+        return "untitled"
     return text[:max_length].rstrip("-")
 
 
 def resolve_repo_path(repo_path):
-    """Devuelve la ruta absoluta del repo.
+    """Return the absolute repository path.
 
-    Si es relativa, primero prueba contra cwd; si no existe, prueba contra
-    el directorio padre de cwd (útil cuando el dashboard corre dentro de un
-    subproyecto y el repo está al mismo nivel o en el padre).
+    If it is relative, first try it against cwd; if it does not exist, try the
+    parent directory. This helps when the dashboard runs inside a subproject and
+    the repo is at the same level or in the parent.
     """
     if not repo_path:
         return ""
@@ -698,32 +692,32 @@ def resolve_repo_path(repo_path):
     for candidate in candidates:
         if candidate.exists():
             return str(candidate.resolve())
-    # Si ninguno existe, devolver el primero para que el mensaje de error sea consistente
+    # If none exists, return the first candidate so the error message is stable.
     return str((Path.cwd() / repo).resolve())
 
 
 def validate_git_repo(repo_path):
-    """Valida que repo_path sea un folder existente.
+    """Validate that repo_path is an existing folder.
 
-    Git es opcional: si el folder tiene .git se creará una branch, pero no
-    es requisito para que el ticket pueda ejecutarse.
+    Git is optional: if the folder has .git, a branch will be created, but git
+    is not required for a ticket to run.
     """
     if not repo_path:
-        return "REPO_MISSING", "El ticket no tiene un repo configurado."
+        return "REPO_MISSING", "The ticket does not have a repository configured."
     repo = Path(resolve_repo_path(repo_path))
     if not repo.exists() or not repo.is_dir():
         return (
             "REPO_NOT_FOUND",
-            f"El folder '{repo_path}' no existe.",
+            f"Folder '{repo_path}' does not exist.",
         )
     return None, None
 
 
 def create_git_branch(repo_path, ticket_id, title):
-    """Crea o cambia a la branch feature/<ticketId>-<slug> si el folder es un repo Git.
+    """Create or switch to feature/<ticketId>-<slug> when the folder is a Git repo.
 
-    Si el folder no tiene .git, no se crea branch y se retorna branch_name="".
-    Devuelve (branch_name, error_code, error_message).
+    If the folder has no .git directory, no branch is created and branch_name="" is returned.
+    Returns (branch_name, error_code, error_message).
     """
     repo_path = resolve_repo_path(repo_path)
     git_dir = Path(repo_path) / ".git"
@@ -755,31 +749,17 @@ def create_git_branch(repo_path, ticket_id, title):
         return branch, None, None
     except subprocess.CalledProcessError as exc:
         err = exc.stderr.strip() if exc.stderr else str(exc)
-        return None, "BRANCH_CREATE_FAILED", f"No se pudo crear la branch: {err}"
-
-
-def find_kimi_cli():
-    """Busca el ejecutable de kimi CLI."""
-    candidate = os.environ.get("KIMI_CLI", shutil.which("kimi"))
-    if candidate:
-        return candidate
-    home = Path.home()
-    for rel in [".kimi-code/bin/kimi", ".kimi/bin/kimi", ".local/bin/kimi"]:
-        p = home / rel
-        if p.exists():
-            return str(p)
-    return None
+        return None, "BRANCH_CREATE_FAILED", f"Could not create branch: {err}"
 
 
 class AgentRunner(threading.Thread):
-    """Thread que ejecuta el loop multi-agente para un ticket."""
+    """Thread that runs the multi-agent loop for one ticket."""
 
     def __init__(self, ticket, resume=False):
         super().__init__(daemon=True)
         self.ticket = ticket
         self.ticket_id = ticket["id"]
         self.resume = bool(resume)
-        self.kimi = find_kimi_cli()
         self._stop_heartbeat = threading.Event()
         self._heartbeat_thread = None
         self._stop_event = threading.Event()
@@ -790,7 +770,7 @@ class AgentRunner(threading.Thread):
         self.backend_registry = BackendRegistry.default()
         self.skills_registry = SkillsRegistry()
         available = [b.name for b in self.backend_registry.available_backends()]
-        self.log(f"Backends disponibles: {available}", "info")
+        self.log(f"Available backends: {available}", "info")
         self.orchestrator = Orchestrator(
             ticket,
             resume=resume,
@@ -800,7 +780,7 @@ class AgentRunner(threading.Thread):
         )
 
     def stop(self):
-        """Solicita la detención ordenada del runner."""
+        """Request an orderly runner stop."""
         self._stop_event.set()
         self._pause_event.clear()
         self._resume_event.set()
@@ -809,42 +789,42 @@ class AgentRunner(threading.Thread):
         self._stop_runtime_heartbeat()
 
     def pause(self):
-        """Pausa el runner en el próximo checkpoint."""
+        """Pause the runner at the next checkpoint."""
         self._resume_event.clear()
         self._pause_event.set()
         if hasattr(self, "orchestrator") and self.orchestrator:
             self.orchestrator.pause()
         update_run_state({"active": False, "status": "paused"})
-        self.log(f"Ticket {self.ticket_id} pausado.", "warning")
+        self.log(f"Ticket {self.ticket_id} paused.", "warning")
 
     def resume(self):
-        """Reanuda un runner pausado."""
+        """Resume a paused runner."""
         self._pause_event.clear()
         self._resume_event.set()
         if hasattr(self, "orchestrator") and self.orchestrator:
             self.orchestrator.resume()
 
     def _should_stop(self):
-        """Retorna True si se solicitó detener el runner."""
+        """Return True if a stop was requested."""
         return self._stop_event.is_set()
 
     def _is_paused(self):
-        """Retorna True si el runner está pausado."""
+        """Return True if the runner is paused."""
         return self._pause_event.is_set()
 
     def _check_pause(self):
-        """Si está pausado, bloquea hasta reanudar o detener."""
+        """If paused, block until resume or stop."""
         if not self._is_paused():
             return
-        self.log(f"Ticket {self.ticket_id} en pausa. Esperando reanudación...")
+        self.log(f"Ticket {self.ticket_id} is paused. Waiting for resume...")
         while self._is_paused() and not self._should_stop():
             self._resume_event.wait(timeout=1.0)
             self._resume_event.clear()
         if not self._should_stop():
-            self.log(f"Ticket {self.ticket_id} reanudado.")
+            self.log(f"Ticket {self.ticket_id} resumed.")
 
     def _should_stop_or_pause(self):
-        """Retorna True si se solicitó detener; si está pausado, espera primero."""
+        """Return True if stop was requested; if paused, wait first."""
         self._check_pause()
         return self._should_stop()
 
@@ -915,7 +895,7 @@ class AgentRunner(threading.Thread):
             return agent
 
     def _add_agent_message(self, sender_id, recipient_id, question):
-        """Registra una pregunta de un agente a otro y la expone en run-state."""
+        """Register a question from one agent to another and expose it in run-state."""
         msg_id = f"msg-{uuid.uuid4().hex[:8]}"
         message = {
             "id": msg_id,
@@ -930,11 +910,11 @@ class AgentRunner(threading.Thread):
             state = load_run_state()
             state.setdefault("messages", []).append(message)
             save_run_state(state)
-        self.log(f"{sender_id} preguntó a {recipient_id}: {question[:100]}...")
+        self.log(f"{sender_id} asked {recipient_id}: {question[:100]}...")
         return message
 
     def _answer_agent_message(self, message_id, answer):
-        """Marca una pregunta como respondida."""
+        """Mark a question as answered."""
         answered_msg = None
         with run_lock:
             state = load_run_state()
@@ -947,19 +927,19 @@ class AgentRunner(threading.Thread):
                     answered_msg = msg
                     break
         if answered_msg:
-            self.log(f"{answered_msg['to']} respondió a {answered_msg['from']}: {answer[:100]}...")
+            self.log(f"{answered_msg['to']} answered {answered_msg['from']}: {answer[:100]}...")
         return answered_msg
 
     def _consult_agent(self, sender_id, recipient_id, question, timeout_seconds=30, task_context=None):
-        """Consulta a otro agente y espera una respuesta generada por Kimi.
+        """Ask another agent and wait for a response from the configured backend.
 
-        Si el agente consultado no tiene contexto, se escala al orchestrator.
-        Si el orchestrator tampoco puede responder, se genera una respuesta
-        automática basada en el contexto del proyecto (recurso último).
+        If the consulted agent lacks context, escalate to the orchestrator.
+        If the orchestrator cannot answer either, generate an automatic answer
+        from the available project context as a last resort.
         """
         msg = self._add_agent_message(sender_id, recipient_id, question)
 
-        # Resolver nombres para el prompt
+        # Resolve names for the prompt.
         with run_lock:
             state = load_run_state()
             agents_by_id = {a["id"]: a for a in state.get("agents", [])}
@@ -968,47 +948,47 @@ class AgentRunner(threading.Thread):
 
         context_text = self._build_consultation_context(task_context)
 
-        prompt = f"""Activa la skill 'dotnet' y aplica sus convenciones y mejores prácticas a todo el código .NET que generes.
+        prompt = f"""Activate the 'dotnet' skill and apply its conventions and best practices to all .NET code you generate.
 
-Eres el agente {recipient_name} ({recipient_id}). Tu compañero {sender_name} ({sender_id}) te pregunta:
+You are agent {recipient_name} ({recipient_id}). Your teammate {sender_name} ({sender_id}) asks:
 
 "{question}"
 
-CONTEXTO DEL PROYECTO:
+PROJECT CONTEXT:
 {context_text}
 
-Responde de forma concisa y técnica. Si realmente no tienes información suficiente para responder, responde EXACTAMENTE con la frase: NO_TENGO_CONTEXTO_SUFICIENTE"""
+Respond concisely and technically. If you truly do not have enough information, respond EXACTLY with: INSUFFICIENT_CONTEXT"""
 
-        output = self._run_kimi_prompt(
+        output = self._run_ai_prompt(
             prompt,
-            phase_name=f"Consulta {recipient_id}",
+            phase_name=f"Consult {recipient_id}",
             timeout_seconds=timeout_seconds,
             agent_id=recipient_id,
         )
-        answer = (output or "").strip() or "NO_TENGO_CONTEXTO_SUFICIENTE"
+        answer = (output or "").strip() or "INSUFFICIENT_CONTEXT"
 
-        # Escalamiento 1: si el agente no tiene contexto, consultar al orchestrator
-        if "NO_TENGO_CONTEXTO_SUFICIENTE" in answer:
-            self.log(f"{recipient_id} no tuvo contexto; escalando a orchestrator...", "warning")
+        # Escalation 1: if the agent lacks context, consult the orchestrator.
+        if "INSUFFICIENT_CONTEXT" in answer or "NO_TENGO_CONTEXTO_SUFICIENTE" in answer:
+            self.log(f"{recipient_id} lacked context; escalating to orchestrator...", "warning")
             answer = self._consult_orchestrator(question, context_text)
 
         self._answer_agent_message(msg["id"], answer)
         return answer
 
     def _build_consultation_context(self, task_context=None):
-        """Construye un contexto enriquecido para consultas entre agentes."""
+        """Build enriched context for inter-agent consultation."""
         parts = []
         title = self.ticket.get("title", "")
         description = self.ticket.get("description", "")
-        parts.append(f"Ticket: {title}\nDescripción: {description}")
+        parts.append(f"Ticket: {title}\nDescription: {description}")
 
         prd_path = get_meta_dir() / "state" / f"prd-{self.ticket_id}.md"
         if prd_path.exists():
             try:
                 prd_text = prd_path.read_text(encoding="utf-8")[:2000]
-                parts.append(f"PRD (resumen):\n{prd_text}\n---")
+                parts.append(f"PRD (summary):\n{prd_text}\n---")
             except Exception as exc:
-                parts.append(f"No se pudo leer el PRD: {exc}")
+                parts.append(f"Could not read PRD: {exc}")
 
         tasks_path = get_meta_dir() / "state" / f"tasks-{self.ticket_id}.json"
         if tasks_path.exists():
@@ -1016,30 +996,30 @@ Responde de forma concisa y técnica. Si realmente no tienes información sufici
                 tasks = json.loads(tasks_path.read_text(encoding="utf-8"))
                 if tasks and isinstance(tasks, list):
                     summary = "\n".join(
-                        f"- {t.get('id')}: {t.get('title')} (dependencias: {t.get('dependencies', [])}, complejidad: {t.get('complexity', '-')})"
+                        f"- {t.get('id')}: {t.get('title')} (dependencies: {t.get('dependencies', [])}, complexity: {t.get('complexity', '-')})"
                         for t in tasks
                     )
-                    parts.append(f"Tareas planificadas:\n{summary}\n---")
+                    parts.append(f"Planned tasks:\n{summary}\n---")
             except Exception as exc:
-                parts.append(f"No se pudieron leer las tareas: {exc}")
+                parts.append(f"Could not read tasks: {exc}")
 
         if task_context:
-            parts.append(f"Contexto de la tarea actual:\n{task_context}")
+            parts.append(f"Current task context:\n{task_context}")
 
         return "\n\n".join(parts)
 
     def _get_dependency_context(self, deps):
-        """Recopila el contexto de tareas dependientes ya completadas."""
+        """Collect context from completed dependency tasks."""
         if not deps:
             return ""
-        lines = ["Contexto de tareas previas (dependencias):"]
+        lines = ["Previous task context (dependencies):"]
         with run_lock:
             state = load_run_state()
             for dep_id in deps:
                 dep_agent_id = f"engineer-{dep_id}"
                 agent = next((a for a in state.get("agents", []) if a.get("id") == dep_agent_id), None)
                 if not agent:
-                    lines.append(f"- {dep_id}: aún no hay información del agente.")
+                    lines.append(f"- {dep_id}: no agent information yet.")
                     continue
                 logs = agent.get("logs", []) or []
                 last_logs = "\n  ".join(
@@ -1047,75 +1027,74 @@ Responde de forma concisa y técnica. Si realmente no tienes información sufici
                     for log in logs[-5:]
                 )
                 outputs = agent.get("outputs", []) or []
-                outputs_summary = "\n  ".join(f"- {os.path.basename(p)}" for p in outputs[-8:]) or "Sin outputs registrados"
+                outputs_summary = "\n  ".join(f"- {os.path.basename(p)}" for p in outputs[-8:]) or "No outputs recorded"
                 lines.append(
                     f"- {dep_id} ({agent.get('status')}):\n"
-                    f"  Últimos logs:\n  {last_logs}\n"
-                    f"  Archivos generados/modificados:\n  {outputs_summary}"
+                    f"  Latest logs:\n  {last_logs}\n"
+                    f"  Generated/modified files:\n  {outputs_summary}"
                 )
         return "\n\n".join(lines)
 
     def _consult_orchestrator(self, question, context_text):
-        """Consulta al orchestrator cuando otro agente no tiene contexto."""
-        prompt = f"""Activa la skill 'dotnet' y aplica sus convenciones y mejores prácticas a todo el código .NET que generes.
+        """Consult the orchestrator when another agent lacks context."""
+        prompt = f"""Activate the 'dotnet' skill and apply its conventions and best practices to all .NET code you generate.
 
-Eres el Orchestrator Principal del proyecto. Un agente del equipo hizo una pregunta y no tuvo suficiente contexto. Tú tienes acceso al PRD, tareas y ticket. Responde de forma concisa y técnica.
+You are the project Lead Orchestrator. A team agent asked a question and did not have enough context. You have access to the PRD, tasks, and ticket. Respond concisely and technically.
 
-PREGUNTA DEL AGENTE:
+AGENT QUESTION:
 "{question}"
 
-CONTEXTO DEL PROYECTO:
+PROJECT CONTEXT:
 {context_text}
 
-Si realmente no tienes información suficiente para responder, responde EXACTAMENTE con la frase: NO_TENGO_CONTEXTO_SUFICIENTE"""
+If you truly do not have enough information, respond EXACTLY with: INSUFFICIENT_CONTEXT"""
 
-        output = self._run_kimi_prompt(
+        output = self._run_ai_prompt(
             prompt,
-            phase_name="Consulta Orchestrator",
+            phase_name="Consult Orchestrator",
             timeout_seconds=60,
             agent_id="orchestrator",
         )
         answer = (output or "").strip()
-        if answer and "NO_TENGO_CONTEXTO_SUFICIENTE" not in answer:
+        if answer and "INSUFFICIENT_CONTEXT" not in answer and "NO_TENGO_CONTEXTO_SUFICIENTE" not in answer:
             return answer
 
-        # Escalamiento 2: generar respuesta automática con IA como recurso último
-        self.log("Orchestrator tampoco tuvo contexto; generando respuesta automática...", "warning")
+        # Escalation 2: generate an automatic AI answer as a last resort.
+        self.log("Orchestrator also lacked context; generating an automatic answer...", "warning")
         return self._auto_generate_answer(question, context_text)
 
     def _auto_generate_answer(self, question, context_text):
-        """Genera una respuesta automática cuando nadie del equipo tiene contexto."""
-        prompt = f"""Activa la skill 'dotnet' y aplica sus convenciones y mejores prácticas a todo el código .NET que generes.
+        """Generate an automatic answer when no team member has context."""
+        prompt = f"""Activate the 'dotnet' skill and apply its conventions and best practices to all .NET code you generate.
 
-Eres un experto en .NET y arquitectura de software. Un agente del equipo hizo una pregunta y nadie (incluido el orchestrator) tuvo contexto suficiente. Debes asumir la mejor respuesta posible basada en el contexto disponible y las mejores prácticas.
+You are an expert in .NET and software architecture. A team agent asked a question and nobody, including the orchestrator, had enough context. Assume the best possible answer from the available context and best practices.
 
-PREGUNTA DEL AGENTE:
+AGENT QUESTION:
 "{question}"
 
-CONTEXTO DEL PROYECTO:
+PROJECT CONTEXT:
 {context_text}
 
-Responde de forma concisa y práctica. Asume decisiones razonables para un MVP .NET con Clean Architecture, MediatR, EF Core y vistas cshtml. NO digas que no tienes contexto; proporciona una respuesta útil que permita continuar la implementación."""
+Respond concisely and practically. Assume reasonable decisions for a .NET MVP with Clean Architecture, MediatR, EF Core, and cshtml views. Do NOT say that you lack context; provide a useful answer that lets implementation continue."""
 
-        output = self._run_kimi_prompt(
+        output = self._run_ai_prompt(
             prompt,
-            phase_name="Auto-respuesta IA",
+            phase_name="Automatic AI Answer",
             timeout_seconds=60,
             agent_id="orchestrator",
         )
-        return (output or "").strip() or "Asumir implementación estándar según el PRD y continuar con las convenciones .NET."
+        return (output or "").strip() or "Assume standard implementation according to the PRD and continue with .NET conventions."
 
     def _is_context_lacking(self, answer):
-        """Detecta si una respuesta indica falta de contexto."""
+        """Detect whether an answer indicates missing context."""
         if not answer:
             return True
         phrases = [
-            "NO_TENGO_CONTEXTO_SUFICIENTE",
-            "no tengo suficiente contexto",
-            "no tengo contexto",
-            "no tengo información suficiente",
-            "no puedo responder",
-            "no sé",
+            "INSUFFICIENT_CONTEXT",
+            "not enough context",
+            "insufficient context",
+            "I cannot answer",
+            "I don't know",
         ]
         return any(p.lower() in answer.lower() for p in phrases)
 
@@ -1132,7 +1111,7 @@ Responde de forma concisa y práctica. Asume decisiones razonables para un MVP .
             emit_communication_update(state)
 
     def _get_task_context(self, task_id):
-        """Carga la definición de una tarea desde el plan de tareas."""
+        """Load a task definition from the task plan."""
         tasks_path = get_meta_dir() / "state" / f"tasks-{self.ticket_id}.json"
         if not tasks_path.exists():
             return None
@@ -1149,14 +1128,14 @@ Responde de forma concisa y práctica. Asume decisiones razonables para un MVP .
         task_desc = task.get("description", "") if task else ""
         task_deps = task.get("dependencies", []) if task else []
         context_str = (
-            f"Tarea solicitante: {task_id} - {task_title}\n"
-            f"Descripción: {task_desc}\n"
-            f"Dependencias: {task_deps}"
+            f"Requesting task: {task_id} - {task_title}\n"
+            f"Description: {task_desc}\n"
+            f"Dependencies: {task_deps}"
         )
         answer = self._consult_agent(
             requester_id,
             helper_id,
-            f"Necesito ayuda con la tarea {task_id}: {question}",
+            f"I need help with task {task_id}: {question}",
             timeout_seconds=60,
             task_context=context_str,
         )
@@ -1180,13 +1159,13 @@ Responde de forma concisa y práctica. Asume decisiones razonables para un MVP .
         task_title = task.get("title", topic) if task else topic
         task_desc = task.get("description", "") if task else ""
         context_str = (
-            f"Tema/tarea: {task_title}\n"
-            f"Descripción: {task_desc}"
+            f"Topic/task: {task_title}\n"
+            f"Description: {task_desc}"
         )
         answer = self._consult_agent(
             sender_id,
             recipient_id,
-            f"Pregunta de aclaración sobre {topic}: {question}",
+            f"Clarification question about {topic}: {question}",
             timeout_seconds=60,
             task_context=context_str,
         )
@@ -1265,11 +1244,11 @@ Responde de forma concisa y práctica. Asume decisiones razonables para un MVP .
                 "progress": progress,
             }
         )
-        # Sincronizar la columna del ticket con la fase actual
+        # Sync the ticket column with the current phase.
         if status in ("in-design", "in-progress", "in-review"):
             update_ticket_status(self.ticket_id, status)
 
-        # Actualizar métricas de ejecución en el ticket
+        # Update ticket execution metrics.
         board = load_board()
         ticket = next((t for t in board.get("tickets", []) if t["id"] == self.ticket_id), None)
         started_at = ticket.get("startedAt") if ticket else None
@@ -1292,7 +1271,7 @@ Responde de forma concisa y práctica. Asume decisiones razonables para un MVP .
     def _orchestrator_callbacks(self):
         """Callbacks que el Orchestrator real usa para integrarse con el dashboard."""
         return {
-            "run_kimi": self._run_kimi_prompt,
+            "run_ai": self._run_ai_prompt,
             "log": self.log,
             "set_phase": self.set_phase,
             "ensure_agent": self._ensure_agent,
@@ -1330,13 +1309,13 @@ Responde de forma concisa y práctica. Asume decisiones razonables para un MVP .
             _ensure_agent(state, "orchestrator", "Orchestrator Principal", "orchestrator", None, "running", 5)
             bus.register_participant(state, {
                 "id": "orchestrator",
-                "name": "Orchestrator Principal",
+                "name": "Main Orchestrator",
                 "role": "orchestrator",
-                "description": "Coordina las 5 fases del software factory loop",
+                "description": "Coordinates the 5 phases of the software factory loop",
                 "capabilities": ["orchestration", "coordination"],
                 "tools": ["dispatch", "monitor"],
             })
-            _agent_log(state, "orchestrator", "Ticket movido a Ready for work. Iniciando software factory loop...")
+            _agent_log(state, "orchestrator", "Ticket moved to Ready for work. Starting software factory loop...")
             save_run_state(state)
             emit_communication_update(state)
 
@@ -1346,7 +1325,7 @@ Responde de forma concisa y práctica. Asume decisiones razonables para un MVP .
             self.ticket_id,
             startedAt=now.isoformat(),
             elapsedSeconds=0,
-            summary="Iniciando software factory loop...",
+            summary="Starting software factory loop...",
         )
         self._start_runtime_heartbeat()
 
@@ -1354,13 +1333,13 @@ Responde de forma concisa y práctica. Asume decisiones razonables para un MVP .
         self._stop_runtime_heartbeat()
         if success:
             update_ticket_status(self.ticket_id, "done")
-            self._update_agent("orchestrator", status="done", progress=100, log="Loop completado. Ticket marcado como Done.", log_level="success")
+            self._update_agent("orchestrator", status="done", progress=100, log="Loop completed. Ticket marked as Done.", log_level="success")
             update_run_state({"active": False, "ticketId": None, "status": "completed", "progress": 100, "currentAgent": None})
-            self.log("Loop completado. Ticket marcado como Done.", "success")
+            self.log("Loop completed. Ticket marked as Done.", "success")
         else:
-            self._update_agent("orchestrator", status="failed", log="El loop falló. Revisa los logs.", log_level="error")
+            self._update_agent("orchestrator", status="failed", log="The loop failed. Check the logs.", log_level="error")
             update_run_state({"active": False, "ticketId": None, "status": "failed", "progress": 0, "currentAgent": None})
-        # Marcar run como inactivo si este runner sigue siendo el activo
+        # Mark the run inactive if this runner is still the active one.
         time.sleep(1)
         with run_lock:
             state = load_run_state()
@@ -1374,45 +1353,45 @@ Responde de forma concisa y práctica. Asume decisiones razonables para un MVP .
         try:
             self.orchestrator.run()
         except Exception as exc:
-            self.log(f"Error en el loop: {exc}", "error")
-            self._update_agent("orchestrator", status="failed", log=f"Error en el loop: {exc}", log_level="error")
+            self.log(f"Loop error: {exc}", "error")
+            self._update_agent("orchestrator", status="failed", log=f"Loop error: {exc}", log_level="error")
             update_run_state({"active": False, "ticketId": None, "status": "failed", "progress": 0, "currentAgent": None})
             self._stop_runtime_heartbeat()
             paused_run_threads.pop(self.ticket_id, None)
             delete_ticket_snapshot(self.ticket_id)
 
     def _run_planner_and_execution(self):
-        """Ejecuta las fases de Planning, Execution y QA. Usado durante un resume."""
+        """Run Planning, Execution, and QA phases during resume."""
         self._check_pause()
-        self._agent_log("orchestrator", "Fase 3/5: Planning & Dispatch — armando batches y DAG de dependencias.")
+        self._agent_log("orchestrator", "Phase 3/5: Planning & Dispatch: building batches and dependency DAG.")
         self.set_phase("project-manager", "in-design", 60)
         self.run_planner()
         if self._should_stop_or_pause():
-            self.log("Run detenido por solicitud del usuario tras Planning.", "warning")
+            self.log("Run stopped by user request after Planning.", "warning")
             return
 
-        self._agent_log("orchestrator", "Fase 4/5: Parallel Execution — implementando tareas en worktrees aislados.")
+        self._agent_log("orchestrator", "Phase 4/5: Parallel Execution: implementing tasks in isolated worktrees.")
         update_ticket_status(self.ticket_id, "in-progress")
         self.set_phase("engineer-squad", "in-progress", 75)
         self.run_execution()
         if self._should_stop_or_pause():
-            self.log("Run detenido por solicitud del usuario tras Execution.", "warning")
+            self.log("Run stopped by user request after Execution.", "warning")
             return
 
-        self._agent_log("orchestrator", "Fase 5/5: QA Review — revisando integración del batch.")
+        self._agent_log("orchestrator", "Phase 5/5: QA Review: reviewing batch integration.")
         self.set_phase("qa-engineer", "in-review", 90)
         self.run_qa()
         if self._should_stop_or_pause():
-            self.log("Run detenido por solicitud del usuario tras QA.", "warning")
+            self.log("Run stopped by user request after QA.", "warning")
             return
 
         update_ticket_status(self.ticket_id, "done")
-        self._update_agent("orchestrator", status="done", progress=100, log="Loop completado. Ticket marcado como Done.", log_level="success")
+        self._update_agent("orchestrator", status="done", progress=100, log="Loop completed. Ticket marked as Done.", log_level="success")
         update_run_state({"active": False, "ticketId": None, "status": "completed", "progress": 100, "currentAgent": None})
-        self.log("Loop completado. Ticket marcado como Done.", "success")
+        self.log("Loop completed. Ticket marked as Done.", "success")
 
     def _resume_loop(self):
-        """Reanuda el loop desde la fase que quedó guardada en run-state."""
+        """Resume the loop from the phase saved in run-state."""
         state = load_run_state()
         review = state.get("designReview") or {}
 
@@ -1427,7 +1406,7 @@ Responde de forma concisa y práctica. Asume decisiones razonables para un MVP .
             answers = self._wait_for_design_answers(questions, timeout_seconds=60)
             if self._should_stop_or_pause():
                 return
-            self.log(f"Respuestas de design review: {answers}")
+            self.log(f"Design review answers: {answers}")
             self._run_planner_and_execution()
             return
 
@@ -1435,20 +1414,20 @@ Responde de forma concisa y práctica. Asume decisiones razonables para un MVP .
         self._run_planner_and_execution()
 
     def run_pm_analysis(self):
-        """Ejecuta el análisis de PM usando múltiples agentes Kimi en paralelo.
+        """Run PM analysis using multiple research agents.
 
-        Los subagentes envían sus reportes al PM Lead por el bus de comunicación.
-        El PM Lead consolida los hallazgos en un PRD y, si detecta gaps, puede
-        solicitar clarificaciones a los subagentes y reejecutarlos.
+        Subagents send reports to the PM Lead through the communication bus.
+        The PM Lead consolidates findings into a PRD and can request
+        clarification from subagents when gaps are detected.
         """
         self.set_phase("pm-research-agents", "in-design", 15)
 
         subagents = [
-            ("pm-domain", "Domain Analyst", "dominio de negocio, entidades, reglas y flujos principales"),
-            ("pm-ux", "UX Researcher", "experiencia de usuario, vistas, flujos de pantalla y validaciones de frontend"),
-            ("pm-technical", "Technical Analyst", "stack técnico, arquitectura, patrones y decisiones técnicas"),
-            ("pm-integration", "Integration Analyst", "integraciones con APIs de terceros, bases de datos y servicios externos"),
-            ("pm-risk", "Risk Analyst", "riesgos, seguridad, compliance, permisos y manejo de errores"),
+            ("pm-domain", "Domain Analyst", "business domain, entities, rules, and main flows"),
+            ("pm-ux", "UX Researcher", "user experience, views, screen flows, and frontend validation"),
+            ("pm-technical", "Technical Analyst", "technical stack, architecture, patterns, and technical decisions"),
+            ("pm-integration", "Integration Analyst", "third-party APIs, databases, and external services"),
+            ("pm-risk", "Risk Analyst", "risks, security, compliance, permissions, and error handling"),
         ]
 
         self._ensure_agent("pm-research-agents", "PM Research Agents", "lead", "orchestrator", "running", 10)
@@ -1461,18 +1440,18 @@ Responde de forma concisa y práctica. Asume decisiones razonables para un MVP .
                 "id": "pm-research-agents",
                 "name": "PM Research Agents",
                 "role": "lead",
-                "description": "Grupo de investigación de PM en paralelo",
+                "description": "Parallel PM research group",
                 "capabilities": ["research", "consolidation"],
-                "tools": ["kimi_prompt"],
+                "tools": ["ai_prompt"],
             })
             for sub_id, sub_name, focus in subagents:
                 bus.register_participant(state, {
                     "id": sub_id,
                     "name": sub_name,
                     "role": "sub",
-                    "description": f"Investiga {focus}",
+                    "description": f"Researches {focus}",
                     "capabilities": ["research", "analysis"],
-                    "tools": ["kimi_prompt", "web_search"],
+                    "tools": ["ai_prompt", "web_search"],
                 })
             save_run_state(state)
             emit_communication_update(state)
@@ -1481,28 +1460,28 @@ Responde de forma concisa y práctica. Asume decisiones razonables para un MVP .
         description = self.ticket.get("description", "")
         prd_path = get_meta_dir() / "state" / f"prd-{self.ticket_id}.md"
 
-        # Si ya existe un PRD pre-generado, saltar el análisis y usarlo directamente.
+        # If a pre-generated PRD exists, skip analysis and use it directly.
         if prd_path.exists() and prd_path.stat().st_size > 100:
-            self.log(f"PRD pre-generado encontrado en {prd_path}; saltando PM Research.")
+            self.log(f"Pre-generated PRD found at {prd_path}; skipping PM Research.")
             for sub_id, sub_name, _ in subagents:
                 self._update_agent(sub_id, status="done", progress=100,
-                                   log=f"{sub_name} completado (PRD pre-generado).")
+                                   log=f"{sub_name} completed (pre-generated PRD).")
             self._update_agent("pm-research-agents", status="done", progress=100,
-                               log="PRD pre-generado reutilizado.")
+                               log="Pre-generated PRD reused.")
             self.set_phase("pm-lead", "in-design", 35)
             return
 
         self._update_agent("pm-research-agents", status="running", progress=10,
-                           log="Lanzando PM Research Agents con roles MetaGPT...")
+                           log="Launching PM Research Agents with MetaGPT roles...")
 
         def log_callback(message, level="info"):
             self.log(message, level)
 
-        # Ejecutar Fase 1 con el nuevo motor basado en roles/actions.
-        # Los subagentes corren en paralelo dentro del Environment.
+        # Run Phase 1 with the roles/actions engine.
+        # Subagents run in parallel inside the Environment.
         generated_prd = pm_analysis.run_pm_analysis(
             self.ticket,
-            run_kimi=lambda prompt, phase_name, timeout_seconds, agent_id=None: self._run_kimi_prompt(
+            run_ai=lambda prompt, phase_name, timeout_seconds, agent_id=None: self._run_ai_prompt(
                 prompt,
                 phase_name=phase_name,
                 timeout_seconds=timeout_seconds,
@@ -1513,7 +1492,7 @@ Responde de forma concisa y práctica. Asume decisiones razonables para un MVP .
         )
 
         if generated_prd and generated_prd.exists():
-            self.log(f"Plan detallado guardado en {generated_prd}")
+            self.log(f"Detailed plan saved at {generated_prd}")
             final_prd_content = generated_prd.read_text(encoding="utf-8")
             with run_lock:
                 state = load_run_state()
@@ -1527,25 +1506,25 @@ Responde de forma concisa y práctica. Asume decisiones razonables para un MVP .
                 save_run_state(state)
                 emit_communication_update(state)
         else:
-            self.log("No se generó PRD; usando fallback local.", "warning")
+            self.log("No PRD was generated; using local fallback.", "warning")
             self._write_fallback_prd(prd_path, title, description)
 
         for sub_id, sub_name, _ in subagents:
             self._update_agent(sub_id, status="done", progress=100,
-                               log=f"{sub_name} completado.")
+                               log=f"{sub_name} completed.")
         self._update_agent("pm-research-agents", status="done", progress=100,
-                           log="PM Research Agents consolidaron el PRD.")
+                           log="PM Research Agents consolidated the PRD.")
         self.set_phase("pm-lead", "in-design", 35)
 
     def _parse_clarifications(self, output):
-        """Busca en el output del consolidador un bloque CLARIFICACIONES: sub_id: pregunta."""
+        """Find clarification requests in consolidator output."""
         clarifications = {}
-        marker = "CLARIFICACIONES:"
+        marker = "PENDING CLARIFICATIONS:"
         idx = output.find(marker)
         if idx == -1:
             return clarifications
         block = output[idx + len(marker):]
-        # Cortar al siguiente encabezado markdown o fin de bloque
+        # Stop at the next markdown heading or the end of the block.
         next_header = block.find("\n#")
         if next_header != -1:
             block = block[:next_header]
@@ -1573,24 +1552,24 @@ Responde de forma concisa y práctica. Asume decisiones razonables para un MVP .
         follow_up_section = ""
         if follow_up:
             follow_up_section = (
-                "\n\nEL PM LEAD TE HA PEDIDO AMPLIAR TU ANÁLISIS CON ESTA PREGUNTA/CLARIFICACIÓN:\n"
+                "\n\nTHE PM LEAD ASKED YOU TO EXPAND YOUR ANALYSIS WITH THIS QUESTION/CLARIFICATION:\n"
                 f"{follow_up}\n\n"
-                "Responde directamente a la solicitud del PM Lead, manteniendo el mismo formato de salida."
+                "Answer the PM Lead request directly while keeping the same output format."
             )
         return (
-            f"Eres el {role_name} de AgentFlow, una software factory estilo MetaGPT con múltiples agentes. "
-            f"Tu enfoque exclusivo es: {focus}. "
-            "Investiga el codebase del proyecto actual SOLO desde el ángulo que te corresponde. "
-            "NO implementes código; solo investiga, analiza y documenta hallazgos. "
-            "Sé conciso pero completo; prioriza calidad sobre extensión.\n\n"
-            "Tu salida debe ser un markdown con estas secciones:\n"
-            "1. Hallazgos clave (máximo 10 bullets).\n"
-            "2. Requisitos funcionales / no funcionales relevantes a tu área.\n"
-            "3. Riesgos, supuestos o preguntas abiertas.\n"
-            "4. Archivos o áreas del codebase relevantes.\n\n"
-            f"TICKET:\nTÍTULO: {title}\nDESCRIPCIÓN: {description}"
+            f"You are the {role_name} for AgentFlow, a MetaGPT-style multi-agent software factory. "
+            f"Your exclusive focus is: {focus}. "
+            "Research the current project codebase ONLY from your assigned angle. "
+            "Do NOT implement code; only research, analyze, and document findings. "
+            "Be concise but complete; prioritize quality over length.\n\n"
+            "Your output must be markdown with these sections:\n"
+            "1. Key findings (maximum 10 bullets).\n"
+            "2. Functional and non-functional requirements relevant to your area.\n"
+            "3. Risks, assumptions, or open questions.\n"
+            "4. Relevant codebase files or areas.\n\n"
+            f"TICKET:\nTITLE: {title}\nDESCRIPTION: {description}"
             + follow_up_section
-            + "\n\nResponde en español."
+            + "\n\nRespond in English."
             + decision_request_instruction()
         )
 
@@ -1599,149 +1578,149 @@ Responde de forma concisa y práctica. Asume decisiones razonables para un MVP .
         for sub_id, path in research_files.items():
             try:
                 with open(path, "r", encoding="utf-8") as f:
-                    # Truncar cada análisis para no saturar el contexto del consolidador.
+                    # Truncate each analysis to avoid saturating the consolidator context.
                     lines = f.readlines()[:150]
                     research_content += f"\n\n--- {sub_id} ---\n\n" + "".join(lines)
             except Exception as exc:
-                research_content += f"\n\n--- {sub_id} ---\n\nError leyendo hallazgos: {exc}"
+                research_content += f"\n\n--- {sub_id} ---\n\nError reading findings: {exc}"
         return (
-            "Eres el Lead Product Manager de AgentFlow. Cinco PM Research Agents investigaron un ticket. "
-            "Consolida SUS HALLAZGOS en un Product Requirements Document (PRD) conciso y accionable. "
-            "NO inventes requisitos que no aparezcan en los hallazgos; tu trabajo es sintetizar lo que ya se investigó.\n\n"
-            f"TICKET:\nTÍTULO: {title}\nDESCRIPCIÓN: {description}\n\n"
-            "HALLAZGOS DE LOS AGENTES:\n" + research_content + "\n\n"
-            "Genera un PRD en markdown con estas secciones (conciso, máximo 2 párrafos por sección):\n"
-            "1. Resumen ejecutivo\n"
-            "2. Requisitos funcionales principales (numerados, con prioridad Alta/Media/Baja)\n"
-            "3. Requisitos no funcionales clave\n"
-            "4. User stories y criterios de aceptación\n"
-            "5. Tareas técnicas sugeridas con dependencias y estimaciones (S/M/L)\n"
-            "6. Riesgos, supuestos y preguntas abiertas\n\n"
-            f"Escribe el PRD completo en formato markdown en este archivo: {prd_path}\n\n"
-            "Responde en español. Al final confirma brevemente que guardaste el PRD."
+            "You are the Lead Product Manager for AgentFlow. Five PM Research Agents investigated a ticket. "
+            "Consolidate THEIR FINDINGS into a concise, actionable Product Requirements Document (PRD). "
+            "Do NOT invent requirements that are not supported by the findings; synthesize what was researched.\n\n"
+            f"TICKET:\nTITLE: {title}\nDESCRIPTION: {description}\n\n"
+            "AGENT FINDINGS:\n" + research_content + "\n\n"
+            "Generate a markdown PRD with these sections (concise, maximum 2 paragraphs per section):\n"
+            "1. Executive summary\n"
+            "2. Main functional requirements (numbered, with High/Medium/Low priority)\n"
+            "3. Key non-functional requirements\n"
+            "4. User stories and acceptance criteria\n"
+            "5. Suggested technical tasks with dependencies and estimates (S/M/L)\n"
+            "6. Risks, assumptions, and open questions\n\n"
+            f"Write the complete markdown PRD to this file: {prd_path}\n\n"
+            "Respond in English. At the end, briefly confirm that you saved the PRD."
             + decision_request_instruction()
         )
 
     def _extract_prd_from_output(self, output, title, description):
-        """Extrae el contenido del PRD del output crudo de Kimi."""
+        """Extract PRD content from raw backend output."""
         lines = output.splitlines()
         prd_lines = []
         capture = False
         for line in lines:
             stripped = line.strip()
-            # Iniciar captura al ver encabezado de PRD o markdown
+            # Start capture when a PRD or markdown heading appears.
             if stripped.startswith("# PRD") or stripped.startswith("# 1.") or stripped.startswith("## 1."):
                 capture = True
             if capture:
                 prd_lines.append(line)
         if prd_lines:
             return "\n".join(prd_lines)
-        # Fallback: si no hay marcadores claros, devolver todo excepto líneas de UI
+        # Fallback: if there are no clear markers, return everything except UI lines.
         filtered = []
         for line in lines:
-            if any(skip in line for skip in ["K2.7 Code", "context:", "yolo", "MCP server", "thinking...", "working...", "Welcome to Kimi"]):
+            if any(skip in line for skip in ["context:", "MCP server", "thinking...", "working..."]):
                 continue
             filtered.append(line)
-        return f"# PRD Detallado: {title}\n\n**Descripción original:**\n\n{description}\n\n---\n\n" + "\n".join(filtered[-200:])
+        return f"# Detailed PRD: {title}\n\n**Original description:**\n\n{description}\n\n---\n\n" + "\n".join(filtered[-200:])
 
     def _build_pm_prompt(self, title, description, prd_path):
         return (
-            "Eres el Lead Product Manager de Meta-Ralph, una software factory estilo MetaGPT con múltiples agentes. "
-            "Un ticket acaba de pasar a In Design y debes producir un Product Requirements Document (PRD) muy detallado.\n\n"
-            "Actúa como si hubieras coordinado 5 PM Research Agents (Domain/UX, Technical, Integrations, Risks, Task Breakdown) "
-            "y consolida sus hallazgos en un único PRD.\n\n"
-            "El PRD debe incluir obligatoriamente:\n"
-            "1. Resumen ejecutivo\n"
-            "2. Declaración del problema / oportunidad\n"
+            "You are the Lead Product Manager for Meta-Ralph, a MetaGPT-style multi-agent software factory. "
+            "A ticket just moved to In Design and you must produce a detailed Product Requirements Document (PRD).\n\n"
+            "Act as if you coordinated 5 PM Research Agents (Domain/UX, Technical, Integrations, Risks, Task Breakdown) "
+            "and consolidated their findings into one PRD.\n\n"
+            "The PRD must include:\n"
+            "1. Executive summary\n"
+            "2. Problem or opportunity statement\n"
             "3. User personas\n"
-            "4. Requisitos funcionales (numerados, con prioridad)\n"
-            "5. Requisitos no funcionales\n"
-            "6. User stories y criterios de aceptación\n"
-            "7. Preguntas abiertas, supuestos y riesgos\n"
-            "8. Tareas técnicas sugeridas con dependencias y estimaciones de esfuerzo (S/M/L)\n"
-            "9. Áreas / archivos del codebase afectados\n"
-            "10. Notas de cada PM Research Agent\n\n"
-            "Además, escribe el PRD completo en formato markdown en este archivo: {prd_path}\n\n"
+            "4. Functional requirements (numbered, with priority)\n"
+            "5. Non-functional requirements\n"
+            "6. User stories and acceptance criteria\n"
+            "7. Open questions, assumptions, and risks\n"
+            "8. Suggested technical tasks with dependencies and effort estimates (S/M/L)\n"
+            "9. Affected codebase areas or files\n"
+            "10. Notes from each PM Research Agent\n\n"
+            "Also write the complete markdown PRD to this file: {prd_path}\n\n"
             "TICKET:\n"
-            f"TÍTULO: {title}\n\n"
-            f"DESCRIPCIÓN: {description}\n\n"
-            "Responde en español. Al final confirma brevemente que guardaste el PRD."
+            f"TITLE: {title}\n\n"
+            f"DESCRIPTION: {description}\n\n"
+            "Respond in English. At the end, briefly confirm that you saved the PRD."
         ).format(prd_path=prd_path)
 
     def _write_fallback_prd(self, prd_path, title, description):
-        """Genera un PRD detallado local simulando múltiples PM Research Agents."""
+        """Generate a detailed local fallback PRD simulating multiple PM Research Agents."""
         desc_lower = (description or "").lower()
         title_lower = (title or "").lower()
         is_whatsapp = "whatsapp" in desc_lower or "whatsapp" in title_lower
-        is_messaging = is_whatsapp or "sms" in desc_lower or "mensajeria" in desc_lower or "mensajería" in desc_lower
+        is_messaging = is_whatsapp or "sms" in desc_lower or "messaging" in desc_lower
 
         if is_whatsapp:
             domain_reqs = [
-                "CRUD de plantillas de mensaje WhatsApp con estados (borrador, enviada, aprobada, rechazada).",
-                "Interfaz de usuario similar al módulo de SMS (vista, estructura, filtros).",
-                "Integración con proveedor WhatsApp (ej. Teleprom) mediante interfaz abstracta.",
-                "Asignación de listas de personas con valores de metadata dinámica.",
-                "Configuración de credenciales vía App Settings usando IOptions pattern.",
-                "Historial de envíos, estados de entrega y reintentos.",
-                "Soporte para múltiples proveedores sin cambiar la interfaz de negocio.",
+                "CRUD for WhatsApp message templates with states such as draft, sent, approved, and rejected.",
+                "User interface similar to the SMS module, including view structure and filters.",
+                "WhatsApp provider integration through an abstract interface.",
+                "Assignment of people lists with dynamic metadata values.",
+                "Credential configuration through App Settings using the IOptions pattern.",
+                "Send history, delivery states, and retries.",
+                "Support for multiple providers without changing the business interface.",
             ]
             affected = [
-                "`EC.Ent` / `EntidadesFacturacionFD`: entidades Plantilla, Envio, ContactoMetadata.",
-                "`EC.Buss`: servicios de envío e interfaz `IWhatsappSender`.",
-                "`EC.Web` / `AppWeb.Scord.NetCore`: vistas y controllers/API.",
-                "`EC.Data`: repositorios y migraciones.",
+                "`EC.Ent` / `EntidadesFacturacionFD`: Template, Send, and ContactMetadata entities.",
+                "`EC.Buss`: sending services and `IWhatsappSender` interface.",
+                "`EC.Web` / `AppWeb.Scord.NetCore`: views and controllers/API.",
+                "`EC.Data`: repositories and migrations.",
             ]
             tasks = [
-                ("Crear entidades Plantilla, Envio, ContactoMetadata", "—", "M"),
-                ("Definir interfaz `IWhatsappSender` y DTOs", "1", "S"),
-                ("Implementar adaptador para proveedor (Teleprom/u otro)", "2", "L"),
-                ("Crear vista UI tipo SMS para plantillas", "1", "L"),
-                ("Crear vista de ejecución de envíos", "3, 4", "M"),
-                ("Configurar IOptions para credenciales", "3", "S"),
-                ("Tests unitarios e integración", "3, 5, 6", "M"),
+                ("Create Template, Send, and ContactMetadata entities", "-", "M"),
+                ("Define `IWhatsappSender` interface and DTOs", "1", "S"),
+                ("Implement provider adapter such as Teleprom or another provider", "2", "L"),
+                ("Create SMS-style template UI", "1", "L"),
+                ("Create send execution view", "3, 4", "M"),
+                ("Configure IOptions for credentials", "3", "S"),
+                ("Unit and integration tests", "3, 5, 6", "M"),
             ]
         elif is_messaging:
             domain_reqs = [
-                "CRUD de campañas y mensajes.",
-                "Vista unificada de canales (SMS/WhatsApp).",
-                "Gestión de listas de contactos y metadata.",
-                "Proveedor abstracto configurable.",
-                "Historial y trazabilidad de envíos.",
+                "CRUD for campaigns and messages.",
+                "Unified channel view for SMS/WhatsApp.",
+                "Contact list and metadata management.",
+                "Configurable abstract provider.",
+                "Send history and traceability.",
             ]
             affected = [
-                "`EC.Ent`: entidades de campaña, contacto y envío.",
-                "`EC.Buss`: servicios de mensajería.",
-                "`EC.Web` / `AppWeb.Scord.NetCore`: UI y API.",
+                "`EC.Ent`: campaign, contact, and send entities.",
+                "`EC.Buss`: messaging services.",
+                "`EC.Web` / `AppWeb.Scord.NetCore`: UI and API.",
             ]
             tasks = [
-                ("Modelar entidades de dominio", "—", "M"),
-                ("Definir abstracción de proveedor", "1", "S"),
-                ("Implementar proveedor principal", "2", "L"),
-                ("Crear vistas de campañas", "1", "M"),
-                ("Integrar envíos con cola/async", "3, 4", "M"),
+                ("Model domain entities", "-", "M"),
+                ("Define provider abstraction", "1", "S"),
+                ("Implement primary provider", "2", "L"),
+                ("Create campaign views", "1", "M"),
+                ("Integrate sends with queue/async processing", "3, 4", "M"),
                 ("Tests", "3, 5", "S"),
             ]
         else:
             domain_reqs = [
-                f"Implementar la funcionalidad descrita en el ticket: {title}.",
-                "Persistencia y consulta de datos necesarios.",
-                "Validaciones de negocio y manejo de errores.",
-                "Exposición de la funcionalidad vía UI y/o API.",
-                "Tests que cubran el happy path y casos de error.",
+                f"Implement the functionality described in the ticket: {title}.",
+                "Persist and query the required data.",
+                "Business validation and error handling.",
+                "Expose the functionality through UI and/or API.",
+                "Tests covering the happy path and error cases.",
             ]
             affected = [
-                "Capa de entidades: nuevos modelos o ajustes a existentes.",
-                "Capa de negocio: servicios y reglas.",
-                "Capa de presentación/API: controllers / endpoints.",
-                "Capa de datos: repositorios y migraciones.",
+                "Entity layer: new models or updates to existing models.",
+                "Business layer: services and rules.",
+                "Presentation/API layer: controllers and endpoints.",
+                "Data layer: repositories and migrations.",
             ]
             tasks = [
-                ("Analizar y modelar entidades de dominio", "—", "M"),
-                ("Definir contratos de servicio", "1", "S"),
-                ("Implementar lógica de negocio", "2", "L"),
-                ("Crear UI / endpoints", "2", "M"),
-                ("Agregar validaciones y manejo de errores", "3, 4", "S"),
-                ("Tests unitarios e integración", "3, 4, 5", "M"),
+                ("Analyze and model domain entities", "-", "M"),
+                ("Define service contracts", "1", "S"),
+                ("Implement business logic", "2", "L"),
+                ("Create UI / endpoints", "2", "M"),
+                ("Add validation and error handling", "3, 4", "S"),
+                ("Unit and integration tests", "3, 4, 5", "M"),
             ]
 
         req_lines = "\n".join(f"{i+1}. {r}" for i, r in enumerate(domain_reqs))
@@ -1750,107 +1729,107 @@ Responde de forma concisa y práctica. Asume decisiones razonables para un MVP .
         )
         affected_lines = "\n".join(f"- {a}" for a in affected)
 
-        content = f"""# PRD Detallado: {title}
+        content = f"""# Detailed PRD: {title}
 
 **Ticket:** {self.ticket_id}
-**Fecha:** {datetime.now(timezone.utc).isoformat()}
+**Date:** {datetime.now(timezone.utc).isoformat()}
 
-## 1. Resumen Ejecutivo
-Se requiere implementar: **{title}**. Este documento consolida el análisis de cinco PM Research Agents (Domain/UX, Technical, Integrations, Risks, Task Breakdown).
+## 1. Executive Summary
+Required implementation: **{title}**. This document consolidates the analysis of five PM Research Agents (Domain/UX, Technical, Integrations, Risks, Task Breakdown).
 
-## 2. Declaración del problema / oportunidad
-{description or "(Sin descripción proporcionada)"}
+## 2. Problem / Opportunity Statement
+{description or "(No description provided)"}
 
 ## 3. User Personas
-- **Usuario final:** interactúa con la nueva funcionalidad a través de la aplicación.
-- **Administrador:** configura parámetros, credenciales y reglas de negocio.
-- **Auditor / soporte:** consulta estados, logs e historial.
+- **End user:** interacts with the new functionality through the application.
+- **Administrator:** configures parameters, credentials, and business rules.
+- **Auditor / support:** reviews states, logs, and history.
 
-## 4. Requisitos funcionales
+## 4. Functional Requirements
 {req_lines}
 
-## 5. Requisitos no funcionales
-- Seguridad: credenciales y datos sensibles fuera del código, usando configuración segura.
-- Mantenibilidad: capas bien separadas (entidades, negocio, datos, presentación/API).
-- Escalabilidad: operaciones pesadas preferentemente asíncronas.
-- Observabilidad: logs estructurados y mensajes de error claros.
-- Calidad: cobertura de tests para lógica de negocio crítica.
+## 5. Non-Functional Requirements
+- Security: credentials and sensitive data stay out of code and use secure configuration.
+- Maintainability: clear layer separation between entities, business, data, and presentation/API.
+- Scalability: heavy operations should preferably be asynchronous.
+- Observability: structured logs and clear error messages.
+- Quality: test coverage for critical business logic.
 
-## 6. User Stories y criterios de aceptación
-**US-1:** Como usuario final quiero acceder a la funcionalidad para completar mi tarea.
-- CA: La funcionalidad está disponible en la UI/API según corresponda.
-- CA: Los datos se persisten correctamente.
+## 6. User Stories And Acceptance Criteria
+**US-1:** As an end user, I want to access the functionality so I can complete my task.
+- AC: The functionality is available in the UI/API as appropriate.
+- AC: Data is persisted correctly.
 
-**US-2:** Como administrador quiero configurar la funcionalidad para adaptarla al negocio.
-- CA: Los parámetros de configuración son editables.
-- CA: Las validaciones impiden configuraciones inválidas.
+**US-2:** As an administrator, I want to configure the functionality so it fits the business.
+- AC: Configuration parameters are editable.
+- AC: Validation prevents invalid configuration.
 
-## 7. Preguntas abiertas, supuestos y riesgos
-- Supuesto: el alcance se limita a lo descrito en el ticket.
-- Riesgo: dependencias con APIs o servicios externos; mitigación con abstracciones.
-- Pregunta abierta: ¿existen reglas de negocio adicionales no mencionadas?
+## 7. Open Questions, Assumptions, And Risks
+- Assumption: scope is limited to what is described in the ticket.
+- Risk: dependencies on APIs or external services; mitigate with abstractions.
+- Open question: are there additional business rules not mentioned?
 
-## 8. Tareas técnicas sugeridas (con dependencias y esfuerzo)
-| # | Tarea | Dependencias | Esfuerzo |
+## 8. Suggested Technical Tasks (With Dependencies And Effort)
+| # | Task | Dependencies | Effort |
 |---|-------|--------------|----------|
 {task_rows}
 
-## 9. Áreas afectadas
+## 9. Affected Areas
 {affected_lines}
 
-## 10. Notas de los PM Research Agents
-- **Domain/UX:** La experiencia debe ser consistente con los módulos existentes.
-- **Technical:** Se recomienda usar patrones ya establecidos en el proyecto (IOptions, repositorios, servicios).
-- **Integrations:** Si hay APIs de terceros, encapsular detrás de una interfaz.
-- **Risks:** Validar permisos y manejar fallos de proveedores externos.
-- **Task Breakdown:** Dividir en tareas pequeñas para permitir ejecución paralela por engineers.
+## 10. PM Research Agent Notes
+- **Domain/UX:** The experience should remain consistent with existing modules.
+- **Technical:** Prefer established project patterns such as IOptions, repositories, and services.
+- **Integrations:** If third-party APIs are involved, encapsulate them behind an interface.
+- **Risks:** Validate permissions and handle external provider failures.
+- **Task Breakdown:** Split work into small tasks to enable parallel Engineer execution.
 """
         with open(prd_path, "w", encoding="utf-8") as f:
             f.write(content)
-        self.log(f"Plan detallado guardado en {prd_path}")
+        self.log(f"Detailed plan saved at {prd_path}")
 
     def run_architect(self):
         self._ensure_agent("architect", "Architect", "lead", "orchestrator", "running", 40)
-        self._update_agent("architect", progress=60, log="Definiendo patrones técnicos, APIs y convenciones.")
-        self.log("Arquitecto define patrones técnicos, APIs y convenciones.")
+        self._update_agent("architect", progress=60, log="Defining technical patterns, APIs, and conventions.")
+        self.log("Architect defines technical patterns, APIs, and conventions.")
         time.sleep(1.5)
-        self._update_agent("architect", status="done", progress=100, log="Arquitectura definida.")
+        self._update_agent("architect", status="done", progress=100, log="Architecture defined.")
         self.set_phase("architect", "in-design", 50)
 
     def _generate_design_questions(self, prd_path):
-        """Genera preguntas de diseño con respuestas asumidas usando Kimi."""
+        """Generate design questions with assumed answers using the configured backend."""
         prd_text = ""
         if prd_path.exists():
             prd_text = prd_path.read_text(encoding="utf-8")[:4000]
 
-        prompt = f"""Eres un arquitecto senior. Revisa el siguiente PRD y genera de 3 a 5 preguntas de diseño técnico que deberían confirmarse con el usuario antes de implementar.
+        prompt = f"""You are a senior architect. Review the following PRD and generate 3 to 5 technical design questions that should be confirmed with the user before implementation.
 
-Para cada pregunta, incluye una respuesta asumida razonable basada en el PRD.
+For each question, include a reasonable assumed answer based on the PRD.
 
 PRD:
 {prd_text}
 
-Responde ÚNICAMENTE con un JSON válido en este formato exacto:
+Respond ONLY with valid JSON in this exact format:
 [
   {{
     "id": "q1",
-    "question": "¿Qué framework .NET usar?",
+    "question": "Which .NET framework should be used?",
     "assumedAnswer": ".NET 8 Web API",
     "inputType": "text"
   }},
   {{
     "id": "q2",
-    "question": "¿Qué base de datos usar para pruebas?",
+    "question": "Which database should be used for tests?",
     "assumedAnswer": "Entity Framework Core InMemory",
     "inputType": "text"
   }}
 ]
 
-No incluyas explicaciones fuera del JSON."""
+Do not include explanations outside the JSON."""
 
-        output = self._run_kimi_prompt(prompt, phase_name="Design Questions", timeout_seconds=120, agent_id="architect")
+        output = self._run_ai_prompt(prompt, phase_name="Design Questions", timeout_seconds=120, agent_id="architect")
         try:
-            # Buscar JSON en el output
+            # Find JSON in the output.
             start = output.find("[")
             end = output.rfind("]")
             if start != -1 and end != -1 and end > start:
@@ -1858,42 +1837,42 @@ No incluyas explicaciones fuera del JSON."""
                 if isinstance(questions, list) and len(questions) > 0:
                     return questions
         except Exception as exc:
-            self.log(f"Error parseando preguntas de diseño: {exc}", "warning")
+            self.log(f"Error parsing design questions: {exc}", "warning")
 
-        # Fallback: preguntas por defecto
+        # Fallback: default questions.
         return [
             {
                 "id": "q1",
-                "question": "¿Qué versión/framework .NET usar para el backend?",
+                "question": "Which .NET version/framework should be used for the backend?",
                 "assumedAnswer": ".NET 8 Web API",
                 "inputType": "text",
             },
             {
                 "id": "q2",
-                "question": "¿Qué tecnología usar para acceso a datos / base de datos en desarrollo?",
+                "question": "Which technology should be used for data access / development database?",
                 "assumedAnswer": "Entity Framework Core InMemory",
                 "inputType": "text",
             },
             {
                 "id": "q3",
-                "question": "¿Qué tipo de frontend incluir (si aplica)?",
-                "assumedAnswer": "HTML + JavaScript vanilla minimalista",
+                "question": "What type of frontend should be included, if applicable?",
+                "assumedAnswer": "Minimal HTML + vanilla JavaScript",
                 "inputType": "text",
             },
             {
                 "id": "q4",
-                "question": "¿Qué framework de tests usar?",
+                "question": "Which test framework should be used?",
                 "assumedAnswer": "xUnit con EF Core InMemory",
                 "inputType": "text",
             },
         ]
 
     def _wait_for_design_answers(self, questions, timeout_seconds=60):
-        """Pausa el run para que el usuario revise/confirmé las respuestas de diseño.
+        """Pause the run so the user can review or confirm design answers.
 
-        Si no responde antes del timeout, se usan las respuestas asumidas.
+        If the timeout expires, assumed answers are used.
         """
-        self.log(f"Pausando para revisión de diseño. El usuario tiene {timeout_seconds}s para responder.")
+        self.log(f"Pausing for design review. The user has {timeout_seconds}s to respond.")
         self.set_phase("design-review", "design-review", 55)
 
         review_id = str(uuid.uuid4())
@@ -1910,7 +1889,7 @@ No incluyas explicaciones fuera del JSON."""
             state["designReview"] = review
             state["status"] = "design-review"
             state["currentAgent"] = "design-review"
-            state["summary"] = "Esperando confirmación de diseño del usuario."
+            state["summary"] = "Waiting for user design confirmation."
             save_run_state(state)
 
         answered_event = threading.Event()
@@ -1921,7 +1900,7 @@ No incluyas explicaciones fuera del JSON."""
         def timeout_handler():
             time.sleep(timeout_seconds)
             if not answered_event.is_set():
-                self.log("Timeout de revisión de diseño. Usando respuestas asumidas.", "warning")
+                self.log("Design review timed out. Using assumed answers.", "warning")
                 final_answers = {q["id"]: q.get("assumedAnswer", "") for q in questions}
                 answers_received["answers"] = final_answers
                 answered_event.set()
@@ -1938,14 +1917,14 @@ No incluyas explicaciones fuera del JSON."""
 
         Falls back to a default answer if the timeout expires.
         """
-        self.log(f"Engineer Squad solicita aclaración al usuario ({timeout_seconds}s).")
+        self.log(f"Engineer Squad requests user clarification ({timeout_seconds}s).")
         q = create_user_question(
             ticket_id=self.ticket_id,
             phase_name="engineer-squad",
             agent_id="engineer-squad",
             agent_name="Engineer Squad Lead",
             question=question,
-            context="Escalación del Engineer Squad Lead por una duda de implementación.",
+            context="Escalation from the Engineer Squad Lead for an implementation question.",
             options=None,
         )
         qid = q["id"]
@@ -1955,14 +1934,14 @@ No incluyas explicaciones fuera del JSON."""
         try:
             answered = answered_event.wait(timeout=timeout_seconds)
             if not answered:
-                self.log("Timeout esperando aclaración del usuario. El squad decide solo.", "warning")
-                answer_user_question(qid, "Decide solo (timeout del squad)")
+                self.log("Timed out waiting for user clarification. The squad will decide automatically.", "warning")
+                answer_user_question(qid, "Decide automatically (squad timeout)")
         finally:
             _clarification_waiters.pop(qid, None)
-        return answer_container["answer"] or "Decide solo (timeout del squad)"
+        return answer_container["answer"] or "Decide automatically (squad timeout)"
 
     def _finalize_design_review(self, answers, auto=False):
-        """Guarda las respuestas finales y limpia el estado de revisión."""
+        """Save final answers and clear review state."""
         with run_lock:
             state = load_run_state()
             review = state.get("designReview", {})
@@ -1972,59 +1951,59 @@ No incluyas explicaciones fuera del JSON."""
             state["designReview"] = review
             state["status"] = "in-design"
             state["currentAgent"] = "project-manager"
-            state["summary"] = "Revisión de diseño completada. Continuando con planificación."
+            state["summary"] = "Design review completed. Continuing with planning."
             save_run_state(state)
-        self.log(f"Revisión de diseño finalizada. Respuestas: {answers}")
+        self.log(f"Design review finished. Answers: {answers}")
         if hasattr(self, "_design_review_event"):
             self._design_review_event.set()
 
     def run_planner(self):
         self._ensure_agent("project-manager", "Project Manager", "lead", "orchestrator", "running", 60)
-        self._update_agent("project-manager", progress=70, log="Construyendo DAG y batches de trabajo.")
-        self.log("Project Manager construye DAG y batches de trabajo.")
+        self._update_agent("project-manager", progress=70, log="Building DAG and work batches.")
+        self.log("Project Manager builds DAG and work batches.")
 
         prd_path = get_meta_dir() / "state" / f"prd-{self.ticket_id}.md"
         tasks_path = get_meta_dir() / "state" / f"tasks-{self.ticket_id}.json"
 
-        # Si ya existe un plan de tareas pre-generado, reutilizarlo.
+        # If a pre-generated task plan exists, reuse it.
         if tasks_path.exists() and tasks_path.stat().st_size > 50:
             try:
                 with open(tasks_path, "r", encoding="utf-8") as f:
                     tasks = json.load(f)
                 if tasks and isinstance(tasks, list):
-                    self.log(f"Plan de tareas pre-generado encontrado en {tasks_path}; saltando Planner.")
-                    self._update_agent("project-manager", status="done", progress=100, log=f"Plan reutilizado con {len(tasks)} tareas.")
+                    self.log(f"Pre-generated task plan found at {tasks_path}; skipping Planner.")
+                    self._update_agent("project-manager", status="done", progress=100, log=f"Reused plan with {len(tasks)} tasks.")
                     self.set_phase("project-manager", "in-progress", 65)
                     return
             except Exception as exc:
-                self.log(f"Error leyendo tasks pre-generado: {exc}; generando nuevo plan.", "warning")
+                self.log(f"Error reading pre-generated tasks: {exc}; generating a new plan.", "warning")
 
-        if prd_path.exists() and self.kimi:
+        if prd_path.exists() and self.backend_registry.available_backends():
             prompt = self._build_planner_prompt(prd_path, tasks_path)
-            output = self._run_kimi_prompt(prompt, phase_name="Planner", timeout_seconds=600, agent_id="project-manager")
+            output = self._run_ai_prompt(prompt, phase_name="Planner", timeout_seconds=600, agent_id="project-manager")
             tasks = self._parse_tasks_from_output(output)
             if not tasks:
-                self.log("Planner no devolvió JSON válido; usando plan por defecto para CRUD .NET.", "warning")
-                self.log(f"Output del planner (primeros 500 chars): {output[:500]}", "debug")
+                self.log("Planner did not return valid JSON; using default .NET CRUD plan.", "warning")
+                self.log(f"Planner output (first 500 chars): {output[:500]}", "debug")
                 tasks = self._build_default_crud_tasks()
         else:
-            self.log("PRD no disponible o kimi no encontrado; usando plan por defecto.", "warning")
+            self.log("PRD unavailable or no AI backend found; using default plan.", "warning")
             tasks = self._build_default_crud_tasks()
 
         with open(tasks_path, "w", encoding="utf-8") as f:
             json.dump(tasks, f, indent=2)
 
-        self._update_agent("project-manager", status="done", progress=100, log=f"Plan generado con {len(tasks)} tareas.")
+        self._update_agent("project-manager", status="done", progress=100, log=f"Generated plan with {len(tasks)} tasks.")
         self.set_phase("project-manager", "in-progress", 65)
 
     def _build_default_crud_tasks(self):
-        """Plan de tareas estándar para un CRUD de productos en .NET con Clean Architecture."""
-        title = self.ticket.get("title", "CRUD de productos")
+        """Default task plan for a .NET product CRUD with Clean Architecture."""
+        title = self.ticket.get("title", "Product CRUD")
         return [
             {
                 "id": "T1",
-                "title": "Crear solución y proyectos .NET",
-                "description": "Crear la solución y los proyectos Domain, Application, Infrastructure y Web. Configurar referencias y paquetes NuGet (MediatR, EF Core, FluentValidation).",
+                "title": "Create .NET solution and projects",
+                "description": "Create the Domain, Application, Infrastructure, and Web projects. Configure references and NuGet packages such as MediatR, EF Core, and FluentValidation.",
                 "files_to_touch": [
                     "CrudProductos.sln",
                     "src/CrudProductos.Domain/CrudProductos.Domain.csproj",
@@ -2034,20 +2013,20 @@ No incluyas explicaciones fuera del JSON."""
                 ],
                 "dependencies": [],
                 "complexity": "medium",
-                "qa_checklist": ["La solución compila", "Los proyectos tienen las referencias correctas"],
+                "qa_checklist": ["The solution builds", "Projects have the correct references"],
             },
             {
                 "id": "T2",
-                "title": "Definir entidad Producto en capa de dominio",
-                "description": "Crear la entidad Product con propiedades Id, Name, Description, Price y StockQuantity. Agregar reglas de dominio básicas.",
+                "title": "Define Product entity in domain layer",
+                "description": "Create the Product entity with Id, Name, Description, Price, and StockQuantity properties. Add basic domain rules.",
                 "files_to_touch": ["src/CrudProductos.Domain/Entities/Product.cs"],
                 "dependencies": ["T1"],
                 "complexity": "low",
-                "qa_checklist": ["La entidad es un POCO puro", "Las propiedades son adecuadas para el CRUD"],
+                "qa_checklist": ["The entity is a pure POCO", "Properties are appropriate for the CRUD"],
             },
             {
                 "id": "T3",
-                "title": "Configurar DbContext y repositorio",
+                "title": "Configure DbContext and repository",
                 "description": "Crear ApplicationDbContext con DbSet<Product>, configurar EF Core InMemory/SQLite e implementar IProductRepository.",
                 "files_to_touch": [
                     "src/CrudProductos.Infrastructure/Data/ApplicationDbContext.cs",
@@ -2056,11 +2035,11 @@ No incluyas explicaciones fuera del JSON."""
                 ],
                 "dependencies": ["T2"],
                 "complexity": "medium",
-                "qa_checklist": ["El DbContext se registra en DI", "El repositorio expone operaciones async"],
+                "qa_checklist": ["DbContext is registered in DI", "Repository exposes async operations"],
             },
             {
                 "id": "T4",
-                "title": "Crear commands y queries con MediatR",
+                "title": "Create commands and queries with MediatR",
                 "description": "Definir CreateProductCommand, UpdateProductCommand, DeleteProductCommand, GetProductByIdQuery y GetProductListQuery con sus handlers.",
                 "files_to_touch": [
                     "src/CrudProductos.Application/Features/Products/Commands/CreateProductCommand.cs",
@@ -2072,12 +2051,12 @@ No incluyas explicaciones fuera del JSON."""
                 ],
                 "dependencies": ["T2", "T3"],
                 "complexity": "medium",
-                "qa_checklist": ["Cada handler usa IProductRepository", "Los handlers son async"],
+                "qa_checklist": ["Each handler uses IProductRepository", "Handlers are async"],
             },
             {
                 "id": "T5",
-                "title": "Crear controlador y vistas cshtml",
-                "description": "Implementar ProductsController con acciones Index, Details, Create, Edit, Delete y las vistas Razor correspondientes.",
+                "title": "Create controller and cshtml views",
+                "description": "Implement ProductsController with Index, Details, Create, Edit, and Delete actions plus the corresponding Razor views.",
                 "files_to_touch": [
                     "src/CrudProductos.Web/Controllers/ProductsController.cs",
                     "src/CrudProductos.Web/Views/Products/Index.cshtml",
@@ -2088,11 +2067,11 @@ No incluyas explicaciones fuera del JSON."""
                 ],
                 "dependencies": ["T4"],
                 "complexity": "high",
-                "qa_checklist": ["Todas las vistas renderizan", "El CRUD funciona end-to-end"],
+                "qa_checklist": ["All views render", "The CRUD works end-to-end"],
             },
             {
                 "id": "T6",
-                "title": "Configurar DI y middleware en Program.cs",
+                "title": "Configure DI and middleware in Program.cs",
                 "description": "Registrar MediatR, FluentValidation, EF Core y el repositorio en Program.cs. Configurar el pipeline de middleware.",
                 "files_to_touch": [
                     "src/CrudProductos.Web/Program.cs",
@@ -2101,24 +2080,24 @@ No incluyas explicaciones fuera del JSON."""
                 ],
                 "dependencies": ["T3", "T5"],
                 "complexity": "low",
-                "qa_checklist": ["La aplicación inicia sin errores", "Los servicios se resuelven correctamente"],
+                "qa_checklist": ["Application starts without errors", "Services resolve correctly"],
             },
             {
                 "id": "T7",
-                "title": "Agregar validaciones con FluentValidation",
-                "description": "Crear validadores para CreateProductCommand y UpdateProductCommand. Name requerido, Price >= 0, StockQuantity >= 0.",
+                "title": "Add validation with FluentValidation",
+                "description": "Create validators for CreateProductCommand and UpdateProductCommand. Name is required, Price >= 0, StockQuantity >= 0.",
                 "files_to_touch": [
                     "src/CrudProductos.Application/Features/Products/Validators/CreateProductCommandValidator.cs",
                     "src/CrudProductos.Application/Features/Products/Validators/UpdateProductCommandValidator.cs",
                 ],
                 "dependencies": ["T4"],
                 "complexity": "low",
-                "qa_checklist": ["Las reglas de validación están cubiertas", "Un command inválido retorna 400"],
+                "qa_checklist": ["Validation rules are covered", "An invalid command returns 400"],
             },
             {
                 "id": "T8",
-                "title": "Crear tests unitarios e integración",
-                "description": "Agregar proyectos de test con xUnit, tests unitarios para handlers y tests de integración con WebApplicationFactory.",
+                "title": "Create unit and integration tests",
+                "description": "Add xUnit test projects, unit tests for handlers, and integration tests with WebApplicationFactory.",
                 "files_to_touch": [
                     "tests/CrudProductos.Application.Tests/CrudProductos.Application.Tests.csproj",
                     "tests/CrudProductos.Application.Tests/Handlers/CreateProductCommandHandlerTests.cs",
@@ -2127,42 +2106,42 @@ No incluyas explicaciones fuera del JSON."""
                 ],
                 "dependencies": ["T6"],
                 "complexity": "high",
-                "qa_checklist": ["dotnet test pasa", "Se cubren crear, listar, obtener, editar y eliminar"],
+                "qa_checklist": ["dotnet test passes", "Create, list, get, edit, and delete are covered"],
             },
         ]
 
     def _build_planner_prompt(self, prd_path, tasks_path):
         title = self.ticket.get("title", "")
         description = self.ticket.get("description", "")
-        return f"""Eres un arquitecto de software senior. Lee el PRD en {prd_path} y el ticket '{title}' con descripción: {description}.
+        return f"""You are a senior software architect. Read the PRD at {prd_path} and the ticket '{title}' with description: {description}.
 
-Genera un JSON con tareas de implementación concretas. Cada tarea debe tener:
-- id: string único (T1, T2, ...)
-- title: título corto
-- description: instrucciones detalladas para un ingeniero
-- files_to_touch: array de rutas relativas de archivos .cs a crear/modificar
-- dependencies: array de ids de tareas que deben terminar antes
-- complexity: "low", "medium" o "high"
-- qa_checklist: array de 2-5 strings con lo que QA debe verificar
+Generate JSON with concrete implementation tasks. Each task must include:
+- id: unique string (T1, T2, ...)
+- title: short title
+- description: detailed instructions for an Engineer
+- files_to_touch: array of relative .cs file paths to create/modify
+- dependencies: array of task IDs that must finish first
+- complexity: "low", "medium", or "high"
+- qa_checklist: array of 2-5 strings describing what QA must verify
 
-REGLAS ESTRICTAS:
-1. Máximo 10 tareas. Prioriza archivos .cs del proyecto .NET.
-2. Responde ÚNICAMENTE con un JSON válido (array de objetos).
-3. NO escribas el JSON en archivo; el sistema lo extraerá de tu respuesta.
-4. NO incluyas markdown, explicaciones, ni pensamientos fuera del JSON.
-5. El JSON debe empezar con [ y terminar con ].
-6. Asegúrate de que el JSON sea parseable.
+STRICT RULES:
+1. Maximum 10 tasks. Prioritize .cs files in the .NET project.
+2. Respond ONLY with valid JSON (array of objects).
+3. Do NOT write the JSON to a file; the system will extract it from your response.
+4. Do NOT include markdown, explanations, or thoughts outside the JSON.
+5. The JSON must start with [ and end with ].
+6. Ensure the JSON is parseable.
 
-Ejemplo de formato esperado:
+Expected format example:
 [
   {{
     "id": "T1",
-    "title": "Crear solución y proyectos .NET",
-    "description": "Inicializar la solución y los proyectos Domain, Application, Infrastructure y Web.",
+    "title": "Create .NET solution and projects",
+    "description": "Initialize the Domain, Application, Infrastructure, and Web projects.",
     "files_to_touch": ["CrudProductos.sln", "src/CrudProductos.Domain/CrudProductos.Domain.csproj"],
     "dependencies": [],
     "complexity": "medium",
-    "qa_checklist": ["La solución compila", "Los proyectos tienen las referencias correctas"]
+    "qa_checklist": ["The solution builds", "Projects have the correct references"]
   }}
 ]"""
 
@@ -2170,7 +2149,7 @@ Ejemplo de formato esperado:
         if not output:
             return []
 
-        # 1. Buscar bloque JSON en markdown code block
+        # 1. Find a JSON block inside a markdown code block.
         code_block_match = re.search(r'```(?:json)?\s*(\[.*?\])\s*```', output, re.DOTALL)
         if code_block_match:
             try:
@@ -2178,7 +2157,7 @@ Ejemplo de formato esperado:
             except Exception:
                 pass
 
-        # 2. Buscar array JSON con conteo de corchetes (más robusto que find/rfind)
+        # 2. Find a JSON array by bracket counting, which is more robust than find/rfind.
         try:
             start = output.find('[')
             if start != -1:
@@ -2207,7 +2186,7 @@ Ejemplo de formato esperado:
         except Exception:
             pass
 
-        # 3. Si no hay array, buscar objeto con key "tasks"
+        # 3. If there is no array, look for an object with a "tasks" key.
         try:
             start = output.find('{')
             end = output.rfind('}')
@@ -2224,15 +2203,15 @@ Ejemplo de formato esperado:
     def run_execution(self):
         self._ensure_agent("engineer-squad", "Engineer Squad", "lead", "orchestrator", "running", 75)
         self._update_agent("engineer-squad", progress=80, log="Implementando tareas en el repo en paralelo.")
-        self.log("Engineers implementando tareas en el repo en paralelo.")
+        self.log("Engineers are implementing tasks in the repository in parallel.")
 
         tasks_path = get_meta_dir() / "state" / f"tasks-{self.ticket_id}.json"
         repo_path = self.ticket.get("repoPath", "")
         branch = self.ticket.get("branch", "")
 
         if not tasks_path.exists():
-            self.log("No se encontró tasks.json; saltando ejecución.", "warning")
-            self._update_agent("engineer-squad", status="done", progress=100, log="No había tareas para ejecutar.")
+            self.log("tasks.json was not found; skipping execution.", "warning")
+            self._update_agent("engineer-squad", status="done", progress=100, log="No tasks to execute.")
             self.set_phase("engineer-squad", "in-progress", 85)
             return
 
@@ -2240,14 +2219,14 @@ Ejemplo de formato esperado:
             tasks = json.load(f)
 
         if not tasks:
-            self.log("Planner no generó tareas; saltando ejecución.", "warning")
-            self._update_agent("engineer-squad", status="done", progress=100, log="No había tareas para ejecutar.")
+            self.log("Planner did not generate tasks; skipping execution.", "warning")
+            self._update_agent("engineer-squad", status="done", progress=100, log="No tasks to execute.")
             self.set_phase("engineer-squad", "in-progress", 85)
             return
 
         if not repo_path:
-            self.log("No hay repo configurado; saltando ejecución.", "warning")
-            self._update_agent("engineer-squad", status="done", progress=100, log="No hay repo configurado.")
+            self.log("No repository configured; skipping execution.", "warning")
+            self._update_agent("engineer-squad", status="done", progress=100, log="No repository configured.")
             self.set_phase("engineer-squad", "in-progress", 85)
             return
 
@@ -2265,25 +2244,25 @@ Ejemplo de formato esperado:
             save_run_state(state)
             emit_communication_update(state)
 
-        self._update_agent("engineer-squad", status="done", progress=100, log="Ejecución completada.")
+        self._update_agent("engineer-squad", status="done", progress=100, log="Execution completed.")
         self.set_phase("engineer-squad", "in-progress", 85)
 
     def _mark_task_failed(self, agent_id, tid, reason):
-        """Publica task_failed y marca el agente como fallido."""
+        """Publish task_failed and mark the agent as failed."""
         with run_lock:
             state = load_run_state()
-            _update_agent(state, agent_id, status="failed", progress=100, log=f"Tarea {tid} falló: {reason}")
+            _update_agent(state, agent_id, status="failed", progress=100, log=f"Task {tid} failed: {reason}")
             bus.publish_event(state, agent_id, "task_failed", {"taskId": tid, "reason": reason})
             save_run_state(state)
             emit_communication_update(state)
 
     def _run_single_engineer_task(self, task, status, results, lock, stop_event):
-        """Ejecuta una tarea de engineer individual y actualiza estado compartido."""
+        """Run one Engineer task and update shared state."""
         tid = task["id"]
         agent_id = f"engineer-{tid}"
         repo_path = self.ticket.get("repoPath", "")
         branch = self.ticket.get("branch", "")
-        self.log(f"[{agent_id}] Hilo de tarea iniciado para {tid}.")
+        self.log(f"[{agent_id}] Task thread started for {tid}.")
         with run_lock:
             state = load_run_state()
             _ensure_agent(state, agent_id, f"Engineer {tid}", "sub", "engineer-squad", "running", 0)
@@ -2291,29 +2270,29 @@ Ejemplo de formato esperado:
                 "id": agent_id,
                 "name": f"Engineer {tid}",
                 "role": "sub",
-                "description": f"Implementa tarea {tid}",
+                "description": f"Implements task {tid}",
                 "capabilities": ["coding", "dotnet"],
-                "tools": ["kimi_prompt", "dotnet_build", "git"],
+                "tools": ["ai_prompt", "dotnet_build", "git"],
             })
-            _update_agent(state, agent_id, progress=20, log=f"Iniciando tarea: {task['title']}")
+            _update_agent(state, agent_id, progress=20, log=f"Starting task: {task['title']}")
             bus.publish_event(state, agent_id, "task_started", {"taskId": tid, "title": task.get("title")})
             save_run_state(state)
             emit_communication_update(state)
 
         deps = task.get("dependencies", []) or []
         task_context = (
-            f"Tarea actual: {task.get('id')} - {task.get('title')}\n"
-            f"Descripción: {task.get('description', '')}\n"
-            f"Dependencias: {deps}\n"
-            f"Archivos a tocar: {task.get('files_to_touch', [])}\n"
+            f"Current task: {task.get('id')} - {task.get('title')}\n"
+            f"Description: {task.get('description', '')}\n"
+            f"Dependencies: {deps}\n"
+            f"Files to touch: {task.get('files_to_touch', [])}\n"
             f"QA checklist: {task.get('qa_checklist', [])}"
         )
 
-        # Contexto del proyecto completo y de dependencias ya terminadas.
+        # Full project context and completed dependency context.
         project_context = self._build_consultation_context(task_context=task_context)
         dependency_context = self._get_dependency_context(deps)
         if dependency_context:
-            self._update_agent(agent_id, progress=25, log=f"Contexto de {len(deps)} dependencia(s) incorporado.")
+            self._update_agent(agent_id, progress=25, log=f"Context from {len(deps)} dependency/dependencies included.")
 
         help_msgs = self._get_messages_for(agent_id, "request_help", handled=False)
         for msg in help_msgs:
@@ -2329,7 +2308,7 @@ Ejemplo de formato esperado:
 
         prompt = self._build_engineer_prompt(task, repo_path, branch, project_context, dependency_context)
         try:
-            output = self._run_kimi_prompt(prompt, phase_name=f"Engineer {tid}", timeout_seconds=1800, agent_id=agent_id)
+            output = self._run_ai_prompt(prompt, phase_name=f"Engineer {tid}", timeout_seconds=1800, agent_id=agent_id)
             self._parse_engineer_coordination_messages(agent_id, output)
             with lock:
                 if output:
@@ -2340,7 +2319,7 @@ Ejemplo de formato esperado:
                     results[tid] = False
 
             if output:
-                self._update_agent(agent_id, status="done", progress=100, log=f"Tarea {tid} completada.")
+                self._update_agent(agent_id, status="done", progress=100, log=f"Task {tid} completed.")
                 with run_lock:
                     state = load_run_state()
                     bus.publish_event(state, agent_id, "task_completed", {"taskId": tid})
@@ -2365,7 +2344,7 @@ Ejemplo de formato esperado:
             stop_event.set()
 
     def _collect_agent_outputs(self, agent_id, repo_path):
-        """Recopila archivos modificados por un agente y los guarda en su estado."""
+        """Collect files modified by an agent and save them into agent state."""
         if not repo_path or not os.path.isdir(repo_path):
             return
         git_dir = os.path.join(repo_path, ".git")
@@ -2394,10 +2373,10 @@ Ejemplo de formato esperado:
                         save_run_state(state)
                         break
         except Exception as exc:
-            self.log(f"No se pudieron recopilar outputs de {agent_id}: {exc}", "warning")
+            self.log(f"Could not collect outputs for {agent_id}: {exc}", "warning")
 
     def _execute_tasks_parallel(self, tasks, repo_path, branch):
-        """Ejecuta tareas respetando dependencias, con pool paralelo."""
+        """Run tasks with dependencies using a parallel pool."""
         max_workers = 10
         task_by_id = {t["id"]: t for t in tasks}
         status = {t["id"]: "queued" for t in tasks}
@@ -2405,9 +2384,9 @@ Ejemplo de formato esperado:
         lock = threading.Lock()
         stop_event = threading.Event()
 
-        self.log(f"[execute_tasks_parallel] Iniciando ejecución de {len(tasks)} tareas.")
+        self.log(f"[execute_tasks_parallel] Starting execution of {len(tasks)} tasks.")
 
-        # Reutilizar tareas que ya habían terminado o fallado en una ejecución previa.
+        # Reuse tasks that already completed or failed in a previous run.
         skipped_done = []
         skipped_failed = []
         with run_lock:
@@ -2425,9 +2404,9 @@ Ejemplo de formato esperado:
                     results[tid] = False
                     skipped_failed.append(tid)
         if skipped_done:
-            self.log(f"Tareas ya completadas; se omiten en la reanudación: {', '.join(skipped_done)}.")
+            self.log(f"Already completed tasks skipped during resume: {', '.join(skipped_done)}.")
         if skipped_failed:
-            self.log(f"Tareas que habían fallado; se omiten en la reanudación: {', '.join(skipped_failed)}.")
+            self.log(f"Previously failed tasks skipped during resume: {', '.join(skipped_failed)}.")
 
         def can_run(task):
             deps = task.get("dependencies", []) or []
@@ -2438,12 +2417,12 @@ Ejemplo de formato esperado:
 
         pending = set(t["id"] for t in tasks if status.get(t["id"]) == "queued")
         running_threads = {}
-        self.log(f"[execute_tasks_parallel] Tareas pendientes iniciales: {', '.join(sorted(pending))}.")
+        self.log(f"[execute_tasks_parallel] Initial pending tasks: {', '.join(sorted(pending))}.")
 
         while pending or running_threads:
             if stop_event.is_set():
-                self.log("[execute_tasks_parallel] Stop event activado; esperando threads y bloqueando pendientes.")
-                # Esperar a que terminen los que corren y marcar pendientes como blocked
+                self.log("[execute_tasks_parallel] Stop event activated; waiting for threads and blocking pending tasks.")
+                # Wait for running threads to finish and mark pending tasks as blocked.
                 for t in list(running_threads.values()):
                     t.join(timeout=10)
                 with lock:
@@ -2451,45 +2430,45 @@ Ejemplo de formato esperado:
                         status[tid] = "blocked"
                         agent_id = f"engineer-{tid}"
                         self._ensure_agent(agent_id, f"Engineer {tid}", "sub", "engineer-squad", "blocked", 0)
-                        self._update_agent(agent_id, status="blocked", progress=0, log="Bloqueado por fallo en dependencia.")
+                        self._update_agent(agent_id, status="blocked", progress=0, log="Blocked by dependency failure.")
                 break
 
-            # Lanzar tareas listas hasta llenar el pool
+            # Launch ready tasks until the pool is full.
             while len(running_threads) < max_workers and pending:
                 ready_tasks = [task_by_id[tid] for tid in pending if can_run(task_by_id[tid])]
                 if not ready_tasks:
                     blocked_list = sorted(pending)
-                    self.log(f"[execute_tasks_parallel] No hay tareas listas todavía; pendientes bloqueadas por dependencias: {', '.join(blocked_list)}.")
+                    self.log(f"[execute_tasks_parallel] No tasks are ready yet; pending tasks are blocked by dependencies: {', '.join(blocked_list)}.")
                     break
                 task = ready_tasks[0]
                 tid = task["id"]
                 pending.remove(tid)
                 status[tid] = "running"
-                self.log(f"[execute_tasks_parallel] Lanzando {tid}: {task.get('title', '')}.")
+                self.log(f"[execute_tasks_parallel] Launching {tid}: {task.get('title', '')}.")
                 t = threading.Thread(target=run_task, args=(task,), daemon=True)
                 running_threads[tid] = t
                 t.start()
 
             if not running_threads:
-                # No hay listos ni corriendo: posible ciclo o todo bloqueado
-                self.log("[execute_tasks_parallel] Sin threads corriendo ni listos; saliendo del loop.")
+                # No ready or running tasks: possible cycle or everything is blocked.
+                self.log("[execute_tasks_parallel] No running or ready threads; leaving loop.")
                 break
 
-            # Esperar a que termine alguno
+            # Wait until one thread finishes.
             while running_threads:
                 done_threads = [tid for tid, t in running_threads.items() if not t.is_alive()]
                 if done_threads:
                     for tid in done_threads:
                         del running_threads[tid]
-                    self.log(f"[execute_tasks_parallel] Threads finalizados: {', '.join(done_threads)}; corriendo: {', '.join(running_threads)}; pendientes: {', '.join(sorted(pending))}.")
+                    self.log(f"[execute_tasks_parallel] Finished threads: {', '.join(done_threads)}; running: {', '.join(running_threads)}; pending: {', '.join(sorted(pending))}.")
                     break
                 time.sleep(0.5)
 
-        self.log(f"Ejecución paralela finalizada: {sum(1 for v in results.values() if v)}/{len(tasks)} exitosas.")
+        self.log(f"Parallel execution finished: {sum(1 for v in results.values() if v)}/{len(tasks)} successful.")
         return results
 
     def _restart_engineer_task(self, agent_id):
-        """Reinicia una tarea engineer individual."""
+        """Restart one Engineer task."""
         tid = agent_id.split("-", 1)[1] if "-" in agent_id else None
         if not tid:
             return
@@ -2511,12 +2490,12 @@ Ejemplo de formato esperado:
         self._run_single_engineer_task(task, status, results, lock, stop_event)
 
     def _restart_pm_subagent(self, agent_id):
-        """Reinicia un subagente de PM volviendo a ejecutar la fase de análisis."""
-        self.log(f"Reiniciando subagente PM {agent_id}; re-ejecutando análisis.")
+        """Restart a PM subagent by rerunning the analysis phase."""
+        self.log(f"Restarting PM subagent {agent_id}; rerunning analysis.")
         self.run_pm_analysis()
 
     def _restart_agent(self, agent_id):
-        """Resetea el estado de un agente y lo re-ejecuta cuando es posible."""
+        """Reset agent state and rerun it when possible."""
         with run_lock:
             state = load_run_state()
             agent = next((a for a in state.get("agents", []) if a.get("id") == agent_id), None)
@@ -2542,58 +2521,58 @@ Ejemplo de formato esperado:
         return True
 
     def _build_engineer_prompt(self, task, repo_path, branch, project_context="", dependency_context=""):
-        files = ", ".join(task.get("files_to_touch", []) or ["archivos relevantes del proyecto"])
-        branch_clause = f" en la branch {branch}" if branch else ""
-        project_section = f"\n\n--- CONTEXTO DEL PROYECTO ---\n{project_context}" if project_context else ""
-        dependency_section = f"\n\n--- CONTEXTO DE DEPENDENCIAS ---\n{dependency_context}" if dependency_context else ""
-        return f"""Eres un ingeniero senior .NET. Trabaja en el repo {repo_path}{branch_clause}.
+        files = ", ".join(task.get("files_to_touch", []) or ["relevant project files"])
+        branch_clause = f" on branch {branch}" if branch else ""
+        project_section = f"\n\n--- PROJECT CONTEXT ---\n{project_context}" if project_context else ""
+        dependency_section = f"\n\n--- DEPENDENCY CONTEXT ---\n{dependency_context}" if dependency_context else ""
+        return f"""You are a senior .NET Engineer. Work in repo {repo_path}{branch_clause}.
 
-META GENERAL:
-Eres parte de un equipo que ejecuta el ticket descrito abajo. Ya tienes el orden de trabajo, el PRD, el plan de tareas y el contexto de las dependencias. Tu trabajo es implementar TU tarea de forma autónoma, asumiendo las mejores prácticas de .NET y sin detenerte a preguntar por dudas rutinarias. Solo detente si hay un impedimento real que no puedas resolver con el contexto proporcionado.
+GENERAL GOAL:
+You are part of a team executing the ticket below. You already have the work order, PRD, task plan, and dependency context. Your job is to implement YOUR task autonomously, assuming .NET best practices and without stopping for routine questions. Stop only if there is a real blocker that cannot be resolved from the provided context.
 
-REGLAS OBLIGATORIAS:
-- Si el repo no tiene un archivo .csproj o .sln, DEBES crear primero un proyecto .NET 8 válido con `dotnet new webapi -n CrudProductos` (o nombre apropiado).
-- Crea/modifica archivos directamente en el filesystem usando comandos de shell o escribiendo archivos.
-- Después de crear/editar archivos, ejecuta `dotnet build` en {repo_path} para verificar que compila.
-- Si hay tests, ejecuta `dotnet test`.
-- NO respondas solo con explicaciones; debes crear los archivos reales en disco.
+REQUIRED RULES:
+- If the repo does not have a .csproj or .sln file, first create a valid .NET 8 project with `dotnet new webapi -n CrudProducts` or an appropriate name.
+- Create/modify files directly on disk using shell commands or file writes.
+- After creating/editing files, run `dotnet build` in {repo_path} to verify compilation.
+- If tests exist, run `dotnet test`.
+- Do NOT respond only with explanations; create the real files on disk.
 
-TU TAREA:
+YOUR TASK:
 
-Título: {task.get('title', '')}
-Descripción: {task.get('description', '')}
-Archivos relevantes: {files}
+Title: {task.get('title', '')}
+Description: {task.get('description', '')}
+Relevant files: {files}
 
-Al terminar, reporta:
-1. Qué archivos modificaste o creaste.
-2. Resultado de `dotnet build` (éxito/error).
-3. Un QA checklist de 3-5 bullets de lo que se debe verificar.
+When finished, report:
+1. Which files you modified or created.
+2. `dotnet build` result (success/error).
+3. A QA checklist with 3-5 bullets of what should be verified.
 
-Sé concreto y escribe código funcional en C# siguiendo patrones comunes de ASP.NET Core / .NET.{project_section}{dependency_section}
+Be concrete and write functional C# code following common ASP.NET Core / .NET patterns.{project_section}{dependency_section}
 
-COORDINACIÓN (OPCIONAL):
-Si durante la implementación encuentras un bloqueo real que no puedas resolver solo, puedes incluir UNA línea EXACTAMENTE con uno de estos formatos:
-REQUEST_HELP:<id_del_helper>:<pregunta>
-REQUEST_CLARIFICATION:<id_del_pm_o_architect>:<tema>:<pregunta>
+OPTIONAL COORDINATION:
+If you find a real blocker during implementation that you cannot resolve alone, include ONE line EXACTLY in one of these formats:
+REQUEST_HELP:<helper_id>:<question>
+REQUEST_CLARIFICATION:<pm_or_architect_id>:<topic>:<question>
 
-No uses estos mecanismos para dudas rutinarias o decisiones de diseño menores: asume la mejor decisión y continúa."""
+Do not use these mechanisms for routine questions or minor design decisions; assume the best decision and continue."""
         + decision_request_instruction()
 
     def run_qa(self):
-        self._agent_log("orchestrator", "Fase 5/5: QA Review — revisando integración del batch.")
+        self._agent_log("orchestrator", "Phase 5/5: QA Review: reviewing batch integration.")
         self.set_phase("qa-engineer", "in-review", 90)
 
         # Register main QA participant
         self._ensure_agent("qa-engineer", "QA Engineer", "lead", "orchestrator", "running", 90)
-        self._update_agent("qa-engineer", progress=95, log="Revisando diffs y tests del batch.")
-        self.log("QA revisando diffs y tests del batch.")
+        self._update_agent("qa-engineer", progress=95, log="Reviewing batch diffs and tests.")
+        self.log("QA reviewing batch diffs and tests.")
         with run_lock:
             state = load_run_state()
             bus.register_participant(state, {
                 "id": "qa-engineer",
                 "name": "QA Engineer",
                 "role": "qa",
-                "description": "Revisa integración, build y tests del batch",
+                "description": "Reviews integration, build, and tests for the batch",
                 "capabilities": ["qa_review", "build_verification", "test_verification"],
                 "tools": ["dotnet_build", "dotnet_test", "git_diff"],
             })
@@ -2607,10 +2586,10 @@ No uses estos mecanismos para dudas rutinarias o decisiones de diseño menores: 
         for correction_round in range(max_correction_rounds):
             review_msgs = self._get_messages_for("qa-engineer", "request_review", handled=False)
             if not review_msgs:
-                self.log("No hay más revisiones pendientes.")
+                self.log("No more pending reviews.")
                 break
 
-            self._agent_log("qa-engineer", f"Revisión {correction_round + 1}/{max_correction_rounds}: {len(review_msgs)} tarea(s) pendiente(s).")
+            self._agent_log("qa-engineer", f"Review {correction_round + 1}/{max_correction_rounds}: {len(review_msgs)} pending task(s).")
 
             build_ok, build_output = self._run_dotnet_build(repo_path)
             test_ok, test_output = self._run_dotnet_test(repo_path)
@@ -2626,10 +2605,10 @@ No uses estos mecanismos para dudas rutinarias o decisiones de diseño menores: 
                 qa_agent_id = f"qa-{task_id}"
 
                 self._ensure_agent(qa_agent_id, f"QA {task_id}", "qa", "qa-engineer", "running", 90)
-                self._update_agent(qa_agent_id, progress=50, log=f"Revisando tarea {task_id}.")
+                self._update_agent(qa_agent_id, progress=50, log=f"Reviewing task {task_id}.")
 
-                branch_clause = f" en la branch {branch}" if branch else ""
-                review_prompt = f"""Eres un QA Engineer senior .NET. Revisa los cambios de la tarea {task_id}{branch_clause} del repo {repo_path}.
+                branch_clause = f" on branch {branch}" if branch else ""
+                review_prompt = f"""You are a senior .NET QA Engineer. Review the changes for task {task_id}{branch_clause} in repo {repo_path}.
 
 Diff:
 {diff}
@@ -2640,15 +2619,15 @@ Build: {'OK' if build_ok else 'FAIL'}
 Tests: {'OK' if test_ok else 'FAIL'}
 {test_output}
 
-Si encuentras problemas, responde EXACTAMENTE con:
-RECHAZO: <motivo>
-SUGERENCIA: <sugerencia de corrección>
+If you find problems, respond EXACTLY with:
+REJECTED: <reason>
+SUGGESTION: <correction suggestion>
 
-Si todo está bien, responde EXACTAMENTE con:
-APROBADO"""
-                review_result = self._run_kimi_prompt(review_prompt, phase_name=f"QA Review {task_id}", timeout_seconds=600, agent_id=qa_agent_id) or ""
+If everything is correct, respond EXACTLY with:
+APPROVED"""
+                review_result = self._run_ai_prompt(review_prompt, phase_name=f"QA Review {task_id}", timeout_seconds=600, agent_id=qa_agent_id) or ""
 
-                if "APROBADO" in review_result.upper() and build_ok and test_ok:
+                if "APPROVED" in review_result.upper() and build_ok and test_ok:
                     with run_lock:
                         state = load_run_state()
                         completion_msg = bus.send_message(state, qa_agent_id, engineer_id, "notify_completion", {"taskId": task_id, "review": review_result[:500]})
@@ -2656,18 +2635,18 @@ APROBADO"""
                         save_run_state(state)
                         emit_communication_update(state)
                     self._mark_message_handled(msg["id"], {"status": "approved"})
-                    self._update_agent(qa_agent_id, status="done", progress=100, log=f"Tarea {task_id} aprobada.")
+                    self._update_agent(qa_agent_id, status="done", progress=100, log=f"Task {task_id} approved.")
                     return None
 
                 reason = ""
                 suggestion = ""
                 for line in review_result.splitlines():
-                    if line.upper().startswith("RECHAZO:"):
+                    if line.upper().startswith("REJECTED:"):
                         reason = line.split(":", 1)[1].strip()
-                    elif line.upper().startswith("SUGERENCIA:"):
+                    elif line.upper().startswith("SUGGESTION:"):
                         suggestion = line.split(":", 1)[1].strip()
                 if not reason:
-                    reason = "Build o tests fallaron" if not (build_ok and test_ok) else "Revisión no aprobó"
+                    reason = "Build or tests failed" if not (build_ok and test_ok) else "Review was not approved"
 
                 with run_lock:
                     state = load_run_state()
@@ -2675,7 +2654,7 @@ APROBADO"""
                     save_run_state(state)
                     emit_communication_update(state)
                 self._mark_message_handled(msg["id"], {"status": "rejected", "reason": reason})
-                self._update_agent(qa_agent_id, status="failed", progress=100, log=f"Tarea {task_id} rechazada: {reason[:120]}")
+                self._update_agent(qa_agent_id, status="failed", progress=100, log=f"Task {task_id} rejected: {reason[:120]}")
                 return {
                     "engineer_id": engineer_id,
                     "task_id": task_id,
@@ -2694,20 +2673,20 @@ APROBADO"""
                             with rejected_lock:
                                 rejected_items.append(result)
                     except Exception as exc:
-                        self.log(f"Error en revisión paralela: {exc}", "error")
+                        self.log(f"Error during parallel review: {exc}", "error")
 
             # Process rejections -> corrections
             if not rejected_items:
                 break
 
-            self._agent_log("qa-engineer", f"Corrigiendo {len(rejected_items)} rechazo(s)...")
+            self._agent_log("qa-engineer", f"Correcting {len(rejected_items)} rejection(s)...")
             for item in rejected_items:
                 engineer_id = item["engineer_id"]
                 task_id = item["task_id"]
                 reason = item["reason"]
                 suggested_fix = item["suggested_fix"]
 
-                self._agent_log(engineer_id, f"Corrigiendo {task_id}: {reason[:120]}", "warning")
+                self._agent_log(engineer_id, f"Correcting {task_id}: {reason[:120]}", "warning")
 
                 tasks_path = get_meta_dir() / "state" / f"tasks-{self.ticket_id}.json"
                 task = {}
@@ -2719,23 +2698,23 @@ APROBADO"""
                     except Exception:
                         pass
 
-                branch_clause = f" en la branch {branch}" if branch else ""
-                prompt = f"""Eres un ingeniero senior .NET. Trabaja en el repo {repo_path}{branch_clause}.
+                branch_clause = f" on branch {branch}" if branch else ""
+                prompt = f"""You are a senior .NET Engineer. Work in repo {repo_path}{branch_clause}.
 
-La tarea {task_id} fue rechazada por QA.
-Motivo: {reason}
-Sugerencia: {suggested_fix}
-Título original: {task.get('title', '')}
-Descripción original: {task.get('description', '')}
+Task {task_id} was rejected by QA.
+Reason: {reason}
+Suggestion: {suggested_fix}
+Original title: {task.get('title', '')}
+Original description: {task.get('description', '')}
 
-Corrige el código respetando el motivo del rechazo. Después ejecuta `dotnet build` y `dotnet test` si hay tests.
-Reporta los archivos modificados y el resultado de la build.
+Fix the code according to the rejection reason. Then run `dotnet build` and `dotnet test` if tests exist.
+Report the modified files and build result.
 """
-                self._run_kimi_prompt(prompt, phase_name=f"Fix {task_id}", timeout_seconds=1800, agent_id=engineer_id)
+                self._run_ai_prompt(prompt, phase_name=f"Fix {task_id}", timeout_seconds=1800, agent_id=engineer_id)
 
                 with run_lock:
                     state = load_run_state()
-                    bus.send_message(state, engineer_id, "qa-engineer", "request_review", {"taskId": task_id, "reason": "corrección post-rechazo"})
+                    bus.send_message(state, engineer_id, "qa-engineer", "request_review", {"taskId": task_id, "reason": "post-rejection correction"})
                     save_run_state(state)
                     emit_communication_update(state)
                 self._mark_message_handled(item["rejection_id"], {"status": "corrected"})
@@ -2744,18 +2723,18 @@ Reporta los archivos modificados y el resultado de la build.
         pending = self._get_messages_for("qa-engineer", "request_review", handled=False)
         rejections = self._get_messages_for("qa-engineer", "reject_with_feedback", handled=False)
         if pending or rejections:
-            msg = f"{len(pending)} revision(es) y {len(rejections)} rechazo(s) quedaron pendientes tras {max_correction_rounds} rondas. QA no aprobó."
+            msg = f"{len(pending)} review(s) and {len(rejections)} rejection(s) remained after {max_correction_rounds} rounds. QA did not approve."
             self._agent_log("qa-engineer", msg, "error")
             raise RuntimeError(msg)
 
-        self._update_agent("qa-engineer", status="done", progress=100, log="QA Review completado.")
-        self._agent_log("qa-engineer", "QA Review completado.", "success")
+        self._update_agent("qa-engineer", status="done", progress=100, log="QA Review completed.")
+        self._agent_log("qa-engineer", "QA Review completed.", "success")
 
     def chat_with_agent(self, recipient_id, message):
-        """Responde un mensaje humano como el agente indicado.
+        """Answer a human message as the selected agent.
 
-        Se usa el mismo backend de Kimi configurado para el runner, con contexto
-        del ticket, PRD y tareas planificadas.
+        Uses the same configured backend as the runner, with ticket, PRD, and
+        planned-task context.
         """
         with run_lock:
             state = load_run_state()
@@ -2763,41 +2742,37 @@ Reporta los archivos modificados y el resultado de la build.
         recipient_name = agents_by_id.get(recipient_id, {}).get("name", recipient_id)
         context_text = self._build_consultation_context()
 
-        prompt = f"""Activa la skill 'dotnet' y aplica sus convenciones y mejores prácticas a todo el código .NET que generes.
+        prompt = f"""Activate the 'dotnet' skill and apply its conventions and best practices to all .NET code you generate.
 
-Eres el agente {recipient_name} ({recipient_id}) de una software factory estilo MetaGPT. El operador humano te escribe:
+You are agent {recipient_name} ({recipient_id}) in a MetaGPT-style software factory. The human operator writes:
 
 "{message}"
 
-CONTEXTO DEL PROYECTO:
+PROJECT CONTEXT:
 {context_text}
 
-Responde de forma concisa, técnica y útil. Si el mensaje es una instrucción (por ejemplo, "reintentar", "mejora", "revisa", "reactiva"), indica cómo la aplicarías o qué necesitas. Si no tienes suficiente contexto, dílo claramente."""
+Respond concisely, technically, and usefully. If the message is an instruction such as "retry", "improve", "review", or "reactivate", explain how you would apply it or what you need. If you do not have enough context, say so clearly."""
 
-        output = self._run_kimi_prompt(
+        output = self._run_ai_prompt(
             prompt,
             phase_name=f"Chat {recipient_id}",
             timeout_seconds=60,
             agent_id=recipient_id,
         )
-        return (output or "No pude generar una respuesta en este momento.").strip()
+        return (output or "I could not generate an answer right now.").strip()
 
-    def _run_kimi_prompt(self, prompt, phase_name="Agent", timeout_seconds=120, agent_id=None):
-        """Ejecuta un prompt con kimi CLI en modo prompt (-p) y retorna el contenido.
-
-        Usamos 'kimi -p' en lugar de 'kimi --yolo' interactivo porque solo en modo -p
-        Kimi CLI puede usar tools (Write, Edit, Bash) y realmente crear/modificar archivos.
-        """
+    def _run_ai_prompt(self, prompt, phase_name="Agent", timeout_seconds=120, agent_id=None):
+        """Run a prompt through the configured AI backend registry."""
         safe_phase = phase_name.lower().replace(' ', '-')
         output_path = get_meta_dir() / "state" / f"output-{self.ticket_id}-{safe_phase}.txt"
         prompt_path = get_meta_dir() / "state" / f"prompt-{self.ticket_id}-{safe_phase}.txt"
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
-        # Limpiar output previo
+        # Clear previous output.
         if output_path.exists():
             output_path.unlink()
 
-        # Guardar prompt en archivo
+        # Save prompt to file.
         prompt_path.write_text(prompt, encoding="utf-8")
 
         def log_to_agent(message, level="info"):
@@ -2806,105 +2781,107 @@ Responde de forma concisa, técnica y útil. Si el mensaje es una instrucción (
                 self._agent_log(agent_id, message, level)
 
         try:
-            kimi = find_kimi_cli()
-            if not kimi:
-                log_to_agent("No se encontró el ejecutable de Kimi.", "error")
+            available = self.backend_registry.available_backends()
+            if not available:
+                log_to_agent("No AI backend executable or API credentials were found.", "error")
                 return None
 
-            log_to_agent(f"Ejecutando Kimi -p para {phase_name} (timeout {timeout_seconds}s)...")
-            # Aplicamos la skill de .NET por defecto a todo el desarrollo.
+            backend_names = ", ".join(backend.name for backend in available)
+            log_to_agent(f"Running AI backend for {phase_name} (available: {backend_names}; timeout {timeout_seconds}s)...")
+            # Apply the .NET skill by default to all development prompts.
             dotnet_prefix = (
-                "Activa la skill 'dotnet' y aplica sus convenciones y mejores prácticas "
-                "a todo el código .NET que generes. "
+                "Activate the 'dotnet' skill and apply its conventions and best practices "
+                "to all .NET code you generate. "
             )
             full_prompt = dotnet_prefix + prompt
-            # Ejecutamos kimi -p con el prompt completo como argumento.
-            # 'kimi -p' permite tool use y por tanto puede crear/editar archivos.
-            # El working directory debe ser el repo del ticket para que las tools
-            # (Bash/Write/Edit) operen directamente sobre el código.
+            # The working directory must be the ticket repo so tools operate on code.
             repo_path = self.ticket.get("repoPath") or ""
             cwd = resolve_repo_path(repo_path) or str(Path.cwd())
-            proc = subprocess.run(
-                [kimi, "-p", full_prompt],
-                cwd=cwd,
-                capture_output=True,
-                text=True,
-                timeout=timeout_seconds,
-            )
 
-            output = proc.stdout or ""
-            if proc.stderr:
-                output += "\n" + proc.stderr
+            previous_cwd = os.getcwd()
+            try:
+                os.chdir(cwd)
+                output = self.backend_registry.run_prompt(
+                    full_prompt,
+                    phase_name=phase_name,
+                    timeout_seconds=timeout_seconds,
+                    agent_id=agent_id,
+                ) or ""
+            finally:
+                os.chdir(previous_cwd)
 
             output_path.write_text(output, encoding="utf-8")
 
-            if proc.returncode != 0:
-                log_to_agent(f"{phase_name} finalizó con código {proc.returncode}", "warning")
-
-            # Logs del final
+            # Tail logs.
             lines = [strip_ansi(l) for l in output.splitlines() if strip_ansi(l).strip()]
             for line in lines[-50:]:
                 log_to_agent(f"[{phase_name}] {line[:250]}")
 
             return "\n".join(lines)
         except subprocess.TimeoutExpired:
-            log_to_agent(f"{phase_name} excedió el tiempo límite ({timeout_seconds}s)", "error")
+            log_to_agent(f"{phase_name} exceeded the timeout ({timeout_seconds}s)", "error")
             return None
         except Exception as exc:
             log_to_agent(f"{phase_name} error: {exc}", "error")
             return None
 
+    def _available_backend_names(self):
+        try:
+            return [backend.name for backend in self.backend_registry.available_backends()]
+        except Exception:
+            return []
+
 
 def pause_active_ticket():
-    """Pausa el ticket que está corriendo actualmente, guarda snapshot y conserva el thread."""
+    """Pause the currently running ticket, save a snapshot, and keep the thread."""
     global _active_run_thread
     with run_lock:
         state = load_run_state()
     if not state.get("active"):
-        return False, "No hay ticket corriendo"
+        return False, "No ticket is running"
     ticket_id = state.get("ticketId")
     if not ticket_id:
-        return False, "No hay ticket activo"
+        return False, "No active ticket"
 
-    # Guardar snapshot del estado actual antes de limpiar el global
+    # Save a snapshot of the current state before clearing the global state.
     save_ticket_snapshot(ticket_id, state)
 
     if _active_run_thread and _active_run_thread.is_alive():
         _active_run_thread.pause()
         paused_run_threads[ticket_id] = _active_run_thread
         _active_run_thread = None
-        # Limpiar run-state global para que el dashboard no muestre el ticket anterior
+        # Clear global run-state so the dashboard does not show the previous ticket.
         reset_run_state_to_idle()
-        return True, f"Ticket {ticket_id} pausado"
+        return True, f"Ticket {ticket_id} paused"
 
-    # No hay runner vivo, pero igual dejamos el snapshot y limpiamos
+    # No live runner, but still keep the snapshot and clean state.
     reset_run_state_to_idle()
-    return True, f"Ticket {ticket_id} pausado (sin runner activo)"
+    return True, f"Ticket {ticket_id} paused (no active runner)"
 
 
 def play_ticket(ticket_id):
-    """Pone un ticket a correr. Si ya hay otro corriendo, lo pausa primero."""
+    """Start a ticket. If another ticket is running, pause it first."""
     global _active_run_thread
     board = load_board()
     ticket = next((t for t in board.get("tickets", []) if t.get("id") == ticket_id), None)
     if not ticket:
-        return False, "Ticket no encontrado"
+        return False, "Ticket not found"
 
     with run_lock:
         state = load_run_state()
 
-    # Ya corriendo
+    # Already running.
     if state.get("active") and state.get("ticketId") == ticket_id:
-        return True, "El ticket ya está corriendo"
+        return True, "Ticket is already running"
 
-    # Pausar otro ticket si hay uno corriendo
+    # Pause another ticket if one is running.
     if state.get("active"):
         ok, msg = pause_active_ticket()
         if not ok:
-            return False, f"No se pudo pausar el ticket activo: {msg}"
+            return False, f"Could not pause the active ticket: {msg}"
         state = load_run_state()
 
-    # Reanudar thread pausado en memoria
+    # Resume an in-memory paused thread.
     if ticket_id in paused_run_threads:
         thread = paused_run_threads.pop(ticket_id)
         if thread.is_alive():
@@ -2922,9 +2899,9 @@ def play_ticket(ticket_id):
             thread.resume()
             _active_run_thread = thread
             delete_ticket_snapshot(ticket_id)
-            return True, f"Ticket {ticket_id} reanudado"
+            return True, f"Ticket {ticket_id} resumed"
 
-    # Reanudar desde snapshot en disco (reinicio o pausa previa sin thread vivo)
+    # Resume from a disk snapshot (restart or previous pause without a live thread).
     snapshot = load_ticket_snapshot(ticket_id)
     if snapshot:
         restored = dict(snapshot)
@@ -2933,14 +2910,14 @@ def play_ticket(ticket_id):
         started = start_automatic_run(ticket, resume=True, queue_if_active=False)
         if started:
             delete_ticket_snapshot(ticket_id)
-            return True, f"Ticket {ticket_id} reanudado desde snapshot"
-        return False, "No se pudo iniciar el runner desde snapshot"
+            return True, f"Ticket {ticket_id} resumed from snapshot"
+        return False, "Could not start the runner from snapshot"
 
-    # Iniciar desde cero
+    # Start from scratch.
     started = start_automatic_run(ticket, resume=False, queue_if_active=False)
     if started:
-        return True, f"Ticket {ticket_id} iniciado"
-    return False, "No se pudo iniciar el ticket"
+        return True, f"Ticket {ticket_id} started"
+    return False, "Could not start the ticket"
 
 
 def restart_ticket(ticket_id):
@@ -2956,7 +2933,7 @@ def restart_ticket(ticket_id):
     board = load_board()
     ticket = next((t for t in board.get("tickets", []) if t.get("id") == ticket_id), None)
     if not ticket:
-        return False, "Ticket no encontrado"
+        return False, "Ticket not found"
 
     # Stop active runner for this ticket.
     if (
@@ -2998,12 +2975,12 @@ def restart_ticket(ticket_id):
     # Start from scratch.
     ok, msg = play_ticket(ticket_id)
     if ok:
-        return True, f"Ticket {ticket_id} reiniciado desde cero"
-    return False, f"No se pudo reiniciar el ticket: {msg}"
+        return True, f"Ticket {ticket_id} restarted from scratch"
+    return False, f"Could not restart ticket: {msg}"
 
 
 def start_automatic_run(ticket, resume=False, queue_if_active=True):
-    """Inicia el loop multi-agente para un ticket. Si resume=True, reanuda desde run-state existente."""
+    """Start the multi-agent loop for a ticket. If resume=True, resume from existing run-state."""
     global _active_run_thread
 
     with run_lock:
@@ -3018,8 +2995,8 @@ def start_automatic_run(ticket, resume=False, queue_if_active=True):
                 queue_position = len(queue)
                 active_ticket_id = state.get("ticketId")
                 append_log(
-                    f"Ya hay un run activo para {active_ticket_id}. "
-                    f"Ticket {ticket['id']} agregado a la cola (posición {queue_position}).",
+                    f"There is already an active run for {active_ticket_id}. "
+                    f"Ticket {ticket['id']} added to the queue (position {queue_position}).",
                     "warning",
                 )
             return False
@@ -3030,21 +3007,21 @@ def start_automatic_run(ticket, resume=False, queue_if_active=True):
 
 
 def resume_run(ticket):
-    """Reanuda un run previamente interrumpido para el ticket dado."""
+    """Resume a previously interrupted run for the given ticket."""
     global _active_run_thread
     if _active_run_thread and _active_run_thread.is_alive():
-        return False, "Ya hay un runner activo"
+        return False, "There is already an active runner"
     state = load_run_state()
     if state.get("ticketId") != ticket["id"]:
-        return False, "El ticket no coincide con run-state"
+        return False, "Ticket does not match run-state"
     started = start_automatic_run(ticket, resume=True)
     if not started:
-        return False, "No se pudo iniciar el runner"
-    return True, "Run reanudado"
+        return False, "Could not start the runner"
+    return True, "Run resumed"
 
 
 def reset_run_state_to_idle():
-    """Limpia run-state a valores idle, conservando solo la cola."""
+    """Reset run-state to idle values while preserving the queue."""
     with run_lock:
         state = load_run_state()
         queue = state.get("queue", [])
@@ -3070,15 +3047,15 @@ def reset_run_state_to_idle():
         socketio.emit("run_state_update", state)
 
 
-def stop_active_run(reason="Detenido por usuario"):
-    """Detiene el runner activo y limpia el run-state."""
+def stop_active_run(reason="Stopped by user"):
+    """Stop the active runner and clean run-state."""
     global _active_run_thread
 
     runner = _active_run_thread
     if runner and runner.is_alive():
-        append_log(f"{reason}. Deteniendo runner {runner.ticket_id}...", "warning")
+        append_log(f"{reason}. Stopping runner {runner.ticket_id}...", "warning")
         runner.stop()
-        # Esperar un poco a que el runner reconozca la señal
+        # Wait briefly for the runner to acknowledge the signal.
         runner.join(timeout=3)
 
     with run_lock:
@@ -3091,7 +3068,7 @@ def stop_active_run(reason="Detenido por usuario"):
 
 
 def _find_next_runnable_ticket(board=None, exclude_ids=None):
-    """Busca el siguiente ticket listo para ejecutar en el board."""
+    """Find the next ticket that is ready to run on the board."""
     if board is None:
         board = load_board()
     exclude_ids = set(exclude_ids or [])
@@ -3102,20 +3079,20 @@ def _find_next_runnable_ticket(board=None, exclude_ids=None):
     ]
     if not candidates:
         return None
-    # Ordenar por updatedAt ascendente (el más antiguo primero)
+    # Sort by updatedAt ascending (oldest first).
     candidates.sort(key=lambda t: t.get("updatedAt") or t.get("createdAt") or "")
     return candidates[0]
 
 
 def process_next_in_queue():
-    """Procesa el siguiente ticket en la cola o board cuando termina un run."""
+    """Process the next ticket from the queue or board when a run finishes."""
     global _active_run_thread
 
     with run_lock:
         state = load_run_state()
         queue = state.get("queue", [])
 
-    # Primero intentar con la cola interna
+    # First try the internal queue.
     next_ticket = None
     while queue:
         next_ticket_id = queue.pop(0)
@@ -3124,22 +3101,22 @@ def process_next_in_queue():
         if ticket and ticket.get("status") in ["ready-for-work", "in-design"]:
             next_ticket = ticket
             break
-        append_log(f"Ticket {next_ticket_id} en cola ya no existe o no está listo. Saltando.", "warning")
+        append_log(f"Queued ticket {next_ticket_id} no longer exists or is not ready. Skipping.", "warning")
 
-    # Si no hay cola, buscar siguiente ticket runnable en el board
+    # If the queue is empty, find the next runnable ticket on the board.
     if not next_ticket:
         board = load_board()
         next_ticket = _find_next_runnable_ticket(board)
         if next_ticket:
-            append_log(f"Siguiente ticket automático del board: {next_ticket['id']}")
+            append_log(f"Next automatic board ticket: {next_ticket['id']}")
 
     if not next_ticket:
-        append_log("No hay más tickets en cola ni listos para ejecutar.")
+        append_log("No more queued or ready tickets.")
         reset_run_state_to_idle()
         _active_run_thread = None
         return False
 
-    # Guardar cola actualizada
+    # Save the updated queue.
     with run_lock:
         state = load_run_state()
         state["queue"] = queue
@@ -3200,7 +3177,7 @@ def api_restart_ticket(ticket_id):
 def api_pause_ticket(ticket_id):
     state = load_run_state()
     if state.get("ticketId") != ticket_id:
-        return jsonify({"ok": False, "message": "Este ticket no está corriendo"}), 400
+        return jsonify({"ok": False, "message": "This ticket is not running"}), 400
     ok, msg = pause_active_ticket()
     return jsonify({"ok": ok, "message": msg}), (200 if ok else 400)
 
@@ -3230,23 +3207,17 @@ def api_communication():
 
 
 def get_model_name():
-    """Devuelve el modelo en uso. Intenta consultar `kimi --version`."""
-    kimi = find_kimi_cli()
-    if kimi:
-        try:
-            result = subprocess.run(
-                [kimi, "--version"],
-                capture_output=True,
-                text=True,
-                timeout=10,
-            )
-            if result.returncode == 0:
-                version = result.stdout.strip().splitlines()[0]
-                if version:
-                    return version
-        except Exception:
-            pass
-    return "Kimi K2.7 Code"
+    """Return a concise description of the configured AI backend set."""
+    try:
+        from core.runners.registry import BackendRegistry
+
+        registry = BackendRegistry.default()
+        available = [backend.name for backend in registry.available_backends()]
+        if available:
+            return "Available AI backends: " + ", ".join(available)
+    except Exception:
+        pass
+    return "No AI backend available"
 
 
 @app.route("/api/system-info", methods=["GET"])
@@ -3294,7 +3265,7 @@ def _build_traces(state, limit=60):
                 "level": level,
             })
 
-    # Eventos del bus de comunicación
+    # Communication bus events.
     for ev in state.get("communication", {}).get("log", []) or []:
         ev_type = ev.get("eventType", "event")
         status = "ok"
@@ -3323,7 +3294,7 @@ def _build_traces(state, limit=60):
             "level": status,
         })
 
-    # Mensajes entre agentes
+    # Messages between agents.
     for msg in state.get("messages", []) or []:
         content = msg.get("answer") or msg.get("question") or ""
         status = "ok" if msg.get("status") == "answered" else "live"
@@ -3341,7 +3312,7 @@ def _build_traces(state, limit=60):
             "level": status,
         })
 
-    # Calcular duración de eventos de tarea usando pares started/completed
+    # Calculate task event duration using started/completed pairs.
     started = {}
     for t in traces:
         if t["type"] == "event" and t["name"] == "task_started":
@@ -3465,7 +3436,7 @@ def api_skip_question(question_id):
 
 @app.route("/api/design-review", methods=["GET"])
 def api_design_review():
-    """Devuelve la revisión de diseño activa (preguntas + respuestas asumidas)."""
+    """Return the active design review (questions plus assumed answers)."""
     state = load_run_state()
     review = state.get("designReview")
     if not review:
@@ -3478,12 +3449,12 @@ def api_design_review():
 
 @app.route("/api/design-review/extend", methods=["POST"])
 def api_design_review_extend():
-    """Extiende el tiempo de espera de la revisión de diseño en 60 segundos."""
+    """Extend the design review timeout by 60 seconds."""
     with run_lock:
         state = load_run_state()
         review = state.get("designReview")
         if not review or review.get("answered"):
-            return jsonify({"error": "No hay revisión activa"}), 404
+            return jsonify({"error": "No active review"}), 404
         extra = 60
         review["timeoutSeconds"] = review.get("timeoutSeconds", 60) + extra
         review["expiresAt"] = (datetime.now(timezone.utc) + timedelta(seconds=extra)).isoformat()
@@ -3495,19 +3466,19 @@ def api_design_review_extend():
 
 @app.route("/api/design-review/answer", methods=["POST"])
 def api_design_review_answer():
-    """Recibe las respuestas del usuario y continúa el loop."""
+    """Receive user answers and continue the loop."""
     data = request.get_json(silent=True) or {}
     answers = data.get("answers", {})
     if not isinstance(answers, dict):
-        return jsonify({"error": "answers debe ser un objeto"}), 400
+        return jsonify({"error": "answers must be an object"}), 400
 
     with run_lock:
         state = load_run_state()
         review = state.get("designReview")
         if not review or review.get("answered"):
-            return jsonify({"error": "No hay revisión activa"}), 404
+            return jsonify({"error": "No active review"}), 404
 
-        # Guardar respuestas
+        # Save answers.
         review["answered"] = True
         review["finalAnswers"] = answers
         review["answeredAt"] = datetime.now(timezone.utc).isoformat()
@@ -3515,10 +3486,10 @@ def api_design_review_answer():
         state["designReview"] = review
         state["status"] = "in-design"
         state["currentAgent"] = "project-manager"
-        state["summary"] = "Revisión de diseño completada por el usuario. Continuando..."
+        state["summary"] = "Design review completed by the user. Continuing..."
         save_run_state(state)
 
-    # Notificar al runner que ya hay respuestas
+    # Notify the runner that answers are available.
     global _active_run_thread
     runner = _active_run_thread
     if runner and hasattr(runner, "_design_review_event"):
@@ -3626,19 +3597,19 @@ def api_update_ticket(ticket_id):
 
     new_status = ticket.get("status")
 
-    # Si se mueve el ticket activo a backlog o done manualmente, detener ejecución
+    # If the active ticket is manually moved to backlog or done, stop execution.
     if old_status != new_status and new_status in ("backlog", "done"):
         state = load_run_state()
         if state.get("ticketId") == ticket_id:
             stop_active_run(
-                f"Ticket {ticket_id} movido a {new_status}; deteniendo ejecución"
+                f"Ticket {ticket_id} moved to {new_status}; stopping execution"
             )
-            # Si fue movido a done manualmente, continuar con el siguiente ticket
+            # If it was manually moved to done, continue with the next ticket.
             if new_status == "done":
                 process_next_in_queue()
 
     if old_status != new_status and new_status == "ready-for-work":
-        # Reiniciar métricas de ejecución para que el ticket comience de 0
+        # Reset execution metrics so the ticket starts from zero.
         with board_lock:
             board = load_board()
             for t in board["tickets"]:
@@ -3717,7 +3688,7 @@ def api_restart_agent(ticket_id, agent_id):
         if not ticket:
             return jsonify({"error": "Ticket not found"}), 404
         if ticket.get("status") == "backlog":
-            return jsonify({"error": "El ticket está en backlog"}), 409
+            return jsonify({"error": "The ticket is in backlog"}), 409
 
     runner = _active_run_thread
     if runner and runner.is_alive() and runner.ticket_id == ticket_id:
@@ -3726,14 +3697,14 @@ def api_restart_agent(ticket_id, agent_id):
             return jsonify({"error": "Agent not found"}), 404
         return jsonify({"ok": True, "agentId": agent_id})
 
-    # No hay runner activo: reanudar el loop si el agente es un coordinador de fase.
+    # No active runner: resume the loop if the agent is a phase coordinator.
     if agent_id in ("orchestrator", "engineer-squad", "project-manager"):
         ok, msg = resume_run(ticket)
         if not ok:
             return jsonify({"error": msg}), 409
-        return jsonify({"ok": True, "agentId": agent_id, "resumed": True, "message": "Run reanudado desde el estado anterior."})
+        return jsonify({"ok": True, "agentId": agent_id, "resumed": True, "message": "Run resumed from the previous state."})
 
-    # Reinicio puntual de un engineer sin runner activo.
+    # Point restart of one Engineer without an active runner.
     if agent_id.startswith("engineer-"):
         temp_runner = AgentRunner(ticket, resume=True)
         ok = temp_runner._restart_agent(agent_id)
@@ -3741,7 +3712,7 @@ def api_restart_agent(ticket_id, agent_id):
             return jsonify({"error": "Agent not found"}), 404
         return jsonify({"ok": True, "agentId": agent_id})
 
-    return jsonify({"error": "No hay runner activo para reiniciar este agente"}), 409
+    return jsonify({"error": "No active runner is available to restart this agent"}), 409
 
 
 @app.route("/api/open-path", methods=["POST"])
@@ -3753,7 +3724,7 @@ def api_open_path():
         return jsonify({"error": "Path required"}), 400
     target = os.path.dirname(path) if open_folder else path
     if not os.path.exists(target):
-        return jsonify({"error": "La ruta no existe"}), 404
+        return jsonify({"error": "Path does not exist"}), 404
     try:
         if sys.platform == "darwin":
             subprocess.run(["open", target], check=False)
@@ -3773,13 +3744,13 @@ def api_read_file():
     if not path:
         return jsonify({"error": "Path required"}), 400
     if not os.path.isfile(path):
-        return jsonify({"error": "El archivo no existe"}), 404
+        return jsonify({"error": "File does not exist"}), 404
     try:
         with open(path, "r", encoding="utf-8", errors="replace") as f:
             content = f.read()
         max_len = 100_000
         if len(content) > max_len:
-            content = content[:max_len] + "\n\n[Contenido truncado; abre el archivo para verlo completo]"
+            content = content[:max_len] + "\n\n[Content truncated; open the file to view it completely]"
         return jsonify({"path": path, "content": content})
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
@@ -3802,10 +3773,10 @@ def handle_request_update():
 
 @socketio.on("chat_send")
 def handle_chat_send(data):
-    """Recibe un mensaje del operador humano dirigido a un agente.
+    """Receive a human operator message directed to an agent.
 
-    El mensaje se guarda en el log de comunicación y, si hay un runner activo,
-    se pide una respuesta al agente seleccionado usando el backend de IA.
+    The message is saved in the communication log and, if a runner is active,
+    the selected agent is asked for a response using the AI backend.
     """
     recipient = (data or {}).get("to", "orchestrator")
     text = ((data or {}).get("message") or "").strip()
@@ -3829,7 +3800,7 @@ def handle_chat_send(data):
                     save_run_state(state)
                 emit_communication_update(state)
             except Exception as exc:
-                append_log(f"Error en chat con {recipient}: {exc}", "error")
+                append_log(f"Error in chat with {recipient}: {exc}", "error")
 
         threading.Thread(target=respond, daemon=True).start()
     else:
@@ -3840,7 +3811,7 @@ def handle_chat_send(data):
                 "system",
                 "user",
                 "chat",
-                {"text": "No hay un run activo. Inicia un ticket para chatear con los agentes."},
+                {"text": "No active run. Start a ticket to chat with agents."},
             )
             save_run_state(state)
         emit_communication_update(state)
@@ -3848,9 +3819,9 @@ def handle_chat_send(data):
 
 def main():
     parser = argparse.ArgumentParser(description="AgentFlow Dashboard Server")
-    parser.add_argument("--port", type=int, default=5050, help="Puerto del servidor")
-    parser.add_argument("--board", type=str, default=None, help="Ruta a board.json")
-    parser.add_argument("--no-browser", action="store_true", help="No abrir navegador")
+    parser.add_argument("--port", type=int, default=5050, help="Server port")
+    parser.add_argument("--board", type=str, default=None, help="Path to board.json")
+    parser.add_argument("--no-browser", action="store_true", help="Do not open browser")
     args = parser.parse_args()
 
     if args.board:
@@ -3861,7 +3832,7 @@ def main():
         RUN_STATE_FILE = board_path.parent / "run-state.json"
         LOG_FILE = board_path.parent / "run.log"
 
-    # Asegurar que board.json exista y tenga la estructura nueva
+    # Ensure board.json exists and has the new structure.
     board = load_board()
     board = ensure_default_columns(board)
     recompute_stats(board)
@@ -3876,11 +3847,11 @@ def main():
             if ticket_id:
                 delete_ticket_snapshot(ticket_id)
         elif ticket_id:
-            # Guardar snapshot para poder reanudar tras reinicio
+            # Save a snapshot so the run can be resumed after restart.
             save_ticket_snapshot(ticket_id, state)
             append_log(
-                f"Run {ticket_id} interrumpido por reinicio del servidor. "
-                "Snapshot guardado; puedes reanudarlo desde el dashboard.",
+                f"Run {ticket_id} interrupted by server restart. "
+                "Snapshot saved; you can resume it from the dashboard.",
                 "warning",
             )
             reset_run_state_to_idle()
@@ -3889,14 +3860,14 @@ def main():
             state["active"] = False
     save_run_state(state)
 
-    # Reprogramar timers de preguntas pendientes
+    # Reschedule timers for pending questions.
     schedule_pending_question_timers()
 
-    # Procesar cola pendiente al arrancar
+    # Process pending queue on startup.
     if not state.get("active") and state.get("queue"):
         threading.Thread(target=process_next_in_queue, daemon=True).start()
 
-    # Auto-resume de runs interrumpidos por reinicio del servidor
+    # Auto-resume runs interrupted by a server restart.
     state = load_run_state()
     if not state.get("active") and state.get("status") == "failed" and state.get("ticketId") and state.get("interruptedByRestart"):
         board = load_board()
@@ -3918,7 +3889,7 @@ def main():
 
         threading.Thread(target=open_browser, daemon=True).start()
 
-    print(f"AgentFlow Dashboard corriendo en http://localhost:{args.port}")
+    print(f"AgentFlow Dashboard running at http://localhost:{args.port}")
     print(f"Board: {get_board_path()}")
     print(f"Run state: {get_run_state_path()}")
     socketio.run(app, host="0.0.0.0", port=args.port, debug=False, use_reloader=False, allow_unsafe_werkzeug=True)

@@ -75,13 +75,13 @@ class Context:
         """Convenience helper for the ``log`` callback."""
         self.callback("log", message, level)
 
-    def run_kimi(self, prompt: str, phase_name: str, timeout_seconds: int, agent_id: Optional[str] = None) -> Optional[str]:
+    def run_ai(self, prompt: str, phase_name: str, timeout_seconds: int, agent_id: Optional[str] = None) -> Optional[str]:
         """Run a prompt through the configured backend registry.
 
-        Falls back to the ``run_kimi`` callback if no backend registry is
+        Falls back to the ``run_ai`` callback if no backend registry is
         configured, preserving legacy/local testing hooks.
         """
-        callback_run = self.callbacks.get("run_kimi")
+        callback_run = self.callbacks.get("run_ai")
         if callback_run:
             return callback_run(prompt, phase_name, timeout_seconds, agent_id)
         if self.backend_registry is None:

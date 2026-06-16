@@ -29,15 +29,15 @@ def test_context_callback():
     assert calls == [((1, 2), {"key": "value"})]
 
 
-def test_context_run_kimi_uses_callback():
+def test_context_run_ai_uses_callback():
     calls = []
 
-    def mock_run_kimi(prompt, phase_name, timeout_seconds, agent_id=None):
+    def mock_run_ai(prompt, phase_name, timeout_seconds, agent_id=None):
         calls.append((prompt, phase_name, timeout_seconds, agent_id))
         return "ok"
 
-    ctx = Context(ticket={}, callbacks={"run_kimi": mock_run_kimi})
-    assert ctx.run_kimi("p", "phase", 5, "agent") == "ok"
+    ctx = Context(ticket={}, callbacks={"run_ai": mock_run_ai})
+    assert ctx.run_ai("p", "phase", 5, "agent") == "ok"
     assert calls == [("p", "phase", 5, "agent")]
 
 

@@ -1,69 +1,76 @@
-# Meta-Ralph: SOPs por Rol (MetaGPT Adaptado)
+# Meta-Ralph Role SOPs
 
-Este documento define los **Standard Operating Procedures** para cada rol en el equipo Meta-Ralph.
+This document defines the Standard Operating Procedures for each role in the Meta-Ralph team.
 
 ---
 
-## 1. PM Research Agents (1..20 en paralelo)
+## 1. PM Research Agents
 
-### Propósito
-Investigar en paralelo distintas áreas del proyecto (dominio de negocio, tecnologías, componentes, integraciones, riesgos) para enriquecer el análisis antes de que el Product Manager principal descomponga el PRD.
+### Purpose
+
+Research separate areas of the project in parallel so the main Product Manager can enrich the PRD before decomposition.
+
+Research areas may include business domain, technologies, components, integrations, existing patterns, risks, compliance, and UX constraints.
 
 ### Input
-- `prd.json` con historias de usuario
-- Área o foco de investigación asignado por el Orchestrator
+
+- `prd.json` with user stories.
+- A board ticket or research focus assigned by the Orchestrator.
 
 ### Output
-- Nota de investigación en `scripts/meta-ralph/state/pm-research/<agent_id>.md`
+
+- A research note at `scripts/meta-ralph/state/pm-research/<agent_id>.md`.
 
 ### SOP
 
-1. Lee `prd.json` completamente.
-2. Identifica el ticket del board asignado (`scripts/meta-ralph/state/board.json`).
-3. Informa al Orchestrator para que mueva ese ticket a **In Design**.
-4. Profundiza en el área o foco asignado (ej: "autenticación", "modelo de datos", "APIs externas", "regulaciones", "UI/UX").
-5. Investiga el contexto del proyecto: lee archivos relevantes, busca patrones existentes, identifica supuestos y riesgos.
-6. Documenta hallazgos, opciones, recomendaciones y requisitos implícitos.
-7. NO escribas código ni diseño técnico detallado. Solo análisis y definición del dominio.
-8. Reporta al Orchestrator cuando termines para que el ticket vuelva a **Backlog** (o permanezca en In Design si necesita más investigación).
+1. Read `prd.json` completely.
+2. Identify the assigned board ticket in `scripts/meta-ralph/state/board.json`.
+3. Tell the Orchestrator to move that ticket to **In Design**.
+4. Investigate the assigned area or focus, such as authentication, data model, external APIs, compliance, or UI/UX.
+5. Read relevant project files, identify existing patterns, and surface assumptions and risks.
+6. Document findings, options, recommendations, and implicit requirements.
+7. Do not write code or detailed technical design. This role is for analysis and domain definition only.
+8. Report completion to the Orchestrator so the ticket can return to **Backlog**, unless more research is needed.
 
 ---
 
-## 2. Product Manager (PM-Agent)
+## 2. Product Manager
 
-### Propósito
-Transformar un PRD de alto nivel y las investigaciones de los PM Research Agents en un plan técnico granular que los Engineers puedan ejecutar sin ambigüedad.
+### Purpose
+
+Transform a high-level PRD and PM research notes into granular technical tasks that Engineers can execute without ambiguity.
 
 ### Input
-- `prd.json` con historias de usuario
-- Notas de investigación de los PM Research Agents (`scripts/meta-ralph/state/pm-research/*.md`)
+
+- `prd.json` with user stories.
+- PM Research notes from `scripts/meta-ralph/state/pm-research/*.md`.
 
 ### Output
-- `prd-expanded.json` con un array `tasks[]`
 
-### SOP (pasos obligatorios)
+- `prd-expanded.json` with a `tasks[]` array.
 
-1. Lee `prd.json` completamente.
-2. Lee `scripts/meta-ralph/state/board.json` para conocer los tickets existentes.
-3. Lee y consolida las notas de todos los PM Research Agents.
-4. Por cada historia de usuario:
-   - Descompón en tareas técnicas independientes cuando sea posible.
-   - Cada task debe caber en UNA sola iteración de un Engineer.
-5. Asigna a cada task:
-   - `id`: string único (ej: `T-001`, `T-002`)
-   - `title`: máximo 10 palabras
-   - `description`: qué debe hacerse y por qué
-   - `acceptanceCriteria`: array de criterios medibles
-   - `dependencies`: array de `id`s de otros tasks que DEBEN estar merged antes
-   - `effort`: `small`, `medium`, `large`
-   - `affectedAreas`: array de paths/áreas del código
-   - `storyId`: historia de usuario de origen
-   - `roleContext`: rol recomendado para el Engineer (ej: "backend-api", "frontend-forms", "auth-specialist")
-   - `featureFocus`: foco funcional claro de la task
-5. Detecta dependencias IMPLÍCITAS (por ejemplo: primero modelo, luego API, luego UI).
-6. NO incluyas implementación, código ni diseño técnico. Solo requisitos.
-7. Valida que el grafo de dependencias no tenga ciclos.
-8. Escribe `prd-expanded.json`.
+### SOP
+
+1. Read `prd.json` completely.
+2. Read `scripts/meta-ralph/state/board.json` to understand existing tickets.
+3. Read and consolidate all PM Research notes.
+4. For each user story, decompose it into independent technical tasks where possible.
+5. Ensure each task fits in one Engineer iteration.
+6. Assign each task:
+   - `id`: unique string such as `T-001`.
+   - `title`: maximum 10 words.
+   - `description`: what must be done and why.
+   - `acceptanceCriteria`: measurable criteria.
+   - `dependencies`: task IDs that must be integrated first.
+   - `effort`: `small`, `medium`, or `large`.
+   - `affectedAreas`: code paths or areas.
+   - `storyId`: source user story.
+   - `roleContext`: recommended Engineer role, such as `backend-api`, `frontend-forms`, or `auth-specialist`.
+   - `featureFocus`: clear functional focus for the task.
+7. Detect implicit dependencies, such as model before API before UI.
+8. Do not include implementation code or detailed technical design. Write requirements only.
+9. Validate that the dependency graph has no cycles.
+10. Write `prd-expanded.json`.
 
 ### Output Schema
 
@@ -75,14 +82,14 @@ Transformar un PRD de alto nivel y las investigaciones de los PM Research Agents
     {
       "id": "T-001",
       "storyId": "US-001",
-      "title": "Crear modelo User",
+      "title": "Create User model",
       "description": "...",
       "acceptanceCriteria": ["..."],
       "dependencies": [],
       "effort": "small",
       "affectedAreas": ["src/models/"],
       "roleContext": "backend-model-engineer",
-      "featureFocus": "Definir y persistir el modelo de datos de usuario"
+      "featureFocus": "Define and persist the user data model"
     }
   ]
 }
@@ -90,58 +97,64 @@ Transformar un PRD de alto nivel y las investigaciones de los PM Research Agents
 
 ---
 
-## 3. Architect (Architect-Agent)
+## 3. Architect
 
-### Propósito
-Definir los patrones técnicos globales para que todos los Engineers trabajen de forma coherente.
+### Purpose
+
+Define global technical patterns so Engineers work coherently across parallel tasks.
 
 ### Input
-- `prd-expanded.json`
+
+- `prd-expanded.json`.
 
 ### Output
-- `architecture.md`
+
+- `architecture.md`.
 
 ### SOP
 
-1. Lee `prd-expanded.json`.
-2. Analiza las `affectedAreas` de todas las tareas.
-3. Define en `architecture.md`:
-   - **Stack y versiones** confirmadas
-   - **Estructura de directorios** recomendada
-   - **Patrones de diseño** a usar (ej: Repository, DTO, Controller-Service)
-   - **Convenciones de nombres** (archivos, funciones, clases, endpoints)
-   - **API contract** (si aplica): formatos de request/response, status codes
-   - **Modelo de datos** (si aplica): entidades, relaciones, campos clave
-   - **Flujos transversales**: auth, validación, errores, logging
-   - **Qué NO hacer** (anti-patrones explícitos)
-4. NO escribas código concreto que deba implementar un Engineer.
-5. Mantén el documento por debajo de 300 líneas.
+1. Read `prd-expanded.json`.
+2. Analyze `affectedAreas` across all tasks.
+3. Define the following in `architecture.md`:
+   - Confirmed stack and versions.
+   - Recommended directory structure.
+   - Design patterns to use, such as Repository, DTO, or Controller-Service.
+   - Naming conventions for files, functions, classes, and endpoints.
+   - API contracts where applicable: request and response shapes, status codes, and errors.
+   - Data model where applicable: entities, relationships, and key fields.
+   - Cross-cutting flows: authentication, validation, errors, and logging.
+   - Explicit anti-patterns.
+4. Do not write concrete implementation code that belongs to an Engineer.
+5. Keep the document under 300 lines.
 
 ---
 
-## 4. Project Manager (PMgr-Agent)
+## 4. Project Manager
 
-### Propósito
-Construir el plan de ejecución: batches paralelos, orden de dependencias, asignación de workers.
+### Purpose
+
+Build the execution plan: parallel batches, dependency order, and worker assignment.
 
 ### Input
-- `prd-expanded.json`
-- `architecture.md`
+
+- `prd-expanded.json`.
+- `architecture.md`.
 
 ### Output
-- `execution-plan.json`
+
+- `execution-plan.json`.
 
 ### SOP
 
-1. Lee ambos inputs.
-2. Construye un DAG de tasks usando `dependencies`.
-3. Calcula el nivel topológico de cada task.
-4. Agrupa tasks SIN dependencias pendientes en batches.
-5. Respeta `MAX_WORKERS` (default 20). Nunca exceder el límite.
-6. Dentro de un batch, preferir tasks que afecten áreas distintas para minimizar conflictos.
-7. Define orden de ejecución de batches: batch 1, batch 2, etc.
-8. Marca tasks de `effort: large` para QA más exhaustiva.
-9. Escribe `execution-plan.json`.
+1. Read both inputs.
+2. Build a DAG of tasks using `dependencies`.
+3. Calculate the topological level of each task.
+4. Group tasks with no pending dependencies into batches.
+5. Respect `MAX_WORKERS`. Never exceed the configured limit.
+6. Within a batch, prefer tasks that touch different areas to reduce conflicts.
+7. Define batch order explicitly: batch 1, batch 2, and so on.
+8. Mark `effort: large` tasks for deeper QA.
+9. Write `execution-plan.json`.
 
 ### Output Schema
 
@@ -164,81 +177,88 @@ Construir el plan de ejecución: batches paralelos, orden de dependencias, asign
 
 ---
 
-## 5. Engineer (Worker-Agent)
+## 5. Engineer Worker
 
-### Propósito
-Implementar UNA única task de forma aislada, siguiendo los patrones del Architect y actuando bajo un rol, contexto y feature focus específicos.
+### Purpose
+
+Implement exactly one task in isolation, following the Architect's patterns and acting under a specific role context and feature focus.
 
 ### Input
-- Task específica de `execution-plan.json`
-- `roleContext` y `featureFocus` definidos en `prd-expanded.json`
-- `architecture.md`
-- `prd-expanded.json`
-- Worktree aislado en `scripts/meta-ralph/state/worktrees/<task_id>/`
+
+- One task from `execution-plan.json`.
+- `roleContext` and `featureFocus` from `prd-expanded.json`.
+- `architecture.md`.
+- `prd-expanded.json`.
+- An isolated worktree at `scripts/meta-ralph/state/worktrees/<task_id>/`.
 
 ### Output
-- Código implementado + commit en su branch de worktree
-- Resultado reportado al Orchestrator
+
+- Implemented code plus a commit in the worker branch.
+- A structured result reported to the Orchestrator.
 
 ### SOP
 
-1. Lee la task asignada, incluyendo `roleContext` y `featureFocus`.
-2. Identifica el ticket asociado en `scripts/meta-ralph/state/board.json`. El Orchestrator debe haberlo movido a **In Progress**.
-3. Lee `architecture.md` y cualquier `AGENTS.md` relevante.
-4. Adopta el rol asignado (ej: "backend-api engineer", "frontend-forms engineer", "auth specialist"). Tu análisis e implementación deben reflejar ese rol.
-5. Mantén el `featureFocus` como norte: todo cambio debe servir a esa funcionalidad específica.
-6. Asegúrate de estar en el worktree correcto.
-7. Implementa SOLO el scope de la task asignada.
-8. Sigue los patrones del Architect al pie de la letra.
-9. Ejecuta los quality checks del proyecto (test, lint, typecheck).
-10. Si hay tests, asegúrate de que pasen. Si no existen tests relevantes, considera añadir uno mínimo.
-11. NO modifiques archivos fuera del scope de la task sin justificación clara.
-12. Commitea con mensaje: `feat(meta-ralph/T-XXX): <title de la task>`.
-13. Reporta el último commit hash al Orchestrator.
-14. Si encuentras un blocker, emite `WORKER_BLOCKED <task_id> <razón>` para que el PMgr re-planifique.
+1. Read the assigned task, including `roleContext` and `featureFocus`.
+2. Identify the associated ticket in `scripts/meta-ralph/state/board.json`; the Orchestrator should have moved it to **In Progress**.
+3. Read `architecture.md` and any relevant `AGENTS.md` files.
+4. Adopt the assigned role, such as backend API engineer, frontend forms engineer, or auth specialist.
+5. Keep `featureFocus` as the guiding constraint: every change must serve that exact feature.
+6. Ensure you are in the correct worktree.
+7. Implement only the assigned task.
+8. Follow the Architect's patterns strictly.
+9. Run the project's quality checks: tests, lint, typecheck, build, or equivalent.
+10. If relevant tests exist, make them pass. If no relevant tests exist, consider adding a focused test.
+11. Do not modify files outside the task scope without clear justification.
+12. Commit with `feat(meta-ralph/T-XXX): <task title>`.
+13. Report the latest commit hash to the Orchestrator.
+14. If blocked, emit `WORKER_BLOCKED <task_id> <reason>` so the Project Manager can replan.
 
 ---
 
-## 6. QA Engineer (Reviewer-Agent)
+## 6. QA Engineer
 
-### Propósito
-Verificar que un batch completo cumple DoD y no introduce regresiones.
+### Purpose
+
+Verify that a complete batch meets the Definition of Done and does not introduce regressions.
 
 ### Input
-- Lista de tasks del batch
-- Diffs de cada worker
-- `execution-plan.json`
-- `prd-expanded.json`
+
+- Tasks in the batch.
+- Diffs from each worker.
+- `execution-plan.json`.
+- `prd-expanded.json`.
 
 ### Output
-- Veredicto `APPROVE` o `REQUEST_CHANGES`
-- Lista de findings categorizados
+
+- Verdict: `APPROVE` or `REQUEST_CHANGES`.
+- Categorized findings.
 
 ### SOP
 
-1. Lee todas las tasks del batch.
-2. Confirma con el Orchestrator que los tickets del batch estén en **In Review**.
-3. Obtén el diff combinado de todos los workers.
-4. Verifica:
-   - Cada task cumple su `acceptanceCriteria`
-   - No hay cambios fuera del scope declarado
-   - Los tests/lint/typecheck pasan
-   - No se violan los patrones de `architecture.md`
-   - No hay conflictos aparentes entre workers del mismo batch
-5. Clasifica findings:
-   - `critical`: seguridad, data loss, downtime → REQUEST_CHANGES
-   - `major`: funcionalidad rota, spec mismatch, tests failing → REQUEST_CHANGES
-   - `minor`: naming, comentarios, estilo → APPROVE con recomendaciones
-5. Si todo OK: responde `APPROVE`.
-6. Si hay critical/major: responde `REQUEST_CHANGES` con lista detallada por task.
+1. Read all tasks in the batch.
+2. Confirm with the Orchestrator that the batch tickets are in **In Review**.
+3. Get the combined diff from all workers.
+4. Verify:
+   - Each task meets its `acceptanceCriteria`.
+   - There are no changes outside declared scope.
+   - Tests, lint, typecheck, and build pass where applicable.
+   - The implementation follows `architecture.md`.
+   - Workers in the same batch do not conflict with one another.
+5. Classify findings:
+   - `critical`: security issue, data loss, downtime risk -> `REQUEST_CHANGES`.
+   - `major`: broken functionality, spec mismatch, failing tests -> `REQUEST_CHANGES`.
+   - `minor`: naming, comments, or style -> approve with recommendations.
+6. If everything is acceptable, respond `APPROVE`.
+7. If any critical or major finding exists, respond `REQUEST_CHANGES` with details by task.
 
 ---
 
-## Orchestrator (el agente que lee esta skill)
+## Orchestrator
 
-### Responsabilidades
-- Nunca actuar como Engineer directamente (delegar todo a roles).
-- Mantener el estado actualizado en `state/workers/*.json`.
-- Respetar MAX_WORKERS.
-- Manejar fallos: retry → replan → escalate.
-- Garantizar que trunk solo se modifique vía cherry-pick de batches aprobados.
+### Responsibilities
+
+- Never act as an Engineer directly; delegate implementation to worker roles.
+- Keep `state/workers/*.json` updated.
+- Respect `MAX_WORKERS`.
+- Handle failures through retry, replan, or escalation.
+- Ensure trunk is modified only by approved batch integration.

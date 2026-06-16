@@ -46,7 +46,7 @@ class DispatcherRole(Role):
 
         if trigger.cause_by == "ticket_ready":
             msg = Message(
-                content=f"Iniciar PM Analysis para {self.ticket_id}",
+                content=f"Start PM Analysis for {self.ticket_id}",
                 sent_from=self.role_id,
                 cause_by="prd_ready",
                 send_to={"all"},
@@ -61,7 +61,7 @@ class DispatcherRole(Role):
 
         if trigger.cause_by == "architecture_ready":
             msg = Message(
-                content="Arquitectura lista; planificar tareas.",
+                content="Architecture ready; plan tasks.",
                 sent_from=self.role_id,
                 cause_by="plan_ready_trigger",
                 send_to={"planner"},

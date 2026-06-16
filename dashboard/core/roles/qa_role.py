@@ -24,7 +24,7 @@ class QASubRole(Role):
         self,
         task_id: str,
         task: Dict[str, Any],
-        run_kimi: Optional[Any] = None,
+        run_ai: Optional[Any] = None,
         build_review_prompt: Optional[Callable[..., str]] = None,
         extract_review_result: Optional[Callable[..., Dict[str, Any]]] = None,
         build_correction_prompt: Optional[Callable[..., str]] = None,
@@ -38,7 +38,7 @@ class QASubRole(Role):
         )
         self.task_id = task_id
         self.task = task
-        self.run_kimi = run_kimi
+        self.run_ai = run_ai
         self.build_review_prompt = build_review_prompt or default_build_review_prompt
         self.extract_review_result = extract_review_result or default_extract_review_result
         self.build_correction_prompt = build_correction_prompt or default_build_correction_prompt
@@ -67,7 +67,7 @@ class QASubRole(Role):
             "extract_review_result": self.extract_review_result,
             "phase_name": kwargs.get("phase_name", "qa_review"),
             "timeout_seconds": kwargs.get("timeout_seconds", 120),
-            "run_kimi": self.run_kimi,
+            "run_ai": self.run_ai,
         }
         return await action.run(context, **action_kwargs)
 
@@ -95,7 +95,7 @@ class QASubRole(Role):
             "extract_correction_prompt": self.extract_correction_prompt,
             "phase_name": kwargs.get("phase_name", "qa_correction"),
             "timeout_seconds": kwargs.get("timeout_seconds", 120),
-            "run_kimi": self.run_kimi,
+            "run_ai": self.run_ai,
         }
         return await action.run(context, **action_kwargs)
 
@@ -108,7 +108,7 @@ class QARole(Role):
 
     def __init__(
         self,
-        run_kimi: Optional[Any] = None,
+        run_ai: Optional[Any] = None,
         max_rounds: int = 3,
         build_review_prompt: Optional[Callable[..., str]] = None,
         extract_review_result: Optional[Callable[..., Dict[str, Any]]] = None,
@@ -121,7 +121,7 @@ class QARole(Role):
             goal="Coordinate QA reviews and enforce correction round limits.",
             addresses=self.addresses,
         )
-        self.run_kimi = run_kimi
+        self.run_ai = run_ai
         self.max_rounds = max(1, max_rounds)
         self.build_review_prompt = build_review_prompt or default_build_review_prompt
         self.extract_review_result = extract_review_result or default_extract_review_result
@@ -137,7 +137,7 @@ class QARole(Role):
             self._sub_roles[task_id] = QASubRole(
                 task_id=task_id,
                 task=task,
-                run_kimi=self.run_kimi,
+                run_ai=self.run_ai,
                 build_review_prompt=self.build_review_prompt,
                 extract_review_result=self.extract_review_result,
                 build_correction_prompt=self.build_correction_prompt,

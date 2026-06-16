@@ -46,16 +46,16 @@ class TestConsolidatePRDAction(unittest.TestCase):
         research_file = Path(self.tmpdir) / "research.md"
         research_file.write_text("# Findings\n- key point", encoding="utf-8")
 
-        kimi_calls = []
+        ai_calls = []
 
-        def mock_run_kimi(prompt, phase_name, timeout_seconds, agent_id=None):
-            kimi_calls.append({
+        def mock_run_ai(prompt, phase_name, timeout_seconds, agent_id=None):
+            ai_calls.append({
                 "prompt": prompt,
                 "phase_name": phase_name,
                 "timeout_seconds": timeout_seconds,
                 "agent_id": agent_id,
             })
-            return "# PRD\n\n1. Resumen\n\nDetailed PRD content."
+            return "# PRD\n\n1. Summary\n\nDetailed PRD content."
 
         completion_calls = []
 
@@ -65,7 +65,7 @@ class TestConsolidatePRDAction(unittest.TestCase):
         action = ConsolidatePRDAction("consolidate-prd", "Consolidate PRD")
         msg = asyncio.run(action.run(
             context=[],
-            run_kimi=mock_run_kimi,
+            run_ai=mock_run_ai,
             **self._default_kwargs({
                 "research_files": {"pm-domain": research_file},
                 "send_completion": mock_send_completion,
@@ -75,14 +75,14 @@ class TestConsolidatePRDAction(unittest.TestCase):
         self.assertTrue(self.prd_path.exists())
         self.assertEqual(
             self.prd_path.read_text(encoding="utf-8"),
-            "# PRD\n\n1. Resumen\n\nDetailed PRD content.",
+            "# PRD\n\n1. Summary\n\nDetailed PRD content.",
         )
 
-        self.assertEqual(len(kimi_calls), 1)
-        self.assertEqual(kimi_calls[0]["phase_name"], "pm_consolidate")
-        self.assertEqual(kimi_calls[0]["timeout_seconds"], 120)
-        self.assertEqual(kimi_calls[0]["agent_id"], "pm-research-agents")
-        self.assertIn("Login", kimi_calls[0]["prompt"])
+        self.assertEqual(len(ai_calls), 1)
+        self.assertEqual(ai_calls[0]["phase_name"], "pm_consolidate")
+        self.assertEqual(ai_calls[0]["timeout_seconds"], 120)
+        self.assertEqual(ai_calls[0]["agent_id"], "pm-research-agents")
+        self.assertIn("Login", ai_calls[0]["prompt"])
 
         self.assertEqual(len(completion_calls), 1)
         self.assertEqual(completion_calls[0]["prd_path"], self.prd_path)
@@ -101,8 +101,8 @@ class TestConsolidatePRDAction(unittest.TestCase):
         research_file = Path(self.tmpdir) / "research.md"
         research_file.write_text("# Findings", encoding="utf-8")
 
-        def mock_run_kimi(prompt, phase_name, timeout_seconds, agent_id=None):
-            return "CLARIFICACIONES:\npm-domain: ¿Cuál es el flujo de OAuth?\npm-technical: ¿Qué provider usar?\n\n# PRD\n1. Resumen"
+        def mock_run_ai(prompt, phase_name, timeout_seconds, agent_id=None):
+            return "PENDING CLARIFICATIONS:\npm-domain: What is the OAuth flow?\npm-technical: Which provider should be used?\n\n# PRD\n1. Summary"
 
         clarification_calls = []
 
@@ -111,7 +111,7 @@ class TestConsolidatePRDAction(unittest.TestCase):
 
         def mock_parse_clarifications(output):
             clarifications = {}
-            marker = "CLARIFICACIONES:"
+            marker = "PENDING CLARIFICATIONS:"
             idx = output.find(marker)
             if idx != -1:
                 block = output[idx + len(marker):]
@@ -125,7 +125,7 @@ class TestConsolidatePRDAction(unittest.TestCase):
         action = ConsolidatePRDAction("consolidate-prd", "Consolidate PRD")
         msg = asyncio.run(action.run(
             context=[],
-            run_kimi=mock_run_kimi,
+            run_ai=mock_run_ai,
             **self._default_kwargs({
                 "research_files": {"pm-domain": research_file, "pm-technical": research_file},
                 "send_clarification": mock_send_clarification,
@@ -159,7 +159,7 @@ class TestConsolidatePRDAction(unittest.TestCase):
         action = ConsolidatePRDAction("consolidate-prd", "Consolidate PRD")
         msg = asyncio.run(action.run(
             context=[],
-            run_kimi=None,
+            run_ai=None,
             **self._default_kwargs({
                 "research_files": {},
                 "write_fallback_prd": mock_write_fallback_prd,
@@ -183,11 +183,11 @@ class TestConsolidatePRDAction(unittest.TestCase):
         self.assertEqual(msg.send_to, {"orchestrator"})
         self.assertTrue(msg.metadata.get("fallback"))
 
-    def test_consolidate_action_fallback_on_empty_kimi_output(self):
+    def test_consolidate_action_fallback_on_empty_ai_output(self):
         research_file = Path(self.tmpdir) / "research.md"
         research_file.write_text("# Findings", encoding="utf-8")
 
-        def mock_run_kimi(prompt, phase_name, timeout_seconds, agent_id=None):
+        def mock_run_ai(prompt, phase_name, timeout_seconds, agent_id=None):
             return None
 
         fallback_calls = []
@@ -204,7 +204,7 @@ class TestConsolidatePRDAction(unittest.TestCase):
         action = ConsolidatePRDAction("consolidate-prd", "Consolidate PRD")
         msg = asyncio.run(action.run(
             context=[],
-            run_kimi=mock_run_kimi,
+            run_ai=mock_run_ai,
             **self._default_kwargs({
                 "research_files": {"pm-domain": research_file},
                 "write_fallback_prd": mock_write_fallback_prd,
@@ -218,18 +218,18 @@ class TestConsolidatePRDAction(unittest.TestCase):
         self.assertEqual(msg.cause_by, "prd_ready")
         self.assertTrue(msg.metadata.get("fallback"))
 
-    def test_consolidate_action_async_run_kimi(self):
+    def test_consolidate_action_async_run_ai(self):
         research_file = Path(self.tmpdir) / "research.md"
         research_file.write_text("# Findings", encoding="utf-8")
 
-        async def mock_run_kimi(prompt, phase_name, timeout_seconds, agent_id=None):
+        async def mock_run_ai(prompt, phase_name, timeout_seconds, agent_id=None):
             await asyncio.sleep(0)
             return "# Async PRD"
 
         action = ConsolidatePRDAction("consolidate-prd", "Consolidate PRD")
         msg = asyncio.run(action.run(
             context=[],
-            run_kimi=mock_run_kimi,
+            run_ai=mock_run_ai,
             **self._default_kwargs({
                 "research_files": {"pm-domain": research_file},
             }),
@@ -247,7 +247,7 @@ class TestPMLeadRole(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.tmpdir, ignore_errors=True)
 
-    def _create_role(self, run_kimi=None, subagents=None, **kwargs):
+    def _create_role(self, run_ai=None, subagents=None, **kwargs):
         defaults = {
             "ticket_title": "Login",
             "ticket_description": "Allow users to log in",
@@ -263,7 +263,7 @@ class TestPMLeadRole(unittest.TestCase):
         }
         defaults.update(kwargs)
         return PMLeadRole(
-            run_kimi=run_kimi,
+            run_ai=run_ai,
             subagents=subagents or ["pm-domain", "pm-ux", "pm-technical", "pm-integration", "pm-risk"],
             **defaults,
         )
@@ -271,10 +271,10 @@ class TestPMLeadRole(unittest.TestCase):
     def test_pm_lead_role_collects_research_and_consolidates(self):
         env = Environment()
 
-        def mock_run_kimi(prompt, phase_name, timeout_seconds, agent_id=None):
+        def mock_run_ai(prompt, phase_name, timeout_seconds, agent_id=None):
             return "# PRD\n\nConsolidated PRD content."
 
-        role = self._create_role(run_kimi=mock_run_kimi)
+        role = self._create_role(run_ai=mock_run_ai)
         env.add_role(role)
 
         for sub_id in role.subagents:
@@ -306,19 +306,19 @@ class TestPMLeadRole(unittest.TestCase):
         env = Environment()
 
         outputs = [
-            "CLARIFICACIONES:\npm-domain: ¿Cuál es el flujo?\n\n# PRD\n1. Resumen",
+            "PENDING CLARIFICATIONS:\npm-domain: What is the flow?\n\n# PRD\n1. Summary",
             "# PRD\n\nFinal consolidated PRD.",
         ]
         call_index = {"idx": 0}
 
-        def mock_run_kimi(prompt, phase_name, timeout_seconds, agent_id=None):
+        def mock_run_ai(prompt, phase_name, timeout_seconds, agent_id=None):
             output = outputs[call_index["idx"]]
             call_index["idx"] += 1
             return output
 
         def mock_parse_clarifications(output):
             clarifications = {}
-            marker = "CLARIFICACIONES:"
+            marker = "PENDING CLARIFICATIONS:"
             idx = output.find(marker)
             if idx != -1:
                 block = output[idx + len(marker):]
@@ -342,7 +342,7 @@ class TestPMLeadRole(unittest.TestCase):
             ))
 
         role = self._create_role(
-            run_kimi=mock_run_kimi,
+            run_ai=mock_run_ai,
             parse_clarifications=mock_parse_clarifications,
             send_clarification=mock_send_clarification,
             subagents=["pm-domain", "pm-technical"],

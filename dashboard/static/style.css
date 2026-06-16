@@ -229,17 +229,17 @@ body {
   white-space: nowrap;
 }
 
-.pill-value.status-en-ejecucion,
+.pill-value.status-running,
 .pill-value.status-in-progress {
   color: var(--info);
 }
 
-.pill-value.status-pausado {
+.pill-value.status-paused {
   color: var(--wrn);
 }
 
-.pill-value.status-en-cola,
-.pill-value.status-sin-actividad {
+.pill-value.status-queued,
+.pill-value.status-idle {
   color: var(--on-surface-base-subtle);
 }
 

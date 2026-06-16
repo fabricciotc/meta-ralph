@@ -21,7 +21,7 @@ class TestEngineerSquadRole(unittest.TestCase):
         engineer_id: str = "engineer-T1",
     ) -> Message:
         return Message(
-            content=f"Reporte de {engineer_id}: tarea {task_id} {status}",
+            content=f"Report from {engineer_id}: task {task_id} {status}",
             sent_from=engineer_id,
             cause_by="task_report",
             send_to={"engineer-squad"},
@@ -41,9 +41,9 @@ class TestEngineerSquadRole(unittest.TestCase):
     def test_squad_role_acknowledges_completed_task(self):
         env = Environment()
         role = EngineerSquadRole(
-            run_kimi=lambda *a, **kw: json.dumps({
+            run_ai=lambda *a, **kw: json.dumps({
                 "action": "ack",
-                "message": "Tarea completada. Siguiendo.",
+                "message": "Task completed. Continuing.",
             }),
             ticket_id="TKT-1",
             tasks=[{"id": "T1", "title": "Task 1"}],
@@ -59,10 +59,10 @@ class TestEngineerSquadRole(unittest.TestCase):
     def test_squad_role_retries_failed_task(self):
         env = Environment()
         role = EngineerSquadRole(
-            run_kimi=lambda *a, **kw: json.dumps({
+            run_ai=lambda *a, **kw: json.dumps({
                 "action": "retry",
-                "message": "Reintentando tarea fallida.",
-                "instruction": "Corrige el error de build.",
+                "message": "Retrying failed task.",
+                "instruction": "Fix the build error.",
             }),
             ticket_id="TKT-1",
             max_retries=2,
@@ -74,21 +74,21 @@ class TestEngineerSquadRole(unittest.TestCase):
         instructions = [m for m in env.memory.get() if m.cause_by == "squad_instruction"]
         self.assertEqual(len(instructions), 1)
         self.assertEqual(instructions[0].send_to, {"engineer-T1"})
-        self.assertEqual(instructions[0].metadata.get("instruction"), "Corrige el error de build.")
+        self.assertEqual(instructions[0].metadata.get("instruction"), "Fix the build error.")
 
     def test_squad_role_escalates_to_user_and_forwards_answer(self):
         env = Environment()
         user_answer = {"value": ""}
 
         def fake_clarification(question, timeout):
-            user_answer["value"] = "Usa la versión 2 del endpoint"
+            user_answer["value"] = "Use version 2 of the endpoint"
             return user_answer["value"]
 
         role = EngineerSquadRole(
-            run_kimi=lambda *a, **kw: json.dumps({
+            run_ai=lambda *a, **kw: json.dumps({
                 "action": "escalate_to_user",
-                "message": "Escalando duda al usuario.",
-                "reason": "No sabemos qué versión usar.",
+                "message": "Escalating question to the user.",
+                "reason": "We do not know which version to use.",
             }),
             ticket_id="TKT-1",
             timeout_seconds=5,
@@ -101,19 +101,19 @@ class TestEngineerSquadRole(unittest.TestCase):
         history = env.memory.get()
         self.assertTrue(any(m.cause_by == "escalate_to_user" for m in history))
         self.assertTrue(any(
-            m.cause_by == "squad_chat" and "Usuario respondió" in m.content
+            m.cause_by == "squad_chat" and "User answered" in m.content
             for m in history
         ))
         instructions = [m for m in history if m.cause_by == "squad_instruction"]
-        self.assertTrue(any(m.metadata.get("user_answer") == "Usa la versión 2 del endpoint" for m in instructions))
+        self.assertTrue(any(m.metadata.get("user_answer") == "Use version 2 of the endpoint" for m in instructions))
 
     def test_squad_role_requests_info_from_pm_and_handles_response(self):
         env = Environment()
         role = EngineerSquadRole(
-            run_kimi=lambda *a, **kw: json.dumps({
+            run_ai=lambda *a, **kw: json.dumps({
                 "action": "request_info_from_pm",
-                "message": "Pidiendo información al PM.",
-                "question": "¿El endpoint requiere autenticación?",
+                "message": "Requesting information from PM.",
+                "question": "Does the endpoint require authentication?",
             }),
             ticket_id="TKT-1",
         )
@@ -134,23 +134,23 @@ class TestEngineerSquadRole(unittest.TestCase):
             metadata={
                 "request_id": request_id,
                 "task_id": "T1",
-                "answer": "Sí, requiere autenticación.",
+                "answer": "Yes, it requires authentication.",
             },
         ))
         asyncio.run(env.run_round())
 
         instructions = [m for m in env.memory.get() if m.cause_by == "squad_instruction"]
-        self.assertTrue(any(m.metadata.get("pm_answer") == "Sí, requiere autenticación." for m in instructions))
+        self.assertTrue(any(m.metadata.get("pm_answer") == "Yes, it requires authentication." for m in instructions))
 
     def test_squad_role_does_not_reprocess_same_report(self):
         env = Environment()
         call_count = {"n": 0}
 
-        def counting_run_kimi(*a, **kw):
+        def counting_run_ai(*a, **kw):
             call_count["n"] += 1
             return json.dumps({"action": "ack", "message": "ok"})
 
-        role = EngineerSquadRole(run_kimi=counting_run_kimi, ticket_id="TKT-1")
+        role = EngineerSquadRole(run_ai=counting_run_ai, ticket_id="TKT-1")
         env.add_role(role)
         report = self._report_message()
         env.publish_message(report)

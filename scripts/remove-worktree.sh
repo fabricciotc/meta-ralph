@@ -1,6 +1,6 @@
 #!/bin/bash
-# Elimina un git worktree y su branch asociada
-# Uso: remove-worktree.sh <task_id>
+# Remove a git worktree and its associated branch.
+# Usage: remove-worktree.sh <task_id>
 
 set -e
 
@@ -8,13 +8,13 @@ TASK_ID="$1"
 META_DIR="${META_DIR:-scripts/meta-ralph}"
 
 if [ -z "$TASK_ID" ]; then
-  echo "❌ Uso: remove-worktree.sh <task_id>"
+  echo "Usage: remove-worktree.sh <task_id>"
   exit 1
 fi
 
 WORKER_FILE="$META_DIR/state/workers/$TASK_ID.json"
 if [ ! -f "$WORKER_FILE" ]; then
-  echo "⚠️  Worker $TASK_ID no encontrado"
+  echo "Worker $TASK_ID was not found."
   exit 0
 fi
 
@@ -30,4 +30,4 @@ if [ -n "$BRANCH" ] && [ "$BRANCH" != "main" ] && [ "$BRANCH" != "master" ]; the
 fi
 
 rm -f "$WORKER_FILE"
-echo "✅ Worktree $TASK_ID eliminado"
+echo "Worktree $TASK_ID removed."

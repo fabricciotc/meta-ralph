@@ -53,41 +53,41 @@ class TestPMAnalysisEndToEnd(unittest.TestCase):
     def _update_agent(self, agent_id, **kwargs):
         pass
 
-    def _make_kimi_runner(self, responses):
+    def _make_ai_runner(self, responses):
         idx = {"i": 0}
 
-        def run_kimi(prompt, phase_name, timeout_seconds, agent_id=None):
+        def run_ai(prompt, phase_name, timeout_seconds, agent_id=None):
             response = responses[idx["i"] % len(responses)]
             idx["i"] += 1
             if callable(response):
                 return response(prompt, phase_name, timeout_seconds, agent_id)
             return response
 
-        return run_kimi
+        return run_ai
 
     def test_full_pm_analysis_flow_produces_prd(self):
         env = Environment()
 
         subagents = [
-            ("pm-domain", "Domain Analyst", "dominio de negocio"),
-            ("pm-ux", "UX Researcher", "experiencia de usuario"),
-            ("pm-technical", "Technical Analyst", "stack técnico"),
-            ("pm-integration", "Integration Analyst", "integraciones"),
-            ("pm-risk", "Risk Analyst", "riesgos"),
+            ("pm-domain", "Domain Analyst", "business domain"),
+            ("pm-ux", "UX Researcher", "user experience"),
+            ("pm-technical", "Technical Analyst", "technical stack"),
+            ("pm-integration", "Integration Analyst", "integrations"),
+            ("pm-risk", "Risk Analyst", "risks"),
         ]
 
-        run_kimi = self._make_kimi_runner([
+        run_ai = self._make_ai_runner([
             lambda prompt, phase, timeout, agent_id=None: f"# {agent_id} research\n\nFindings for {agent_id}",
             "# PRD\n\nConsolidated PRD content from research.",
         ])
 
         for sub_id, sub_name, focus in subagents:
             role = PMResearchRole(sub_id, sub_name, focus)
-            role.run_kimi = run_kimi
+            role.run_ai = run_ai
             env.add_role(role)
 
         lead = PMLeadRole(
-            run_kimi=run_kimi,
+            run_ai=run_ai,
             ticket_title="Login Feature",
             ticket_description="Allow users to log in",
             prd_path=self.prd_path,
@@ -139,15 +139,15 @@ class TestPMAnalysisEndToEnd(unittest.TestCase):
         env = Environment()
 
         subagents = [
-            ("pm-domain", "Domain Analyst", "dominio de negocio"),
-            ("pm-technical", "Technical Analyst", "stack técnico"),
+            ("pm-domain", "Domain Analyst", "business domain"),
+            ("pm-technical", "Technical Analyst", "technical stack"),
         ]
 
         # Track research rounds per subagent so we can return initial vs clarified findings.
         research_rounds = {sub_id: 0 for sub_id, _, _ in subagents}
         consolidation_rounds = {"i": 0}
 
-        def run_kimi(prompt, phase_name, timeout_seconds, agent_id=None):
+        def run_ai(prompt, phase_name, timeout_seconds, agent_id=None):
             if agent_id in research_rounds:
                 research_rounds[agent_id] += 1
                 if research_rounds[agent_id] == 1:
@@ -156,17 +156,17 @@ class TestPMAnalysisEndToEnd(unittest.TestCase):
             if agent_id == "pm-research-agents":
                 consolidation_rounds["i"] += 1
                 if consolidation_rounds["i"] == 1:
-                    return "CLARIFICACIONES:\npm-domain: ¿Cuál es el flujo de OAuth?\n\n# PRD\n\n1. Resumen"
+                    return "PENDING CLARIFICATIONS:\npm-domain: What is the OAuth flow?\n\n# PRD\n\n1. Summary"
                 return "# PRD\n\nFinal consolidated PRD with OAuth flow."
             return ""
 
         for sub_id, sub_name, focus in subagents:
             role = PMResearchRole(sub_id, sub_name, focus)
-            role.run_kimi = run_kimi
+            role.run_ai = run_ai
             env.add_role(role)
 
         lead = PMLeadRole(
-            run_kimi=run_kimi,
+            run_ai=run_ai,
             ticket_title="OAuth Login",
             ticket_description="Allow OAuth login",
             prd_path=self.prd_path,
@@ -208,7 +208,7 @@ class TestPMAnalysisEndToEnd(unittest.TestCase):
 
     def _parse_clarifications_with_marker(self, output):
         clarifications = {}
-        marker = "CLARIFICACIONES:"
+        marker = "PENDING CLARIFICATIONS:"
         idx = output.find(marker)
         if idx != -1:
             block = output[idx + len(marker):]

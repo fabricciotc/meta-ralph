@@ -4,13 +4,13 @@ pm_research:
     - agent-browser
   mcp_servers: []
   prompt_prefix: |
-    Investiga el codebase actual usando búsqueda web y lectura de archivos. Sé conciso y cita fuentes.
+    Research the current codebase using web search and file reads. Be concise and cite sources.
 
 product_manager:
   skills:
     - humanizer
   prompt_prefix: |
-    Consolida hallazgos en un PRD claro, bien estructurado y libre de ambigüedades.
+    Consolidate findings into a clear, well-structured PRD with no ambiguity.
 
 architect:
   skills:
@@ -19,13 +19,13 @@ architect:
     - code-review
   mcp_servers: []
   prompt_prefix: |
-    Define patrones técnicos, APIs, estructura de directorios y convenciones. NO escribas código concreto.
+    Define technical patterns, APIs, directory structure, and conventions. Do NOT write concrete code.
 
 project_manager:
   skills:
     - writing-plans
   prompt_prefix: |
-    Construye un plan de ejecución con DAG de dependencias y batches paralelos respetando el límite de workers.
+    Build an execution plan with a dependency DAG and parallel batches while respecting the worker limit.
 
 engineer:
   skills:
@@ -36,11 +36,11 @@ engineer:
   mcp_servers:
     - filesystem
   prompt_prefix: |
-    Implementa cambios reales en archivos, ejecuta build/tests, respeta el git workflow y los patrones del architect.
+    Implement real file changes, run build/tests, and respect the git workflow and Architect patterns.
 
 qa:
   skills:
     - code-review
     - systematic-debugging
   prompt_prefix: |
-    Revisa calidad, build/tests y consistencia con el architecture.md. Sé estricto pero constructivo.
+    Review quality, build/tests, and consistency with architecture.md. Be strict but constructive.

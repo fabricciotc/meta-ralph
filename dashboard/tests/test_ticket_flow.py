@@ -7,14 +7,14 @@ import threading
 from pathlib import Path
 from unittest.mock import patch
 
-# Asegurar que el dashboard esté en el path
-sys.path.insert(0, "/Users/fabricciotornero/.kimi-code/skills/meta-ralph/dashboard")
+# Ensure the dashboard is on the path.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import server
 
 
 def fast_run(self):
-    """Simula un AgentRunner que completa el ticket rápidamente."""
+    """Simulate an AgentRunner that completes the ticket quickly."""
     def wait_or_stop(seconds):
         for _ in range(int(seconds * 10)):
             if self._stop_event.is_set():
@@ -44,28 +44,28 @@ def fast_run(self):
             self.ticket_id,
             startedAt=server.datetime.now(server.timezone.utc).isoformat(),
             elapsedSeconds=0,
-            summary="Simulando ejecución...",
+            summary="Simulating execution...",
         )
-        # Simular trabajo
+        # Simulate work.
         if not wait_or_stop(0.3):
-            print(f"fast_run {self.ticket_id}: detenido durante in-design")
+            print(f"fast_run {self.ticket_id}: stopped during in-design")
             return
         if self._should_stop():
-            print(f"fast_run {self.ticket_id}: detenido antes de in-progress")
+            print(f"fast_run {self.ticket_id}: stopped before in-progress")
             return
         server.update_ticket_status(self.ticket_id, "in-progress")
         if not wait_or_stop(0.3):
-            print(f"fast_run {self.ticket_id}: detenido durante in-progress")
+            print(f"fast_run {self.ticket_id}: stopped during in-progress")
             return
         if self._should_stop():
-            print(f"fast_run {self.ticket_id}: detenido antes de in-review")
+            print(f"fast_run {self.ticket_id}: stopped before in-review")
             return
         server.update_ticket_status(self.ticket_id, "in-review")
         if not wait_or_stop(0.3):
-            print(f"fast_run {self.ticket_id}: detenido durante in-review")
+            print(f"fast_run {self.ticket_id}: stopped during in-review")
             return
         if self._should_stop():
-            print(f"fast_run {self.ticket_id}: detenido antes de done")
+            print(f"fast_run {self.ticket_id}: stopped before done")
             return
         server.update_ticket_status(self.ticket_id, "done")
         with server.run_lock:
@@ -76,7 +76,7 @@ def fast_run(self):
                 state["progress"] = 100
                 server.save_run_state(state)
     except Exception as exc:
-        print(f"Error en fast_run para {self.ticket_id}: {exc}")
+        print(f"Error in fast_run for {self.ticket_id}: {exc}")
         with server.run_lock:
             state = server.load_run_state()
             if state.get("ticketId") == self.ticket_id:
@@ -99,7 +99,7 @@ def wait_for(condition, timeout=10, interval=0.2):
 
 def main():
     tmpdir = Path(tempfile.mkdtemp(prefix="meta-ralph-test-"))
-    print(f"Directorio de prueba: {tmpdir}")
+    print(f"Test directory: {tmpdir}")
     try:
         board_path = tmpdir / "board.json"
         board = {
@@ -107,7 +107,7 @@ def main():
             "tickets": [
                 {
                     "id": "TKT-001",
-                    "title": "Ticket uno",
+                    "title": "Ticket one",
                     "status": "backlog",
                     "repoPath": "/tmp/fake-repo",
                     "branch": "",
@@ -120,7 +120,7 @@ def main():
                 },
                 {
                     "id": "TKT-002",
-                    "title": "Ticket dos",
+                    "title": "Ticket two",
                     "status": "ready-for-work",
                     "repoPath": "/tmp/fake-repo",
                     "branch": "",
@@ -136,27 +136,27 @@ def main():
             "lastUpdated": server.datetime.now(server.timezone.utc).isoformat(),
         }
         board_path.write_text(json.dumps(board), encoding="utf-8")
-        print("Configurando paths...")
+        print("Configuring paths...")
         server.set_board_path(str(board_path))
         server.RUN_STATE_FILE = tmpdir / "run-state.json"
         server.LOG_FILE = tmpdir / "run.log"
 
-        # Limpiar estado previo
-        print("Cargando run state...")
+        # Clean previous state.
+        print("Loading run state...")
         state = server.load_run_state()
-        print(f"Estado inicial: active={state.get('active')}, ticketId={state.get('ticketId')}, status={state.get('status')}")
+        print(f"Initial state: active={state.get('active')}, ticketId={state.get('ticketId')}, status={state.get('status')}")
 
         with patch.object(server.AgentRunner, "run", fast_run):
-            # Simular PATCH TKT-001 -> ready-for-work
-            print("Moviendo TKT-001 a ready-for-work...")
+            # Simulate PATCH TKT-001 -> ready-for-work.
+            print("Moving TKT-001 to ready-for-work...")
             ticket = server.load_board()["tickets"][0]
             ticket["status"] = "ready-for-work"
             server.save_board(server.load_board())
-            print("Llamando start_automatic_run...")
+            print("Calling start_automatic_run...")
             server.start_automatic_run(ticket)
-            print("start_automatic_run retornó")
+            print("start_automatic_run returned")
 
-            # Esperar a que TKT-001 termine y TKT-002 empiece
+            # Wait for TKT-001 to finish and TKT-002 to start.
             def debug_state():
                 state = server.load_run_state()
                 board = server.load_board()
@@ -164,67 +164,67 @@ def main():
                 print(f"  [debug] board TKT-001={board['tickets'][0]['status']} TKT-002={board['tickets'][1]['status']}")
                 return state.get("ticketId") == "TKT-002"
             ok = wait_for(debug_state, timeout=5)
-            assert ok, "TKT-002 no inició después de TKT-001"
-            print(f"✅ TKT-001 done; TKT-002 activo: status={server.load_board()['tickets'][1]['status']}, runState={server.load_run_state().get('status')}")
+            assert ok, "TKT-002 did not start after TKT-001"
+            print(f"OK: TKT-001 done; TKT-002 active: status={server.load_board()['tickets'][1]['status']}, runState={server.load_run_state().get('status')}")
 
-            # Verificar que TKT-001 está en done
+            # Verify that TKT-001 is done.
             t1 = next(t for t in server.load_board()["tickets"] if t["id"] == "TKT-001")
-            assert t1["status"] == "done", f"TKT-001 debería estar done, está {t1['status']}"
+            assert t1["status"] == "done", f"TKT-001 should be done, got {t1['status']}"
 
-            # Esperar a que TKT-002 esté in-progress
+            # Wait for TKT-002 to reach in-progress.
             ok = wait_for(lambda: server.load_board()["tickets"][1]["status"] == "in-progress")
-            assert ok, "TKT-002 no llegó a in-progress"
-            print(f"✅ TKT-002 en progreso")
+            assert ok, "TKT-002 did not reach in-progress"
+            print("OK: TKT-002 in progress")
 
-            # Simular mover TKT-002 a backlog (como haría api_update_ticket)
-            print("Moviendo TKT-002 a backlog...")
+            # Simulate moving TKT-002 to backlog, like api_update_ticket would.
+            print("Moving TKT-002 to backlog...")
             server.update_ticket_status("TKT-002", "backlog")
 
-            # Simulamos la parte de detención de api_update_ticket.
-            # api_update_ticket no toma run_lock antes de invocar stop_active_run
-            # porque stop_active_run lo maneja internamente.
-            print("Verificando si TKT-002 es activo y deteniendo...")
+            # Simulate the stop portion of api_update_ticket.
+            # api_update_ticket does not take run_lock before invoking stop_active_run
+            # because stop_active_run handles it internally.
+            print("Checking whether TKT-002 is active and stopping...")
             state = server.load_run_state()
             if state.get("ticketId") == "TKT-002" and state.get("active"):
-                print("Llamando stop_active_run...")
-                server.stop_active_run("Ticket TKT-002 movido a backlog; deteniendo ejecución")
-                print("stop_active_run retornó")
+                print("Calling stop_active_run...")
+                server.stop_active_run("Ticket TKT-002 moved to backlog; stopping execution")
+                print("stop_active_run returned")
 
-            # Esperar a que run-state se limpie
-            print("Esperando limpieza de run-state...")
+            # Wait for run-state cleanup.
+            print("Waiting for run-state cleanup...")
             ok = wait_for(lambda: server.load_run_state().get("ticketId") is None and not server.load_run_state().get("active"))
-            assert ok, "run-state no se limpió tras backlog"
+            assert ok, "run-state was not cleaned after backlog"
             state = server.load_run_state()
-            print(f"✅ Tras backlog: active={state.get('active')}, ticketId={state.get('ticketId')}, agents={len(state.get('agents', []))}")
+            print(f"OK: After backlog: active={state.get('active')}, ticketId={state.get('ticketId')}, agents={len(state.get('agents', []))}")
 
-            # Verificar que TKT-002 está en backlog
+            # Verify that TKT-002 is in backlog.
             t2 = next(t for t in server.load_board()["tickets"] if t["id"] == "TKT-002")
             assert t2["status"] == "backlog"
 
-            # Simular mover TKT-002 de vuelta a ready-for-work (debe reiniciar de 0)
+            # Simulate moving TKT-002 back to ready-for-work; it should restart from zero.
             t2["status"] = "ready-for-work"
-            # Reiniciar métricas como lo hace api_update_ticket
+            # Reset metrics as api_update_ticket does.
             for field in ["startedAt", "elapsedSeconds", "totalSeconds", "finishedAt", "summary"]:
                 t2.pop(field, None)
             t2["branch"] = ""
             server.save_board(server.load_board())
 
-            # Llamar start_automatic_run
+            # Call start_automatic_run.
             server.start_automatic_run(t2)
 
-            # Esperar a que TKT-002 esté activo de nuevo
+            # Wait for TKT-002 to become active again.
             ok = wait_for(lambda: server.load_run_state().get("ticketId") == "TKT-002")
-            assert ok, "TKT-002 no reinició"
+            assert ok, "TKT-002 did not restart"
             t2 = next(t for t in server.load_board()["tickets"] if t["id"] == "TKT-002")
-            print(f"✅ TKT-002 reiniciado: status={t2['status']}, startedAt={t2.get('startedAt')}, elapsed={t2.get('elapsedSeconds')}")
+            print(f"OK: TKT-002 restarted: status={t2['status']}, startedAt={t2.get('startedAt')}, elapsed={t2.get('elapsedSeconds')}")
 
-            # Esperar a que termine (recargar board cada vez)
+            # Wait for completion (reload board each time).
             ok = wait_for(
                 lambda: next(t for t in server.load_board()["tickets"] if t["id"] == "TKT-002")["status"] == "done",
                 timeout=15,
             )
-            assert ok, "TKT-002 no terminó tras reinicio"
-            print("✅ Flujo completo validado")
+            assert ok, "TKT-002 did not finish after restart"
+            print("OK: Full flow validated")
 
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)

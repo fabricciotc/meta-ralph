@@ -29,7 +29,7 @@ class TestCommunicationBus(unittest.TestCase):
 
     def test_get_messages_for_participant(self):
         state = {}
-        bus.send_message(state, "user", "engineer-T1", "chat", {"text": "Revisa"})
+        bus.send_message(state, "user", "engineer-T1", "chat", {"text": "Review"})
         bus.send_message(state, "engineer-T1", "user", "chat", {"text": "OK"})
         msgs = bus.get_messages_for(state, "user", message_type="chat")
         self.assertEqual(len(msgs), 1)
