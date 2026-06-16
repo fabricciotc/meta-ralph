@@ -15,7 +15,7 @@ class EngineerRole(Role):
     ``task_assigned`` messages and executes its registered :class:`ImplementAction`.
     """
 
-    _watch = ["task_assigned"]
+    _watch = ["task_assigned", "squad_instruction"]
     react_mode = "by_order"
 
     def __init__(
@@ -54,7 +54,7 @@ class EngineerRole(Role):
         ])
 
     def _find_trigger(self, context: List[Message]) -> Optional[Message]:
-        """Return the most recent task_assigned message addressed to this role."""
+        """Return the most recent task_assigned or squad_instruction for this role."""
         # Delegate to the base trigger logic which uses _watch.
         trigger = super()._find_trigger(context)
         if trigger is not None:
@@ -62,7 +62,7 @@ class EngineerRole(Role):
         # Fallback for messages not yet observed by the base filter (legacy tests
         # sometimes call this method with a raw context).
         for msg in reversed(context):
-            if msg.cause_by != "task_assigned":
+            if msg.cause_by not in {"task_assigned", "squad_instruction"}:
                 continue
             if msg.sent_from == self.role_id:
                 continue
@@ -99,6 +99,7 @@ class EngineerRole(Role):
             return None
         self._mark_trigger_processed(trigger)
 
+        is_squad_instruction = trigger.cause_by == "squad_instruction"
         task: Dict[str, Any] = dict(trigger.metadata.get("task", {}))
         ticket_id = trigger.metadata.get("ticket_id", "")
         ticket_title = trigger.metadata.get("ticket_title", "")
@@ -112,6 +113,16 @@ class EngineerRole(Role):
         )
 
         dependencies_context = trigger.metadata.get("dependencies_context", "")
+        if is_squad_instruction:
+            feedback = trigger.metadata.get("instruction", "")
+            extra_context = trigger.metadata.get("context", "")
+            pm_answer = trigger.metadata.get("pm_answer", "")
+            user_answer = trigger.metadata.get("user_answer", "")
+            feedback_parts = [p for p in [feedback, extra_context, pm_answer, user_answer] if p]
+            if feedback_parts:
+                separator = "\n\n--- Feedback del Squad ---\n\n"
+                dependencies_context = dependencies_context + separator + "\n\n".join(feedback_parts)
+
         prd_path = trigger.metadata.get("prd_path") or kwargs.get("prd_path")
         architecture_path = trigger.metadata.get("architecture_path") or kwargs.get("architecture_path")
 
@@ -136,7 +147,40 @@ class EngineerRole(Role):
         response = await self.act(action, context, **action_kwargs)
         response.sent_from = self.role_id
         env.publish_message(response)
+
+        # Report back to the squad lead with the outcome.
+        self._publish_task_report(env, response, task, repo_path, branch)
         return response
+
+    def _publish_task_report(
+        self,
+        env: Any,
+        response: Message,
+        task: Dict[str, Any],
+        repo_path: Path,
+        branch: str,
+    ) -> None:
+        task_id = str(task.get("id", ""))
+        status = "completed" if response.cause_by == "task_completed" else "failed"
+        report = Message(
+            content=f"Reporte de {self.role_id}: tarea {task_id} {status}",
+            sent_from=self.role_id,
+            cause_by="task_report",
+            send_to={"engineer-squad"},
+            metadata={
+                "task_id": task_id,
+                "engineer_id": self.role_id,
+                "status": status,
+                "summary": response.metadata.get("summary", ""),
+                "repo_path": str(repo_path),
+                "branch": branch,
+                "build_output": response.metadata.get("build_output", ""),
+                "test_output": response.metadata.get("test_output", ""),
+                "fallback": response.metadata.get("fallback", False),
+                "task": task,
+            },
+        )
+        env.publish_message(report)
 
     def _default_build_prompt(
         self,

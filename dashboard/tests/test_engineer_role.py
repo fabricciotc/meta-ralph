@@ -221,15 +221,17 @@ class TestEngineerRole(unittest.TestCase):
         asyncio.run(env.run_round())
 
         history = env.memory.get()
-        self.assertEqual(len(history), 2)
+        self.assertEqual(len(history), 3)
 
-        response = history[-1]
-        self.assertEqual(response.sent_from, "engineer-T1")
-        self.assertEqual(response.cause_by, "task_completed")
+        response = [m for m in history if m.sent_from == "engineer-T1" and m.cause_by == "task_completed"][0]
         self.assertIn("orchestrator", response.send_to)
         self.assertIn("qa", response.send_to)
         self.assertEqual(response.metadata["task_id"], "T1")
         self.assertEqual(response.metadata["branch"], "feature/T1")
+
+        report = [m for m in history if m.cause_by == "task_report"][0]
+        self.assertEqual(report.send_to, {"engineer-squad"})
+        self.assertEqual(report.metadata["status"], "completed")
 
     def test_engineer_role_ignores_task_assigned_to_other_engineer(self):
         env = Environment()
@@ -246,10 +248,9 @@ class TestEngineerRole(unittest.TestCase):
         asyncio.run(env.run_round())
 
         history = env.memory.get()
-        self.assertEqual(len(history), 2)
+        self.assertEqual(len(history), 3)
 
-        response = history[-1]
-        self.assertEqual(response.sent_from, "engineer-T2")
+        response = [m for m in history if m.sent_from == "engineer-T2" and m.cause_by == "task_completed"][0]
         self.assertEqual(response.metadata["task_id"], "T2")
         self.assertEqual(role_t1.memory.get(), [])
 
@@ -313,10 +314,10 @@ class TestEngineerRole(unittest.TestCase):
         asyncio.run(env.run_round())
 
         history = env.memory.get()
-        response = history[-1]
-        self.assertEqual(response.sent_from, "engineer-T1")
-        self.assertEqual(response.cause_by, "task_failed")
+        response = [m for m in history if m.sent_from == "engineer-T1" and m.cause_by == "task_failed"][0]
         self.assertEqual(response.metadata["reason"], "Kimi unavailable")
+        report = [m for m in history if m.cause_by == "task_report"][0]
+        self.assertEqual(report.metadata["status"], "failed")
 
     def test_engineer_role_does_not_reprocess_same_assignment(self):
         env = Environment()
@@ -344,7 +345,7 @@ class TestEngineerRole(unittest.TestCase):
         from core.actions.implement_action import ImplementAction
 
         role = EngineerRole("engineer-T1", "backend", run_kimi=lambda *a, **kw: "x")
-        self.assertEqual(role._watch, ["task_assigned"])
+        self.assertEqual(role._watch, ["task_assigned", "squad_instruction"])
         self.assertEqual(len(role.actions), 1)
         self.assertIsInstance(role.actions[0], ImplementAction)
 

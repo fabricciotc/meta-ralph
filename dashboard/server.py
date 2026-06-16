@@ -367,6 +367,10 @@ def update_run_state(updates):
 QUESTION_TIMEOUT_SECONDS = 120
 _question_timers = {}
 
+# Waiters for synchronous user clarifications requested by the engineer squad.
+# Maps question_id -> (threading.Event, dict("answer": str))
+_clarification_waiters = {}
+
 
 def _extract_ask_json(raw_text):
     """Extrae y valida el JSON de pregunta entre DECISION_REQUERIDA y FIN_PREGUNTA."""
@@ -468,6 +472,7 @@ def answer_user_question(question_id, answer_text):
     timer = _question_timers.pop(question_id, None)
     if timer:
         timer.cancel()
+    answered = None
     with run_lock:
         state = load_run_state()
         questions = state.setdefault("pendingQuestions", [])
@@ -478,8 +483,17 @@ def answer_user_question(question_id, answer_text):
                 q["answeredAt"] = datetime.now(timezone.utc).isoformat()
                 save_run_state(state)
                 socketio.emit("question_answered", q)
-                return q
-    return None
+                answered = q
+                break
+
+    # Wake up any synchronous waiter (e.g. engineer squad clarification).
+    waiter = _clarification_waiters.pop(question_id, None)
+    if waiter:
+        event, container = waiter
+        container["answer"] = answer_text
+        event.set()
+
+    return answered
 
 
 def has_pending_question(ticket_id=None, phase_name=None, agent_id=None):
@@ -1284,6 +1298,7 @@ Responde de forma concisa y práctica. Asume decisiones razonables para un MVP .
             "ensure_agent": self._ensure_agent,
             "update_agent": self._update_agent,
             "request_design_review": self._wait_for_design_answers,
+            "request_clarification": self._wait_for_user_clarification,
             "collect_outputs": self._collect_agent_outputs,
             "get_dependency_context": self._get_dependency_context,
             "on_started": self._on_orchestrator_started,
@@ -1917,6 +1932,34 @@ No incluyas explicaciones fuera del JSON."""
 
         answered_event.wait()
         return answers_received["answers"]
+
+    def _wait_for_user_clarification(self, question, timeout_seconds=300):
+        """Block until the user answers a clarification question from the squad.
+
+        Falls back to a default answer if the timeout expires.
+        """
+        self.log(f"Engineer Squad solicita aclaración al usuario ({timeout_seconds}s).")
+        q = create_user_question(
+            ticket_id=self.ticket_id,
+            phase_name="engineer-squad",
+            agent_id="engineer-squad",
+            agent_name="Engineer Squad Lead",
+            question=question,
+            context="Escalación del Engineer Squad Lead por una duda de implementación.",
+            options=None,
+        )
+        qid = q["id"]
+        answered_event = threading.Event()
+        answer_container = {"answer": ""}
+        _clarification_waiters[qid] = (answered_event, answer_container)
+        try:
+            answered = answered_event.wait(timeout=timeout_seconds)
+            if not answered:
+                self.log("Timeout esperando aclaración del usuario. El squad decide solo.", "warning")
+                answer_user_question(qid, "Decide solo (timeout del squad)")
+        finally:
+            _clarification_waiters.pop(qid, None)
+        return answer_container["answer"] or "Decide solo (timeout del squad)"
 
     def _finalize_design_review(self, answers, auto=False):
         """Guarda las respuestas finales y limpia el estado de revisión."""

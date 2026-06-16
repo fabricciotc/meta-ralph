@@ -33,6 +33,7 @@ from core.roles.qa_role import QARole
 from core.roles.dispatcher_role import DispatcherRole
 from core.roles.monitor_role import MonitorRole
 from core.roles.recovery_role import RecoveryRole
+from core.roles.engineer_squad_role import EngineerSquadRole
 from core.runners.registry import BackendRegistry
 from core.skills_registry import SkillsRegistry
 from core.context import Context
@@ -274,6 +275,13 @@ class Orchestrator(threading.Thread):
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
+    def _request_user_clarification(self, question: str, timeout_seconds: int = 60) -> str:
+        """Escalate a doubt to the user and block until an answer is received."""
+        fn = self.callbacks.get("request_clarification")
+        if fn is None:
+            return ""
+        return fn(question, timeout_seconds)
+
     def _meta_dir(self) -> Path:
         return Path.cwd() / "scripts" / "meta-ralph"
 
@@ -568,6 +576,21 @@ class Orchestrator(threading.Thread):
         if self.env is None:
             self.env = Environment()
 
+        # Add the squad lead so it coordinates engineers and resolves blockers.
+        squad = EngineerSquadRole(
+            run_kimi=self._run_kimi,
+            ticket_id=self.ticket_id,
+            ticket_title=self.ticket.get("title", ""),
+            ticket_description=self.ticket.get("description", ""),
+            prd_path=self._prd_path(),
+            tasks=tasks,
+            max_retries=2,
+            phase_name="engineer-squad",
+            timeout_seconds=300,
+            request_clarification=self._request_user_clarification,
+        )
+        self.env.add_role(squad)
+
         task_by_id = {t["id"]: t for t in tasks}
         status: Dict[str, str] = {t["id"]: "queued" for t in tasks}
         completed: Set[str] = set()
@@ -623,22 +646,19 @@ class Orchestrator(threading.Thread):
                 metadata=metadata,
             ))
 
-            # Run rounds until this task emits completion or failure.
+            # Run rounds until this task is completed or max rounds exhausted.
+            # The squad lead may retry failed tasks via squad_instruction messages.
             for _ in range(self._max_rounds_per_phase):
                 if stop_event.is_set() or self._should_stop_or_pause():
                     break
                 asyncio.run(self.env.run_round(context=self.context))
-                # Check if our task was completed/failed in this round.
+                # Check if our task was completed in this round.
                 latest_completed = None
-                latest_failed = None
                 for m in reversed(self.env.history()):
                     if m.metadata.get("task_id") != tid:
                         continue
                     if m.cause_by == "task_completed":
                         latest_completed = m
-                        break
-                    if m.cause_by == "task_failed":
-                        latest_failed = m
                         break
                 if latest_completed:
                     self._update_agent(agent_id, status="done", progress=100, log=f"Tarea {tid} completada.")
@@ -647,16 +667,8 @@ class Orchestrator(threading.Thread):
                         status[tid] = "done"
                         completed.add(tid)
                     return
-                if latest_failed:
-                    reason = latest_failed.metadata.get("reason", "unknown")
-                    self._update_agent(agent_id, status="failed", progress=100, log=f"Tarea {tid} falló: {reason}")
-                    with lock:
-                        status[tid] = "failed"
-                        failed.add(tid)
-                    stop_event.set()
-                    return
 
-            # If we exhausted rounds without a completion/failure, mark failed.
+            # If we exhausted rounds without completion, mark failed.
             self._update_agent(agent_id, status="failed", progress=100, log=f"Tarea {tid} no finalizó a tiempo.")
             with lock:
                 status[tid] = "failed"

@@ -1018,7 +1018,7 @@ function renderMessaging() {
   if (!messagingFeed) return;
   const messages = runState.messages || [];
   if (!messages.length) {
-    messagingFeed.innerHTML = '<div class="messaging-empty">Sin mensajes aún...</div>';
+    messagingFeed.innerHTML = '<div class="messaging-empty">No internal messages yet...</div>';
     return;
   }
 
