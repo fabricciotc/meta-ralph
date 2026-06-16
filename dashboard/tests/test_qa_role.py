@@ -4,6 +4,7 @@ import asyncio
 import shutil
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -11,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from core.actions.correction_action import CorrectionAction
 from core.actions.review_action import ReviewAction
+from core.context import Context
 from core.environment import Environment
 from core.models import Message
 from core.roles.qa_role import QARole, QASubRole
@@ -425,6 +427,29 @@ class TestQARole(unittest.TestCase):
         self.assertEqual(r2.cause_by, "reject_with_feedback")
         self.assertEqual(role._review_state["T1"]["rounds"], 0)
         self.assertEqual(role._review_state["T2"]["rounds"], 1)
+
+    def test_qa_role_reviews_multiple_pending_tasks_in_parallel_and_stores_context(self):
+        env = Environment()
+        shared_context = Context(ticket={"id": "TKT-QA", "title": "QA", "description": "Review"})
+
+        def mock_run_ai(prompt, phase_name, timeout_seconds, agent_id=None):
+            time.sleep(0.15)
+            return f"VERDICT: APPROVED\nREASON: {agent_id} OK"
+
+        role = QARole(run_ai=mock_run_ai)
+        env.add_role(role)
+
+        self._publish_review_request(env, "T1", self._make_task("T1"))
+        self._publish_review_request(env, "T2", self._make_task("T2"))
+
+        started = time.perf_counter()
+        response = asyncio.run(role.run(env, context=shared_context))
+        elapsed = time.perf_counter() - started
+
+        self.assertLess(elapsed, 0.45)
+        self.assertEqual(response.cause_by, "qa_batch_reviewed")
+        self.assertEqual(response.metadata["approved"], 2)
+        self.assertEqual(set(shared_context.shared["qa_reviews"].keys()), {"T1", "T2"})
 
 
 if __name__ == "__main__":

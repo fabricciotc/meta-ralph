@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-import inspect
 from pathlib import Path
 from typing import Any, List, Optional
 
 from core.actions.base import Action
+from core.ai_execution import invoke_ai
 from core.models import Message
 
 
@@ -57,13 +57,7 @@ class ResearchAction(Action):
         try:
             prompt = build_prompt(sub_id, focus, ticket_title, ticket_description, follow_up)
 
-            output: Optional[str] = None
-            if run_ai is not None:
-                raw = run_ai(prompt, phase_name, timeout_seconds, agent_id=sub_id)
-                if inspect.isawaitable(raw):
-                    output = await raw
-                else:
-                    output = raw
+            output = await invoke_ai(run_ai, prompt, phase_name, timeout_seconds, agent_id=sub_id)
 
             if not output:
                 return Message(
@@ -78,6 +72,17 @@ class ResearchAction(Action):
             path = output_dir / f"{ticket_id}-{sub_id}.md"
             path.write_text(output, encoding="utf-8")
 
+            shared_context = kwargs.get("shared_context") or kwargs.get("context")
+            if shared_context is not None and hasattr(shared_context, "shared"):
+                findings = shared_context.shared.setdefault("pm_findings", {})
+                findings[sub_id] = {
+                    "agent": sub_name,
+                    "focus": focus,
+                    "file": str(path),
+                    "summary": output[:1000],
+                    "follow_up": bool(follow_up),
+                }
+
             update_agent(
                 sub_id,
                 status="done",
@@ -89,7 +94,7 @@ class ResearchAction(Action):
                 content=output,
                 sent_from=sub_id,
                 cause_by="research",
-                send_to={"pm-research-agents"},
+                send_to={"pm-research-agents", "all"},
                 metadata={
                     "file": str(path),
                     "sub_id": sub_id,

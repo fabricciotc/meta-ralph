@@ -61,7 +61,9 @@ class PMResearchRole(Role):
 
         trigger = self._find_trigger(context)
 
-        action_kwargs = dict(kwargs)
+        shared_context = kwargs.get("context")
+        action_kwargs = {k: v for k, v in kwargs.items() if k != "context"}
+        action_kwargs["shared_context"] = shared_context
         if trigger is not None:
             if trigger.cause_by == "research_request":
                 # Persist the full request context for follow-up clarification rounds.

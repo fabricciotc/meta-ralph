@@ -8,6 +8,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from core.context import Context
 from core.environment import Environment
 from core.models import Message
 from core.roles.engineer_squad_role import EngineerSquadRole
@@ -40,6 +41,7 @@ class TestEngineerSquadRole(unittest.TestCase):
 
     def test_squad_role_acknowledges_completed_task(self):
         env = Environment()
+        shared_context = Context(ticket={"id": "TKT-1", "title": "Ticket", "description": "Desc"})
         role = EngineerSquadRole(
             run_ai=lambda *a, **kw: json.dumps({
                 "action": "ack",
@@ -50,11 +52,12 @@ class TestEngineerSquadRole(unittest.TestCase):
         )
         env.add_role(role)
         env.publish_message(self._report_message())
-        asyncio.run(env.run_round())
+        asyncio.run(env.run_round(context=shared_context))
 
         history = env.memory.get()
         self.assertTrue(any(m.cause_by == "squad_chat" for m in history))
         self.assertTrue(any(m.cause_by == "batch_completed" for m in history))
+        self.assertIn("T1", shared_context.shared.get("engineer_reports", {}))
 
     def test_squad_role_retries_failed_task(self):
         env = Environment()

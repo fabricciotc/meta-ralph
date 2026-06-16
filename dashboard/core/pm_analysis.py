@@ -14,6 +14,7 @@ import tempfile
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
+from core.context import Context
 from core.environment import Environment
 from core.models import Message
 from core.roles.pm_lead_role import PMLeadRole
@@ -293,10 +294,11 @@ def run_pm_analysis(
 
     if prd_path.exists() and prd_path.stat().st_size > 100:
         if log_callback:
-            log_callback(f"PRD pre-generado encontrado en {prd_path}; saltando PM Research.", "info")
+            log_callback(f"Pre-generated PRD found at {prd_path}; skipping PM Research.", "info")
         return prd_path
 
     env = Environment()
+    shared_context = Context(ticket=ticket, prd_path=prd_path, repo_path=repo_path)
 
     ai_runner = run_ai or (
         lambda prompt, phase_name, timeout_seconds, agent_id=None: run_ai_prompt(
@@ -363,7 +365,7 @@ def run_pm_analysis(
     ))
 
     for _ in range(max_rounds):
-        active = asyncio.run(env.run_round())
+        active = asyncio.run(env.run_round(context=shared_context))
         if not active and env.is_idle():
             break
 
@@ -383,8 +385,8 @@ if __name__ == "__main__":
 
         def mock_run_ai(prompt, phase_name, timeout_seconds, agent_id=None):
             if agent_id == "pm-research-agents":
-                return "# PRD\n\nConsolidado."
-            return f"# {agent_id}\n\nHallazgos."
+                return "# PRD\n\nConsolidated."
+            return f"# {agent_id}\n\nFindings."
 
         prd = run_pm_analysis(
             {"id": "SMOKE-001", "title": "Test", "description": "Desc"},

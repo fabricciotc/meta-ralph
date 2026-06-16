@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-import inspect
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 from core.actions.base import Action
+from core.ai_execution import invoke_ai
 from core.models import Message
 
 
@@ -120,16 +120,13 @@ class ReviewAction(Action):
         if run_ai is None:
             result = extract_review_result("")
         else:
-            raw = run_ai(
+            output = await invoke_ai(
+                run_ai,
                 prompt,
                 phase_name,
                 timeout_seconds,
                 agent_id=f"qa-{task_id}",
             )
-            if inspect.isawaitable(raw):
-                output = await raw
-            else:
-                output = raw
             result = extract_review_result(output)
 
         approved = bool(result.get("approved", False))
@@ -144,6 +141,15 @@ class ReviewAction(Action):
             "reason": reason,
             "suggested_fix": suggested_fix,
         }
+        shared_context = kwargs.get("shared_context") or kwargs.get("context")
+        if shared_context is not None and hasattr(shared_context, "shared"):
+            reviews = shared_context.shared.setdefault("qa_reviews", {})
+            reviews[task_id] = {
+                "approved": approved,
+                "reason": reason,
+                "suggested_fix": suggested_fix,
+                "branch": branch,
+            }
 
         return Message(
             content=reason,

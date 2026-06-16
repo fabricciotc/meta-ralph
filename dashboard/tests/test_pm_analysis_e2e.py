@@ -4,11 +4,13 @@ import asyncio
 import shutil
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from core.context import Context
 from core.environment import Environment
 from core.models import Message
 from core.roles.pm_lead_role import PMLeadRole
@@ -205,6 +207,49 @@ class TestPMAnalysisEndToEnd(unittest.TestCase):
 
         self.assertTrue(self.prd_path.exists())
         self.assertIn("Final consolidated PRD with OAuth flow", self.prd_path.read_text(encoding="utf-8"))
+
+    def test_pm_research_runs_sync_backends_in_parallel_and_stores_findings(self):
+        env = Environment()
+        shared_context = Context(ticket={"id": "TKT-PAR", "title": "Parallel", "description": "Test"})
+
+        subagents = [
+            ("pm-domain", "Domain Analyst", "business domain"),
+            ("pm-ux", "UX Researcher", "user experience"),
+            ("pm-technical", "Technical Analyst", "technical stack"),
+            ("pm-integration", "Integration Analyst", "integrations"),
+            ("pm-risk", "Risk Analyst", "risks"),
+        ]
+
+        def run_ai(prompt, phase_name, timeout_seconds, agent_id=None):
+            time.sleep(0.15)
+            return f"# {agent_id}\n\nFindings for {agent_id}"
+
+        for sub_id, sub_name, focus in subagents:
+            env.add_role(PMResearchRole(sub_id, sub_name, focus, run_ai=run_ai))
+
+        env.publish_message(Message(
+            content="Investigate",
+            sent_from="orchestrator",
+            cause_by="research_request",
+            send_to={"all"},
+            metadata={
+                "ticket_title": "Parallel",
+                "ticket_description": "Test",
+                "ticket_id": "TKT-PAR",
+                "output_dir": self.output_dir,
+                "build_prompt": self._build_research_prompt,
+                "update_agent": self._update_agent,
+                "phase_name": "pm_research",
+                "timeout_seconds": 120,
+            },
+        ))
+
+        started = time.perf_counter()
+        asyncio.run(env.run_round(context=shared_context))
+        elapsed = time.perf_counter() - started
+
+        self.assertLess(elapsed, 0.65)
+        self.assertEqual(set(shared_context.shared["pm_findings"].keys()), {sid for sid, _, _ in subagents})
 
     def _parse_clarifications_with_marker(self, output):
         clarifications = {}

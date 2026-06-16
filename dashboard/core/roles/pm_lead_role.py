@@ -70,6 +70,7 @@ class PMLeadRole(Role):
                 self.research_files[sub_id] = Path(file_path)
             else:
                 self.research_files[sub_id] = None
+            self._store_shared_finding(sub_id, msg)
 
             if sub_id in self.pending_clarifications:
                 del self.pending_clarifications[sub_id]
@@ -79,11 +80,13 @@ class PMLeadRole(Role):
             file_path = msg.metadata.get("file")
             if file_path:
                 self.research_files[sub_id] = Path(file_path)
+            self._store_shared_finding(sub_id, msg)
 
     async def think(self, context: List[Message]) -> Optional[ConsolidatePRDAction]:
         if self.prd_ready:
             return None
 
+        self._sync_research_files_from_shared()
         for msg in context:
             self._process_message(msg)
 
@@ -105,6 +108,7 @@ class PMLeadRole(Role):
     async def run(self, env: Any, **kwargs) -> Optional[Message]:
         history = env.history() if hasattr(env, "history") else []
         queue = env.get_messages_for(self.role_id) if hasattr(env, "get_messages_for") else []
+        self._shared_context = kwargs.get("context")
         context = self.observe(history + queue)
         action = await self.think(context)
         if not action:
@@ -124,8 +128,9 @@ class PMLeadRole(Role):
             "send_completion": self.send_completion,
             "phase_name": self.phase_name,
             "timeout_seconds": self.timeout_seconds,
+            "shared_context": self._shared_context,
         }
-        action_kwargs.update(kwargs)
+        action_kwargs.update({k: v for k, v in kwargs.items() if k != "context"})
 
         response = await self.act(action, context, **action_kwargs)
         response.sent_from = self.role_id
@@ -133,6 +138,7 @@ class PMLeadRole(Role):
         if response.cause_by == "clarifications_requested":
             clarifications = response.metadata.get("clarifications", {})
             self.pending_clarifications = dict(clarifications)
+            self._store_pending_clarifications(clarifications)
             for sub_id, question in clarifications.items():
                 env.publish_message(
                     Message(
@@ -147,6 +153,49 @@ class PMLeadRole(Role):
         if response.cause_by == "prd_ready":
             self.prd_ready = True
             self.prd_path = Path(response.metadata.get("path", self.prd_path)) if response.metadata.get("path") else self.prd_path
+            self._store_prd_ready(response)
 
         env.publish_message(response)
         return response
+
+    def _store_shared_finding(self, sub_id: str, msg: Message) -> None:
+        shared_context = getattr(self, "_shared_context", None)
+        if shared_context is None or not hasattr(shared_context, "shared"):
+            return
+        findings = shared_context.shared.setdefault("pm_findings", {})
+        findings[sub_id] = {
+            "agent": msg.metadata.get("sub_name", sub_id),
+            "focus": msg.metadata.get("focus", ""),
+            "file": msg.metadata.get("file", ""),
+            "summary": msg.content[:1000],
+            "follow_up": msg.cause_by == "request_clarification",
+        }
+
+    def _sync_research_files_from_shared(self) -> None:
+        shared_context = getattr(self, "_shared_context", None)
+        if shared_context is None or not hasattr(shared_context, "shared"):
+            return
+        findings = shared_context.shared.get("pm_findings", {})
+        for sub_id, finding in findings.items():
+            if sub_id in self.research_files or not isinstance(finding, dict):
+                continue
+            file_path = finding.get("file")
+            if file_path:
+                self.research_files[sub_id] = Path(file_path)
+
+    def _store_pending_clarifications(self, clarifications: Dict[str, Any]) -> None:
+        shared_context = getattr(self, "_shared_context", None)
+        if shared_context is None or not hasattr(shared_context, "shared"):
+            return
+        shared_context.shared["pm_pending_clarifications"] = dict(clarifications)
+
+    def _store_prd_ready(self, response: Message) -> None:
+        shared_context = getattr(self, "_shared_context", None)
+        if shared_context is None or not hasattr(shared_context, "shared"):
+            return
+        shared_context.shared["prd"] = {
+            "path": response.metadata.get("path", str(self.prd_path) if self.prd_path else ""),
+            "preview": response.metadata.get("preview", response.content[:500]),
+            "source": "pm_lead",
+        }
+        shared_context.shared.pop("pm_pending_clarifications", None)

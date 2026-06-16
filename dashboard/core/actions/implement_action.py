@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import inspect
 import json
 import shutil
 import subprocess
@@ -8,6 +7,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from core.actions.base import Action
+from core.ai_execution import invoke_ai
 from core.models import Message
 
 
@@ -84,13 +84,7 @@ class ImplementAction(Action):
                 ticket_description=ticket_description,
             )
 
-            output: Optional[str] = None
-            if run_ai is not None:
-                raw = run_ai(prompt, phase_name, timeout_seconds, agent_id=agent_id)
-                if inspect.isawaitable(raw):
-                    output = await raw
-                else:
-                    output = raw
+            output = await invoke_ai(run_ai, prompt, phase_name, timeout_seconds, agent_id=agent_id)
 
             if not output:
                 # No runner available: write a minimal implementation note so the
@@ -114,6 +108,17 @@ class ImplementAction(Action):
             )
 
             if not executable_ok:
+                self._store_engineer_context(
+                    kwargs.get("shared_context") or kwargs.get("context"),
+                    task_id,
+                    agent_id,
+                    "failed",
+                    executable_reason,
+                    build_output,
+                    test_output,
+                    str(repo_path),
+                    branch,
+                )
                 update_agent(
                     agent_id,
                     status="error",
@@ -137,6 +142,17 @@ class ImplementAction(Action):
                 )
 
             summary = output[:500]
+            self._store_engineer_context(
+                kwargs.get("shared_context") or kwargs.get("context"),
+                task_id,
+                agent_id,
+                "completed",
+                summary,
+                build_output,
+                test_output,
+                str(repo_path),
+                branch,
+            )
             update_agent(
                 agent_id,
                 status="done",
@@ -161,6 +177,17 @@ class ImplementAction(Action):
                 },
             )
         except Exception as exc:
+            self._store_engineer_context(
+                kwargs.get("shared_context") or kwargs.get("context"),
+                task_id if "task_id" in locals() else str(task.get("id", "")),
+                agent_id if "agent_id" in locals() else str(task.get("id", "")),
+                "failed",
+                str(exc),
+                "",
+                "",
+                str(repo_path) if "repo_path" in locals() else "",
+                branch if "branch" in locals() else "",
+            )
             update_agent(
                 agent_id,
                 status="error",
@@ -282,3 +309,28 @@ class ImplementAction(Action):
             return json.dumps(task, ensure_ascii=False, default=str)
         except Exception:
             return str(task)
+
+    def _store_engineer_context(
+        self,
+        shared_context: Any,
+        task_id: str,
+        agent_id: str,
+        status: str,
+        summary: str,
+        build_output: str,
+        test_output: str,
+        repo_path: str,
+        branch: str,
+    ) -> None:
+        if shared_context is None or not hasattr(shared_context, "shared"):
+            return
+        reports = shared_context.shared.setdefault("engineer_reports", {})
+        reports[task_id] = {
+            "engineer_id": agent_id,
+            "status": status,
+            "summary": summary,
+            "build_output": build_output,
+            "test_output": test_output,
+            "repo_path": repo_path,
+            "branch": branch,
+        }

@@ -10,6 +10,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from core.actions.implement_action import ImplementAction
+from core.context import Context
 from core.environment import Environment
 from core.models import Message
 from core.roles.engineer_role import EngineerRole
@@ -230,8 +231,26 @@ class TestEngineerRole(unittest.TestCase):
         self.assertEqual(response.metadata["branch"], "feature/T1")
 
         report = [m for m in history if m.cause_by == "task_report"][0]
-        self.assertEqual(report.send_to, {"engineer-squad"})
+        self.assertEqual(report.send_to, {"engineer-squad", "all"})
         self.assertEqual(report.metadata["status"], "completed")
+
+    def test_engineer_role_stores_report_in_shared_context(self):
+        env = Environment()
+        shared_context = Context(ticket={"id": "TKT-001", "title": "Login", "description": "Allow login"})
+
+        def mock_run_ai(prompt, phase_name, timeout_seconds, agent_id=None):
+            return "Implemented with shared context."
+
+        role = EngineerRole("engineer-T1", "backend", run_ai=mock_run_ai)
+        env.add_role(role)
+
+        env.publish_message(self._task_message("engineer-T1"))
+        asyncio.run(env.run_round(context=shared_context))
+
+        reports = shared_context.shared.get("engineer_reports", {})
+        self.assertIn("T1", reports)
+        self.assertEqual(reports["T1"]["status"], "completed")
+        self.assertEqual(reports["T1"]["engineer_id"], "engineer-T1")
 
     def test_engineer_role_ignores_task_assigned_to_other_engineer(self):
         env = Environment()

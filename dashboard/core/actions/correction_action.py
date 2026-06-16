@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-import inspect
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 from core.actions.base import Action
+from core.ai_execution import invoke_ai
 from core.models import Message
 
 
@@ -95,16 +95,13 @@ class CorrectionAction(Action):
         if run_ai is None:
             content = extract_correction_prompt("")
         else:
-            raw = run_ai(
+            output = await invoke_ai(
+                run_ai,
                 prompt,
                 phase_name,
                 timeout_seconds,
                 agent_id=f"qa-{task_id}",
             )
-            if inspect.isawaitable(raw):
-                output = await raw
-            else:
-                output = raw
             content = extract_correction_prompt(output)
 
         return Message(

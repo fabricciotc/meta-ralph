@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-import inspect
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 from core.actions.base import Action
+from core.ai_execution import invoke_ai
 from core.models import Message
 
 
@@ -59,6 +59,7 @@ class ConsolidatePRDAction(Action):
                 ticket_description,
             )
             preview = content[:500]
+            self._store_prd_context(self._shared_context_from_kwargs(kwargs), prd_path, preview, source="fallback")
             send_completion(prd_path, preview)
             return Message(
                 content=content,
@@ -80,11 +81,7 @@ class ConsolidatePRDAction(Action):
             prd_path,
         )
 
-        raw = run_ai(prompt, phase_name, timeout_seconds, agent_id="pm-research-agents")
-        if inspect.isawaitable(raw):
-            output = await raw
-        else:
-            output = raw
+        output = await invoke_ai(run_ai, prompt, phase_name, timeout_seconds, agent_id="pm-research-agents")
 
         # Fallback on empty output from the runner.
         if not output:
@@ -95,6 +92,7 @@ class ConsolidatePRDAction(Action):
                 ticket_description,
             )
             preview = content[:500]
+            self._store_prd_context(self._shared_context_from_kwargs(kwargs), prd_path, preview, source="fallback")
             send_completion(prd_path, preview)
             return Message(
                 content=content,
@@ -111,6 +109,9 @@ class ConsolidatePRDAction(Action):
 
         clarifications = parse_clarifications(output)
         if clarifications:
+            shared_context = self._shared_context_from_kwargs(kwargs)
+            if shared_context is not None and hasattr(shared_context, "shared"):
+                shared_context.shared["pm_pending_clarifications"] = dict(clarifications)
             for sub_id, question in clarifications.items():
                 send_clarification(sub_id, question)
             return Message(
@@ -124,6 +125,7 @@ class ConsolidatePRDAction(Action):
         content = extract_prd(output, ticket_title, ticket_description)
         prd_path.write_text(content, encoding="utf-8")
         preview = content[:500]
+        self._store_prd_context(self._shared_context_from_kwargs(kwargs), prd_path, preview, source="pm_research")
         send_completion(prd_path, preview)
         return Message(
             content=content,
@@ -156,3 +158,16 @@ class ConsolidatePRDAction(Action):
         content = str(result)
         prd_path.write_text(content, encoding="utf-8")
         return content
+
+    def _store_prd_context(self, shared_context: Any, prd_path: Path, preview: str, source: str) -> None:
+        if shared_context is None or not hasattr(shared_context, "shared"):
+            return
+        shared_context.shared["prd"] = {
+            "path": str(prd_path),
+            "preview": preview,
+            "source": source,
+        }
+        shared_context.shared.pop("pm_pending_clarifications", None)
+
+    def _shared_context_from_kwargs(self, kwargs: Dict[str, Any]) -> Any:
+        return kwargs.get("shared_context") or kwargs.get("context")

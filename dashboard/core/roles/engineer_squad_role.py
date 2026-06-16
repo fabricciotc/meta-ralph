@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Set
 
+from core.ai_execution import invoke_ai
 from core.models import Message
 from core.roles.base import Role
 
@@ -91,6 +92,7 @@ class EngineerSquadRole(Role):
         if not trigger:
             return None
         self._processed_trigger_ids.add(trigger.id)
+        self._shared_context = kwargs.get("context")
 
         if trigger.cause_by == "task_report":
             return await self._handle_task_report(trigger, env)
@@ -118,6 +120,15 @@ class EngineerSquadRole(Role):
             "retries": retries,
             "timestamp": trigger.created_at,
         }
+        self._store_shared_engineer_report(
+            task_id,
+            engineer_id,
+            status,
+            summary,
+            build_output,
+            test_output,
+            trigger.metadata,
+        )
 
         # Build squad context for the LLM decision.
         squad_context = self._build_squad_context()
@@ -135,7 +146,7 @@ class EngineerSquadRole(Role):
 
         # Publish a visible chat message describing the squad's reaction.
         chat_msg = Message(
-            content=decision.get("message", f"Reporte recibido de {engineer_id}: {status}"),
+            content=decision.get("message", f"Report received from {engineer_id}: {status}"),
             sent_from=self.role_id,
             cause_by="squad_chat",
             send_to={"all"},
@@ -371,6 +382,12 @@ class EngineerSquadRole(Role):
             for tid, r in self.task_reports.items()
         )
         parts.append(f"Received reports:\n{reports_summary}")
+        shared_reports = self._format_shared_engineer_reports()
+        if shared_reports:
+            parts.append(f"Shared engineer reports:\n{shared_reports}")
+        pm_findings = self._format_shared_pm_findings()
+        if pm_findings:
+            parts.append(f"Shared PM findings:\n{pm_findings}")
         return "\n\n".join(parts)
 
     async def _decide_next_move(self, **kwargs) -> Dict[str, Any]:
@@ -383,7 +400,7 @@ class EngineerSquadRole(Role):
 
         prompt = self._build_decision_prompt(kwargs)
         try:
-            raw = self.run_ai(prompt, self.phase_name, self.timeout_seconds, self.role_id)
+            raw = await invoke_ai(self.run_ai, prompt, self.phase_name, self.timeout_seconds, self.role_id)
             if raw:
                 return self._parse_decision(raw)
         except Exception:
@@ -403,7 +420,7 @@ class EngineerSquadRole(Role):
         return (
             "You are the Engineering Squad Lead in a MetaGPT-style software factory. "
             "You receive Engineer reports and decide the next step.\n\n"
-            f"EVENTO: {event}\n"
+            f"EVENT: {event}\n"
             f"TASK: {task_id}\n"
             f"STATUS: {status}\n"
             f"SUMMARY: {summary}\n"
@@ -461,3 +478,58 @@ class EngineerSquadRole(Role):
             "action": "ack",
             "message": f"Report for {task_id} received. Continuing follow-up.",
         }
+
+    def _store_shared_engineer_report(
+        self,
+        task_id: str,
+        engineer_id: str,
+        status: str,
+        summary: str,
+        build_output: str,
+        test_output: str,
+        metadata: Dict[str, Any],
+    ) -> None:
+        shared_context = getattr(self, "_shared_context", None)
+        if shared_context is None or not hasattr(shared_context, "shared"):
+            return
+        reports = shared_context.shared.setdefault("engineer_reports", {})
+        reports[task_id] = {
+            "engineer_id": engineer_id,
+            "status": status,
+            "summary": summary,
+            "build_output": build_output,
+            "test_output": test_output,
+            "repo_path": metadata.get("repo_path", ""),
+            "branch": metadata.get("branch", ""),
+            "fallback": metadata.get("fallback", False),
+            "task": metadata.get("task", {}),
+        }
+
+    def _format_shared_engineer_reports(self) -> str:
+        shared_context = getattr(self, "_shared_context", None)
+        if shared_context is None or not hasattr(shared_context, "shared"):
+            return ""
+        reports = shared_context.shared.get("engineer_reports", {})
+        lines = []
+        for task_id, report in sorted(reports.items()):
+            if not isinstance(report, dict):
+                continue
+            lines.append(
+                f"- {task_id}: {report.get('status', 'unknown')} by "
+                f"{report.get('engineer_id', 'unknown')} - {report.get('summary', '')[:300]}"
+            )
+        return "\n".join(lines)
+
+    def _format_shared_pm_findings(self) -> str:
+        shared_context = getattr(self, "_shared_context", None)
+        if shared_context is None or not hasattr(shared_context, "shared"):
+            return ""
+        findings = shared_context.shared.get("pm_findings", {})
+        lines = []
+        for sub_id, finding in sorted(findings.items()):
+            if not isinstance(finding, dict):
+                continue
+            lines.append(
+                f"- {sub_id}: {finding.get('focus', '')} - {finding.get('summary', '')[:300]}"
+            )
+        return "\n".join(lines)

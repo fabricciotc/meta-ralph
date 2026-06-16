@@ -113,6 +113,15 @@ class EngineerRole(Role):
         )
 
         dependencies_context = trigger.metadata.get("dependencies_context", "")
+        shared_context = kwargs.get("context")
+        shared_reports = self._format_shared_engineer_reports(shared_context)
+        if shared_reports:
+            dependencies_context = (
+                dependencies_context
+                + ("\n\n" if dependencies_context else "")
+                + "Shared engineer reports:\n"
+                + shared_reports
+            )
         if is_squad_instruction:
             feedback = trigger.metadata.get("instruction", "")
             extra_context = trigger.metadata.get("context", "")
@@ -120,7 +129,7 @@ class EngineerRole(Role):
             user_answer = trigger.metadata.get("user_answer", "")
             feedback_parts = [p for p in [feedback, extra_context, pm_answer, user_answer] if p]
             if feedback_parts:
-                separator = "\n\n--- Feedback del Squad ---\n\n"
+                separator = "\n\n--- Squad Feedback ---\n\n"
                 dependencies_context = dependencies_context + separator + "\n\n".join(feedback_parts)
 
         prd_path = trigger.metadata.get("prd_path") or kwargs.get("prd_path")
@@ -142,6 +151,7 @@ class EngineerRole(Role):
             "update_agent": kwargs.get("update_agent") or self.update_agent,
             "phase_name": kwargs.get("phase_name") or self.phase_name,
             "timeout_seconds": kwargs.get("timeout_seconds") or self.timeout_seconds,
+            "shared_context": shared_context,
         }
 
         response = await self.act(action, context, **action_kwargs)
@@ -149,7 +159,7 @@ class EngineerRole(Role):
         env.publish_message(response)
 
         # Report back to the squad lead with the outcome.
-        self._publish_task_report(env, response, task, repo_path, branch)
+        self._publish_task_report(env, response, task, repo_path, branch, shared_context)
         return response
 
     def _publish_task_report(
@@ -159,14 +169,16 @@ class EngineerRole(Role):
         task: Dict[str, Any],
         repo_path: Path,
         branch: str,
+        shared_context: Any = None,
     ) -> None:
         task_id = str(task.get("id", ""))
         status = "completed" if response.cause_by == "task_completed" else "failed"
+        self._store_shared_report(shared_context, task_id, self.role_id, status, response, repo_path, branch, task)
         report = Message(
-            content=f"Reporte de {self.role_id}: tarea {task_id} {status}",
+            content=f"Report from {self.role_id}: task {task_id} {status}",
             sent_from=self.role_id,
             cause_by="task_report",
-            send_to={"engineer-squad"},
+            send_to={"engineer-squad", "all"},
             metadata={
                 "task_id": task_id,
                 "engineer_id": self.role_id,
@@ -229,3 +241,45 @@ class EngineerRole(Role):
 
     def _default_update_agent(self, agent_id: str, **kwargs) -> None:
         pass
+
+    def _format_shared_engineer_reports(self, shared_context: Any) -> str:
+        if shared_context is None or not hasattr(shared_context, "shared"):
+            return ""
+        reports = shared_context.shared.get("engineer_reports", {})
+        if not reports:
+            return ""
+        lines = []
+        for task_id, report in sorted(reports.items()):
+            if not isinstance(report, dict):
+                continue
+            lines.append(
+                f"- {task_id}: {report.get('status', 'unknown')} by "
+                f"{report.get('engineer_id', 'unknown')} - {report.get('summary', '')[:300]}"
+            )
+        return "\n".join(lines)
+
+    def _store_shared_report(
+        self,
+        shared_context: Any,
+        task_id: str,
+        engineer_id: str,
+        status: str,
+        response: Message,
+        repo_path: Path,
+        branch: str,
+        task: Dict[str, Any],
+    ) -> None:
+        if shared_context is None or not hasattr(shared_context, "shared"):
+            return
+        reports = shared_context.shared.setdefault("engineer_reports", {})
+        reports[task_id] = {
+            "engineer_id": engineer_id,
+            "status": status,
+            "summary": response.metadata.get("summary", response.content[:500]),
+            "repo_path": str(repo_path),
+            "branch": branch,
+            "build_output": response.metadata.get("build_output", ""),
+            "test_output": response.metadata.get("test_output", ""),
+            "fallback": response.metadata.get("fallback", False),
+            "task": task,
+        }

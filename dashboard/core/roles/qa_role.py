@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Set
 
@@ -68,6 +69,7 @@ class QASubRole(Role):
             "phase_name": kwargs.get("phase_name", "qa_review"),
             "timeout_seconds": kwargs.get("timeout_seconds", 120),
             "run_ai": self.run_ai,
+            "shared_context": kwargs.get("shared_context"),
         }
         return await action.run(context, **action_kwargs)
 
@@ -96,6 +98,7 @@ class QASubRole(Role):
             "phase_name": kwargs.get("phase_name", "qa_correction"),
             "timeout_seconds": kwargs.get("timeout_seconds", 120),
             "run_ai": self.run_ai,
+            "shared_context": kwargs.get("shared_context"),
         }
         return await action.run(context, **action_kwargs)
 
@@ -155,6 +158,15 @@ class QARole(Role):
             return msg
         return None
 
+    def _find_triggers(self, context: List[Message]) -> List[Message]:
+        """Return all unprocessed review requests in observation order."""
+        return [
+            msg
+            for msg in context
+            if msg.cause_by == "request_review"
+            and msg.id not in self._processed_message_ids
+        ]
+
     async def think(self, context: List[Message]) -> Optional[Any]:
         """Not used directly; run() coordinates the full review flow."""
         return None
@@ -165,18 +177,43 @@ class QARole(Role):
         queue = env.get_messages_for(self.role_id) if hasattr(env, "get_messages_for") else []
         context = self.observe(history + queue)
 
-        trigger = self._find_trigger(context)
-        if not trigger:
+        triggers = self._find_triggers(context)
+        if not triggers:
             return None
-        self._processed_message_ids.add(trigger.id)
+        for trigger in triggers:
+            self._processed_message_ids.add(trigger.id)
 
+        results = await asyncio.gather(*[
+            self._review_trigger(trigger, context, kwargs)
+            for trigger in triggers
+        ])
+        for result in results:
+            env.publish_message(result)
+
+        if len(results) == 1:
+            return results[0]
+
+        approved = sum(1 for msg in results if msg.cause_by == "review_approved")
+        rejected = sum(1 for msg in results if msg.cause_by == "reject_with_feedback")
+        return Message(
+            content=f"QA batch reviewed: {approved} approved, {rejected} rejected.",
+            sent_from=self.role_id,
+            cause_by="qa_batch_reviewed",
+            send_to={"orchestrator"},
+            metadata={"approved": approved, "rejected": rejected},
+        )
+
+    async def _review_trigger(
+        self,
+        trigger: Message,
+        context: List[Message],
+        kwargs: Dict[str, Any],
+    ) -> Message:
         task = trigger.metadata.get("task") or {}
         task_id = trigger.metadata.get("task_id") or task.get("id") or "unknown"
-
         state = self._review_state.setdefault(task_id, {"rounds": 0, "history": []})
 
         if state["rounds"] >= self.max_rounds:
-            # Max correction rounds reached; force approval to avoid infinite loops.
             msg = Message(
                 content=f"Task {task_id} approved after {self.max_rounds} correction rounds.",
                 sent_from=self.role_id,
@@ -191,8 +228,8 @@ class QARole(Role):
                     "forced": True,
                 },
             )
-            env.publish_message(msg)
             state["rounds"] = 0
+            self._store_review_context(kwargs.get("context"), task_id, msg.metadata)
             return msg
 
         sub_role = self._ensure_sub_role(task_id, task)
@@ -204,6 +241,7 @@ class QARole(Role):
             "test_output": trigger.metadata.get("test_output", ""),
             "phase_name": kwargs.get("phase_name", "qa_review"),
             "timeout_seconds": kwargs.get("timeout_seconds", 120),
+            "shared_context": kwargs.get("context"),
         }
 
         result = await sub_role.review(context, **action_kwargs)
@@ -213,9 +251,23 @@ class QARole(Role):
             state["rounds"] = 0
         else:
             state["rounds"] += 1
-
-        env.publish_message(result)
+        state["history"].append({
+            "cause_by": result.cause_by,
+            "reason": result.metadata.get("reason", ""),
+        })
+        self._store_review_context(kwargs.get("context"), task_id, result.metadata)
         return result
+
+    def _store_review_context(self, shared_context: Any, task_id: str, metadata: Dict[str, Any]) -> None:
+        if shared_context is None or not hasattr(shared_context, "shared"):
+            return
+        reviews = shared_context.shared.setdefault("qa_reviews", {})
+        reviews[task_id] = {
+            "approved": bool(metadata.get("approved", False)),
+            "reason": metadata.get("reason", ""),
+            "suggested_fix": metadata.get("suggested_fix", ""),
+            "forced": metadata.get("forced", False),
+        }
 
     async def generate_correction_prompt(
         self,
