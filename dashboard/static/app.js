@@ -36,6 +36,7 @@ let runState = { active: false, ticketId: null, status: 'idle', currentAgent: nu
 let systemInfo = { model: '—' };
 let traces = [];
 let graphData = { nodes: [], edges: [] };
+let selectedTicketId = localStorage.getItem('meta-ralph-selected-ticket') || null;
 
 let isConnected = false;
 let lastFetchError = false;
@@ -308,28 +309,80 @@ const STATUS_LABELS = {
   idle: 'Idle',
   running: 'Running',
   paused: 'Paused',
-  queued: 'Queued'
+  queued: 'Queued',
+  completed: 'Done',
+  done: 'Done',
+  failed: 'Failed',
+  backlog: 'Backlog',
+  'ready-for-work': 'Ready',
+  'in-design': 'Design',
+  'in-progress': 'Progress',
+  'in-review': 'Review'
 };
+
+function normalizeDisplayStatus(status) {
+  if (status === 'completed') return 'done';
+  return status || 'idle';
+}
+
+function getTicketById(ticketId) {
+  if (!ticketId) return null;
+  return (boardData.tickets || []).find(t => t.id === ticketId) || null;
+}
+
+function setSelectedTicket(ticketId) {
+  selectedTicketId = ticketId || null;
+  if (selectedTicketId) {
+    localStorage.setItem('meta-ralph-selected-ticket', selectedTicketId);
+  } else {
+    localStorage.removeItem('meta-ralph-selected-ticket');
+  }
+}
+
+function getDisplayTicket() {
+  const runningTicket = getTicketById(runState.ticketId);
+  if (runState.ticketId && (runState.active || runningTicket)) {
+    return runningTicket || { id: runState.ticketId, status: normalizeDisplayStatus(runState.status) };
+  }
+  const selected = getTicketById(selectedTicketId);
+  if (selected) return selected;
+  if (selectedTicketId && (boardData.tickets || []).length > 0) {
+    setSelectedTicket(null);
+    return null;
+  }
+  if (selectedTicketId) return { id: selectedTicketId, status: 'idle' };
+  return null;
+}
+
+function getDisplayStatus(displayTicket) {
+  if (runState.active) {
+    return runState.status === 'paused' ? 'paused' : 'running';
+  }
+  if ((runState.queue || []).length > 0 && !displayTicket) {
+    return 'queued';
+  }
+  if (runState.ticketId && displayTicket && displayTicket.id === runState.ticketId) {
+    return normalizeDisplayStatus(runState.status === 'completed' ? 'done' : (displayTicket.status || runState.status));
+  }
+  return normalizeDisplayStatus(displayTicket ? displayTicket.status : 'idle');
+}
 
 function renderHeader() {
   if (navModel) navModel.textContent = systemInfo.model || '—';
-  if (navTicket) navTicket.textContent = runState.ticketId || '—';
-
-  let statusKey = 'idle';
-  if (runState.active) {
-    statusKey = runState.status === 'paused' ? 'paused' : 'running';
-  } else if ((runState.queue || []).length > 0) {
-    statusKey = 'queued';
+  const displayTicket = getDisplayTicket();
+  const statusKey = getDisplayStatus(displayTicket);
+  if (navTicket) {
+    navTicket.textContent = displayTicket ? displayTicket.id : '—';
+    navTicket.title = displayTicket ? `${displayTicket.title || displayTicket.id} · ${STATUS_LABELS[statusKey] || statusKey}` : 'No ticket selected';
   }
 
   if (navStatus) {
-    navStatus.textContent = STATUS_LABELS[statusKey];
+    navStatus.textContent = STATUS_LABELS[statusKey] || statusKey;
     navStatus.className = 'pill-value status-' + statusKey;
   }
 
   if (navPath) {
-    const activeTicket = (boardData.tickets || []).find(t => t.id === runState.ticketId);
-    const repoPath = activeTicket && activeTicket.repoPath ? activeTicket.repoPath : '';
+    const repoPath = displayTicket && displayTicket.repoPath ? displayTicket.repoPath : '';
     navPath.textContent = repoPath ? truncatePath(repoPath, 55) : '—';
     navPath.title = repoPath || 'No repository path';
   }
@@ -339,14 +392,17 @@ function renderRunBar() {
   if (!runBar) return;
 
   const active = runState.active;
-  const ticketId = runState.ticketId || '—';
-  const statusKey = active ? (runState.status || 'running') : 'idle';
+  const displayTicket = getDisplayTicket();
+  const ticketId = displayTicket ? displayTicket.id : '—';
+  const statusKey = getDisplayStatus(displayTicket);
   const agents = runState.agents || [];
   const running = agents.filter(a => a.status === 'running').length;
   const total = agents.length;
-  const progress = total > 0 ? Math.round((agents.filter(a => a.status === 'done').length / total) * 100) : 0;
+  const progress = total > 0
+    ? Math.round((agents.filter(a => a.status === 'done').length / total) * 100)
+    : statusKey === 'done' ? 100 : 0;
 
-  runBar.classList.toggle('idle', !active);
+  runBar.classList.toggle('idle', !active && !displayTicket);
   if (runBarTicket) runBarTicket.textContent = ticketId;
   if (runBarStatus) {
     runBarStatus.textContent = STATUS_LABELS[statusKey] || statusKey;
@@ -354,7 +410,11 @@ function renderRunBar() {
   }
   if (runBarProgress) runBarProgress.style.width = `${progress}%`;
   if (runBarElapsed) runBarElapsed.textContent = formatElapsed(runState.elapsedSeconds);
-  if (runBarAgents) runBarAgents.textContent = `${running}/${total} running`;
+  if (runBarAgents) {
+    runBarAgents.textContent = total > 0
+      ? `${running}/${total} running`
+      : displayTicket ? (STATUS_LABELS[statusKey] || statusKey) : '0/0 running';
+  }
 }
 
 function updateConnectionStatus(connected) {
@@ -453,7 +513,7 @@ async function pollTraces() {
     traces = await res.json();
     renderTraces();
   } catch (err) {
-    console.warn('Error cargando traces:', err);
+    console.warn('Error loading traces:', err);
   }
 }
 
@@ -543,7 +603,11 @@ function renderBehaviorsGraph() {
   if (!behaviorsGraph || !graphStage || !behaviorsSvg || !graphNodes) return;
   const { nodes, edges } = graphData;
 
-  const key = JSON.stringify({ nodes: nodes.map(n => [n.id, n.status, n.progress]), edges: edges.map(e => [e.source, e.target, e.type]) });
+  const key = JSON.stringify({
+    selectedAgentId,
+    nodes: nodes.map(n => [n.id, n.status, n.progress]),
+    edges: edges.map(e => [e.source, e.target, e.type, e.count]),
+  });
   if (key === lastRenderedGraphKey) return;
   lastRenderedGraphKey = key;
 
@@ -559,9 +623,10 @@ function renderBehaviorsGraph() {
   if (graphEmpty) graphEmpty.style.display = 'none';
 
   const isDark = document.body.classList.contains('dark');
-  const arrowFill = isDark ? 'rgba(255,255,255,0.25)' : 'rgba(46,67,32,0.35)';
+  const arrowFill = isDark ? 'rgba(96,165,250,0.7)' : 'rgba(36,90,120,0.65)';
   const activeStroke = isDark ? 'rgba(96,165,250,0.8)' : 'rgba(36,90,120,0.8)';
-  const defaultStroke = isDark ? 'rgba(255,255,255,0.14)' : 'rgba(46,67,32,0.18)';
+  const hierarchyStroke = isDark ? 'rgba(96,165,250,0.42)' : 'rgba(36,90,120,0.38)';
+  const communicationStroke = isDark ? 'rgba(148,163,184,0.22)' : 'rgba(46,67,32,0.22)';
 
   const { positions, nodeDiameter, width: graphWidth, height: graphHeight } = computeGraphLayout(nodes, edges);
   const rect = behaviorsGraph.getBoundingClientRect();
@@ -578,31 +643,43 @@ function renderBehaviorsGraph() {
 
   // SVG edges
   let svgHtml = `<defs>
-    <marker id="arrow-head" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="${arrowFill}" /></marker>
-    <marker id="arrow-head-active" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="${activeStroke}" /></marker>
+    <marker id="arrow-head" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M 0 0 L 9 5 L 0 10 z" fill="${arrowFill}" /></marker>
+    <marker id="arrow-head-active" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M 0 0 L 9 5 L 0 10 z" fill="${activeStroke}" /></marker>
   </defs>`;
 
   const byId = {};
   nodes.forEach(n => byId[n.id] = n);
 
-  function curve(p1, p2, type = 'parent', sourceRadius = 0, targetRadius = 0) {
+  function edgeAnchor(p1, p2, sourceRadius, targetRadius, type) {
     const dx = p2.x - p1.x;
     const dy = p2.y - p1.y;
     const dist = Math.hypot(dx, dy);
     if (dist === 0) {
-      return `M ${p1.x.toFixed(1)} ${p1.y.toFixed(1)} C ${p1.x.toFixed(1)} ${p1.y.toFixed(1)}, ${p2.x.toFixed(1)} ${p2.y.toFixed(1)}, ${p2.x.toFixed(1)} ${p2.y.toFixed(1)}`;
+      return { start: p1, end: p2 };
     }
     const ux = dx / dist;
     const uy = dy / dist;
-    // Trim the curve so it starts/ends at the node border instead of the center.
-    const start = { x: p1.x + ux * sourceRadius, y: p1.y + uy * sourceRadius };
-    const end = { x: p2.x - ux * targetRadius, y: p2.y - uy * targetRadius };
+    const sourceGap = type === 'parent' ? 4 : 8;
+    const targetGap = type === 'parent' ? 9 : 10;
+    return {
+      start: { x: p1.x + ux * (sourceRadius + sourceGap), y: p1.y + uy * (sourceRadius + sourceGap) },
+      end: { x: p2.x - ux * (targetRadius + targetGap), y: p2.y - uy * (targetRadius + targetGap) },
+    };
+  }
+
+  function curve(p1, p2, type = 'parent', sourceRadius = 0, targetRadius = 0, siblingOffset = 0) {
+    const { start, end } = edgeAnchor(p1, p2, sourceRadius, targetRadius, type);
     const newDx = end.x - start.x;
     const newDy = end.y - start.y;
-    // Message edges get a slight sideways curve so bidirectional messages don't overlap.
-    const sideOffset = type === 'message' ? Math.sign(newDx || 1) * Math.min(40, Math.abs(newDx) * 0.15 + 20) : 0;
-    const c1 = { x: start.x + sideOffset, y: start.y + newDy * 0.5 };
-    const c2 = { x: end.x + sideOffset, y: end.y - newDy * 0.5 };
+    if (Math.hypot(newDx, newDy) < 1) {
+      return `M ${start.x.toFixed(1)} ${start.y.toFixed(1)} L ${end.x.toFixed(1)} ${end.y.toFixed(1)}`;
+    }
+    const isCommunication = type === 'communication' || type === 'message';
+    const sideOffset = isCommunication
+      ? siblingOffset + Math.sign(newDx || 1) * Math.min(34, Math.abs(newDx) * 0.12 + 14)
+      : siblingOffset;
+    const c1 = { x: start.x + sideOffset, y: start.y + newDy * 0.52 };
+    const c2 = { x: end.x + sideOffset, y: end.y - newDy * 0.52 };
     return `M ${start.x.toFixed(1)} ${start.y.toFixed(1)} C ${c1.x.toFixed(1)} ${c1.y.toFixed(1)}, ${c2.x.toFixed(1)} ${c2.y.toFixed(1)}, ${end.x.toFixed(1)} ${end.y.toFixed(1)}`;
   }
 
@@ -613,7 +690,14 @@ function renderBehaviorsGraph() {
     nodeRadii[node.id] = size / 2;
   });
 
-  edges.forEach((e, i) => {
+  const edgeSeen = {};
+
+  const orderedEdges = [
+    ...edges.filter(e => e.type !== 'parent'),
+    ...edges.filter(e => e.type === 'parent'),
+  ];
+
+  orderedEdges.forEach((e, i) => {
     const s = positions[e.source];
     const t = positions[e.target];
     if (!s || !t) return;
@@ -622,15 +706,19 @@ function renderBehaviorsGraph() {
     const sourceRadius = nodeRadii[e.source] || nodeDiameter / 2;
     const targetRadius = nodeRadii[e.target] || nodeDiameter / 2;
     const isActive = sourceNode && targetNode && (sourceNode.status === 'running' || targetNode.status === 'running');
-    const stroke = isActive ? activeStroke : defaultStroke;
-    const marker = isActive ? 'url(#arrow-head-active)' : 'url(#arrow-head)';
+    const isCommunication = e.type === 'communication' || e.type === 'message';
+    const stroke = isCommunication ? communicationStroke : (isActive ? activeStroke : hierarchyStroke);
+    const marker = isCommunication ? '' : (isActive ? 'url(#arrow-head-active)' : 'url(#arrow-head)');
     const pathId = `graph-edge-${i}`;
-    const width = e.type === 'parent' ? (isActive ? 2.5 : 1.5) : 1.5;
-    const isMessage = e.type === 'message';
-    const dash = isMessage ? '2,5' : 'none';
-    const dashAnimate = isMessage ? '<animate attributeName="stroke-dashoffset" from="0" to="-14" dur="1s" repeatCount="indefinite" />' : '';
-    svgHtml += `<path id="${pathId}" d="${curve(s, t, e.type, sourceRadius, targetRadius)}" fill="none" stroke="${stroke}" stroke-width="${width}" stroke-dasharray="${dash}" stroke-linecap="round" marker-end="${marker}">${dashAnimate}</path>`;
-    if (isActive) {
+    const width = isCommunication ? Math.min(1.4, 0.85 + Math.min(3, e.count || 1) * 0.12) : (isActive ? 2.35 : 1.45);
+    const dash = isCommunication ? '3,9' : 'none';
+    const groupKey = [e.source, e.target, e.type].join('→');
+    const groupIndex = edgeSeen[groupKey] || 0;
+    edgeSeen[groupKey] = groupIndex + 1;
+    const siblingOffset = groupIndex ? (groupIndex % 2 === 0 ? -1 : 1) * (10 + groupIndex * 4) : 0;
+    const opacity = isCommunication ? (selectedAgentId && selectedAgentId !== e.source && selectedAgentId !== e.target ? 0.22 : 0.62) : 1;
+    svgHtml += `<path id="${pathId}" d="${curve(s, t, e.type, sourceRadius, targetRadius, siblingOffset)}" fill="none" stroke="${stroke}" stroke-width="${width}" stroke-dasharray="${dash}" stroke-linecap="round" stroke-opacity="${opacity}" marker-end="${marker}"></path>`;
+    if (isActive && !isCommunication) {
       svgHtml += `<circle r="2.5" fill="${activeStroke}"><animateMotion dur="1.2s" repeatCount="indefinite"><mpath href="#${pathId}"/></animateMotion></circle>`;
     }
   });
@@ -656,7 +744,7 @@ function renderBehaviorsGraph() {
     const floatDelay = (node.id.split('').reduce((a, c) => a + c.charCodeAt(0), 0) % 10) * 0.4;
     el.style.animationDelay = `-${floatDelay}s`;
     el.innerHTML = `
-      <div class="graph-node-bubble ${statusClass}" style="width:${size}px;height:${size}px;font-size:${Math.max(9, size / 4)}px;" title="${escapeHtml(stripEmojis(node.name))} (${node.status})" role="button" tabindex="0" aria-label="Agente ${escapeHtml(stripEmojis(node.name))}">
+      <div class="graph-node-bubble ${statusClass}" style="width:${size}px;height:${size}px;font-size:${Math.max(9, size / 4)}px;" title="${escapeHtml(stripEmojis(node.name))} (${node.status})" role="button" tabindex="0" aria-label="Agent ${escapeHtml(stripEmojis(node.name))}">
         ${initials}
       </div>
       <span class="graph-node-label" title="${escapeHtml(stripEmojis(node.name))}">${escapeHtml(stripEmojis(node.name))}</span>
@@ -688,7 +776,7 @@ async function pollGraph() {
     graphData = await res.json();
     renderBehaviorsGraph();
   } catch (err) {
-    console.warn('Error cargando graph:', err);
+    console.warn('Error loading graph:', err);
   }
 }
 
@@ -791,7 +879,8 @@ function renderTicketsList() {
       : '';
 
     const row = document.createElement('div');
-    row.className = 'ticket-row ticket-row-' + runStatus;
+    const isSelected = selectedTicketId === ticket.id || (!selectedTicketId && runState.ticketId === ticket.id);
+    row.className = 'ticket-row ticket-row-' + runStatus + (isSelected ? ' selected' : '');
     row.innerHTML = `
       <span class="ticket-row-run-status" title="${runStatus}"><i data-lucide="${runIcon}"></i></span>
       <span class="ticket-row-id">${escapeHtml(ticket.id)}</span>
@@ -806,6 +895,7 @@ function renderTicketsList() {
     `;
     row.querySelector('[title="Edit"]').addEventListener('click', (e) => {
       e.stopPropagation();
+      setSelectedTicket(ticket.id);
       openTicketModal(ticket);
     });
     row.querySelector('[title="Delete"]').addEventListener('click', (e) => {
@@ -813,11 +903,18 @@ function renderTicketsList() {
       deleteTicketById(ticket.id);
     });
     const playBtn = row.querySelector('.ticket-action-play');
-    if (playBtn) playBtn.addEventListener('click', (e) => { e.stopPropagation(); playTicket(ticket.id); });
+    if (playBtn) playBtn.addEventListener('click', (e) => { e.stopPropagation(); setSelectedTicket(ticket.id); playTicket(ticket.id); });
     const pauseBtn = row.querySelector('.ticket-action-pause');
     if (pauseBtn) pauseBtn.addEventListener('click', (e) => { e.stopPropagation(); pauseTicket(ticket.id); });
     const restartBtn = row.querySelector('.ticket-action-restart');
-    if (restartBtn) restartBtn.addEventListener('click', (e) => { e.stopPropagation(); restartTicket(ticket.id); });
+    if (restartBtn) restartBtn.addEventListener('click', (e) => { e.stopPropagation(); setSelectedTicket(ticket.id); restartTicket(ticket.id); });
+    row.addEventListener('click', () => {
+      setSelectedTicket(ticket.id);
+      renderTicketsList();
+      renderHeader();
+      renderRunBar();
+      renderTicketStatus();
+    });
     ticketsList.appendChild(row);
   });
   if (window.lucide) lucide.createIcons();
@@ -825,7 +922,10 @@ function renderTicketsList() {
 
 function getTicketRunStatus(ticketId) {
   if (runState.ticketId === ticketId) {
-    return runState.active ? 'running' : 'paused';
+    if (runState.active) return 'running';
+    if (runState.status === 'completed') return 'done';
+    if (runState.status === 'failed') return 'failed';
+    if (runState.status === 'paused') return 'paused';
   }
   if ((runState.pausedTickets || []).includes(ticketId)) return 'paused';
   if ((runState.queue || []).includes(ticketId)) return 'queued';
@@ -898,6 +998,12 @@ function closeTicketsModal() {
 
 function openTicketModal(ticket = null) {
   const isEdit = !!ticket;
+  if (ticket && ticket.id) {
+    setSelectedTicket(ticket.id);
+    renderHeader();
+    renderRunBar();
+    renderTicketStatus();
+  }
   if (modalTitle) modalTitle.textContent = isEdit ? 'Edit ticket' : 'New ticket';
   document.getElementById('ticket-id').value = ticket ? ticket.id : '';
   document.getElementById('ticket-title').value = ticket ? ticket.title : '';
@@ -987,7 +1093,8 @@ function hideRepoMessage() {
 function renderTicketStatus() {
   if (!ticketStatusBody) return;
 
-  const activeTicket = runState.ticketId ? { id: runState.ticketId, status: runState.status } : null;
+  const activeTicket = getDisplayTicket();
+  const displayStatus = getDisplayStatus(activeTicket);
   const agents = runState.agents || [];
 
   if (!activeTicket && agents.length === 0) {
@@ -1017,11 +1124,11 @@ function renderTicketStatus() {
     <div class="status-card">
       <div class="status-card-row">
         <span>Ticket</span>
-        <span class="value">${escapeHtml(runState.ticketId || '—')}</span>
+        <span class="value">${escapeHtml(activeTicket ? activeTicket.id : '—')}</span>
       </div>
       <div class="status-card-row">
         <span>Status</span>
-        <span class="status-badge status-${runState.status || 'idle'}">${runState.status || 'idle'}</span>
+        <span class="status-badge status-${displayStatus}">${STATUS_LABELS[displayStatus] || displayStatus}</span>
       </div>
       <div class="status-card-row">
         <span>Progress</span>
@@ -1507,6 +1614,7 @@ async function readFileContent(path) {
 
 function renderRunState(state) {
   runState = state || runState;
+  if (runState.ticketId) setSelectedTicket(runState.ticketId);
   renderHeader();
   renderRunBar();
   renderTicketStatus();
@@ -1625,6 +1733,8 @@ socket.on('board_update', (data) => {
   boardData = data;
   renderTicketsList();
   renderHeader();
+  renderRunBar();
+  renderTicketStatus();
 });
 
 socket.on('run_state_update', (state) => {
@@ -1665,12 +1775,12 @@ loadPendingQuestions();
 fetch('/api/system-info')
   .then(r => r.json())
   .then(info => { systemInfo = info; renderHeader(); })
-  .catch(err => console.error('Error cargando system-info:', err));
+  .catch(err => console.error('Error loading system-info:', err));
 
 fetch('/api/board')
   .then(r => r.json())
-  .then(data => { boardData = data; renderTicketsList(); renderHeader(); })
-  .catch(err => console.error('Error cargando board:', err));
+  .then(data => { boardData = data; renderTicketsList(); renderHeader(); renderRunBar(); renderTicketStatus(); })
+  .catch(err => console.error('Error loading board:', err));
 
 pollRunState();
 pollTraces();

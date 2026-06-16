@@ -6,6 +6,7 @@ All state is persisted inside run-state["communication"].
 
 import uuid
 from datetime import datetime, timezone
+from typing import Optional
 
 MAX_LOG_SIZE = 500
 
@@ -64,7 +65,7 @@ def unregister_participant(state, participant_id: str) -> dict:
     return event
 
 
-def publish_event(state, participant_id: str, event_type: str, payload: dict | None = None) -> dict:
+def publish_event(state, participant_id: str, event_type: str, payload: Optional[dict] = None) -> dict:
     """Publish an environment event."""
     event = {
         "type": "event",
@@ -77,7 +78,7 @@ def publish_event(state, participant_id: str, event_type: str, payload: dict | N
     return event
 
 
-def send_message(state, from_id: str, to_id: str, message_type: str, payload: dict) -> dict:
+def send_message(state, from_id: str, to_id: str, message_type: str, payload: dict, add_pending: bool = True) -> dict:
     """Send a typed direct message between participants."""
     comm = _get_communication(state)
     msg_id = f"msg-{uuid.uuid4().hex[:8]}"
@@ -92,11 +93,12 @@ def send_message(state, from_id: str, to_id: str, message_type: str, payload: di
         "handled": False,
     }
     _append_log_entry(state, message)
-    comm["pendingActions"].append({
-        "messageId": msg_id,
-        "handlerId": to_id,
-        "action": _action_for_message_type(message_type),
-    })
+    if add_pending:
+        comm["pendingActions"].append({
+            "messageId": msg_id,
+            "handlerId": to_id,
+            "action": _action_for_message_type(message_type),
+        })
     return message
 
 
@@ -119,7 +121,7 @@ def _append_log_entry(state, entry: dict) -> None:
         comm["log"] = comm["log"][-max_size:]
 
 
-def mark_handled(state, message_id: str, result: dict | None = None) -> bool:
+def mark_handled(state, message_id: str, result: Optional[dict] = None) -> bool:
     """Mark a message as handled and record optional result."""
     comm = _get_communication(state)
     found = False
@@ -173,7 +175,7 @@ def get_log(state, limit=50, offset=0, type_filter=None, participant_id=None, me
     return log[start:end]
 
 
-def get_messages_for(state, participant_id: str, message_type: str | None = None, handled: bool | None = False) -> list:
+def get_messages_for(state, participant_id: str, message_type: Optional[str] = None, handled: Optional[bool] = False) -> list:
     """Return messages directed to participant_id, optionally filtered by type and handled state."""
     comm = _get_communication(state)
     messages = [e for e in comm.get("log", []) if e.get("type") == "message" and e.get("to") == participant_id]

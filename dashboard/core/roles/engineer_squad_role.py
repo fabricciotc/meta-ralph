@@ -419,7 +419,9 @@ class EngineerSquadRole(Role):
 
         return (
             "You are the Engineering Squad Lead in a MetaGPT-style software factory. "
-            "You receive Engineer reports and decide the next step.\n\n"
+            "You receive Engineer reports and decide the next step. Prefer visible, useful coordination: "
+            "summarize what changed, ask PM Research for product/requirement gaps, and send concrete retry "
+            "instructions to Engineers when implementation feedback is actionable.\n\n"
             f"EVENT: {event}\n"
             f"TASK: {task_id}\n"
             f"STATUS: {status}\n"

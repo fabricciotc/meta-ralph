@@ -139,6 +139,18 @@ class PMLeadRole(Role):
             clarifications = response.metadata.get("clarifications", {})
             self.pending_clarifications = dict(clarifications)
             self._store_pending_clarifications(clarifications)
+            env.publish_message(
+                Message(
+                    content=(
+                        "PM Lead found gaps and is asking research agents for follow-up: "
+                        + ", ".join(f"{sub_id}: {question}" for sub_id, question in clarifications.items())
+                    ),
+                    sent_from=self.role_id,
+                    cause_by="pm_chat",
+                    send_to={"all"},
+                    metadata={"clarifications": clarifications},
+                )
+            )
             for sub_id, question in clarifications.items():
                 env.publish_message(
                     Message(
@@ -154,6 +166,21 @@ class PMLeadRole(Role):
             self.prd_ready = True
             self.prd_path = Path(response.metadata.get("path", self.prd_path)) if response.metadata.get("path") else self.prd_path
             self._store_prd_ready(response)
+            env.publish_message(
+                Message(
+                    content=(
+                        "PM Lead consolidated research into the PRD and is handing it off "
+                        "to Architecture and Planning."
+                    ),
+                    sent_from=self.role_id,
+                    cause_by="pm_chat",
+                    send_to={"all"},
+                    metadata={
+                        "path": response.metadata.get("path", ""),
+                        "preview": response.metadata.get("preview", ""),
+                    },
+                )
+            )
 
         env.publish_message(response)
         return response

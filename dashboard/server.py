@@ -832,7 +832,7 @@ class AgentRunner(threading.Thread):
         append_log(f"[{self.ticket_id}] {msg}", level)
 
     def _runtime_heartbeat(self):
-        """Actualiza cada segundo el tiempo transcurrido y resumen en el ticket."""
+        """Update elapsed runtime and ticket summary every second."""
         while not self._stop_heartbeat.is_set():
             self._stop_heartbeat.wait(1)
             if self._stop_heartbeat.is_set():
@@ -848,7 +848,7 @@ class AgentRunner(threading.Thread):
                 summary = compute_run_summary(state.get("status"), state.get("currentAgent"))
                 update_ticket_runtime(self.ticket_id, elapsedSeconds=elapsed, summary=summary)
             except Exception:
-                # No interrumpir el run por errores del heartbeat
+                # Do not interrupt the run because of heartbeat errors.
                 pass
 
     def _start_runtime_heartbeat(self):
@@ -893,6 +893,88 @@ class AgentRunner(threading.Thread):
             save_run_state(state)
             emit_communication_update(state)
             return agent
+
+    def _publish_internal_message(self, msg):
+        """Mirror core Environment messages into the visible communication bus."""
+        if not msg or getattr(msg, "sent_from", None) == "system":
+            return
+        recipients = sorted(getattr(msg, "send_to", set()) or {"all"})
+        if not recipients:
+            recipients = ["all"]
+        payload = {
+            "text": self._summarize_internal_message(msg),
+            "causeBy": getattr(msg, "cause_by", "message"),
+            "metadata": self._safe_message_metadata(getattr(msg, "metadata", {}) or {}),
+        }
+        message_type = self._message_type_for_bus(getattr(msg, "cause_by", "message"))
+        with run_lock:
+            state = load_run_state()
+            for recipient in recipients:
+                bus.send_message(
+                    state,
+                    getattr(msg, "sent_from", "unknown"),
+                    recipient,
+                    message_type,
+                    payload,
+                    add_pending=False,
+                )
+            save_run_state(state)
+            emit_communication_update(state)
+
+    def _message_type_for_bus(self, cause_by):
+        return {
+            "research": "research_finding",
+            "request_clarification": "request_clarification",
+            "clarifications_requested": "request_clarification",
+            "prd_ready": "notify_completion",
+            "task_assigned": "task_assignment",
+            "squad_instruction": "squad_instruction",
+            "task_completed": "notify_completion",
+            "task_failed": "task_failed",
+            "task_report": "task_report",
+            "squad_chat": "chat",
+            "pm_chat": "chat",
+            "request_info_from_pm": "request_clarification",
+            "request_info_from_pm_response": "notify_completion",
+            "escalate_to_user": "request_clarification",
+            "batch_completed": "notify_completion",
+            "request_review": "request_review",
+            "review_approved": "notify_completion",
+            "reject_with_feedback": "reject_with_feedback",
+            "qa_batch_reviewed": "notify_completion",
+        }.get(cause_by, cause_by or "message")
+
+    def _summarize_internal_message(self, msg):
+        content = (getattr(msg, "content", "") or "").strip()
+        metadata = getattr(msg, "metadata", {}) or {}
+        cause_by = getattr(msg, "cause_by", "")
+        if cause_by == "research":
+            label = metadata.get("sub_id") or getattr(msg, "sent_from", "PM research")
+            return f"{label} shared research findings: {content[:700]}"
+        if cause_by == "task_report":
+            return (
+                f"{metadata.get('engineer_id', msg.sent_from)} reported task "
+                f"{metadata.get('task_id', 'unknown')} as {metadata.get('status', 'unknown')}: "
+                f"{metadata.get('summary', content)[:500]}"
+            )
+        if cause_by in {"review_approved", "reject_with_feedback"}:
+            verdict = "approved" if metadata.get("approved") else "rejected"
+            return f"QA {verdict} task {metadata.get('task_id', 'unknown')}: {metadata.get('reason', content)[:500]}"
+        if cause_by == "prd_ready":
+            return f"PM Lead consolidated the PRD: {metadata.get('preview', content)[:500]}"
+        return content[:800] if content else cause_by.replace("_", " ").title()
+
+    def _safe_message_metadata(self, metadata):
+        safe = {}
+        for key, value in metadata.items():
+            if callable(value):
+                continue
+            try:
+                json.dumps(value, default=str)
+                safe[key] = value
+            except Exception:
+                safe[key] = str(value)
+        return safe
 
     def _add_agent_message(self, sender_id, recipient_id, question):
         """Register a question from one agent to another and expose it in run-state."""
@@ -968,7 +1050,7 @@ Respond concisely and technically. If you truly do not have enough information, 
         answer = (output or "").strip() or "INSUFFICIENT_CONTEXT"
 
         # Escalation 1: if the agent lacks context, consult the orchestrator.
-        if "INSUFFICIENT_CONTEXT" in answer or "NO_TENGO_CONTEXTO_SUFICIENTE" in answer:
+        if "INSUFFICIENT_CONTEXT" in answer:
             self.log(f"{recipient_id} lacked context; escalating to orchestrator...", "warning")
             answer = self._consult_orchestrator(question, context_text)
 
@@ -1056,7 +1138,7 @@ If you truly do not have enough information, respond EXACTLY with: INSUFFICIENT_
             agent_id="orchestrator",
         )
         answer = (output or "").strip()
-        if answer and "INSUFFICIENT_CONTEXT" not in answer and "NO_TENGO_CONTEXTO_SUFICIENTE" not in answer:
+        if answer and "INSUFFICIENT_CONTEXT" not in answer:
             return answer
 
         # Escalation 2: generate an automatic AI answer as a last resort.
@@ -1269,7 +1351,7 @@ Respond concisely and practically. Assume reasonable decisions for a .NET MVP wi
         update_ticket_runtime(self.ticket_id, **runtime_updates)
 
     def _orchestrator_callbacks(self):
-        """Callbacks que el Orchestrator real usa para integrarse con el dashboard."""
+        """Callbacks used by the real Orchestrator to integrate with the dashboard."""
         return {
             "run_ai": self._run_ai_prompt,
             "log": self.log,
@@ -1280,6 +1362,7 @@ Respond concisely and practically. Assume reasonable decisions for a .NET MVP wi
             "request_clarification": self._wait_for_user_clarification,
             "collect_outputs": self._collect_agent_outputs,
             "get_dependency_context": self._get_dependency_context,
+            "publish_message": self._publish_internal_message,
             "on_started": self._on_orchestrator_started,
             "on_complete": self._on_orchestrator_complete,
         }
@@ -1334,11 +1417,11 @@ Respond concisely and practically. Assume reasonable decisions for a .NET MVP wi
         if success:
             update_ticket_status(self.ticket_id, "done")
             self._update_agent("orchestrator", status="done", progress=100, log="Loop completed. Ticket marked as Done.", log_level="success")
-            update_run_state({"active": False, "ticketId": None, "status": "completed", "progress": 100, "currentAgent": None})
+            update_run_state({"active": False, "ticketId": self.ticket_id, "status": "completed", "progress": 100, "currentAgent": None})
             self.log("Loop completed. Ticket marked as Done.", "success")
         else:
             self._update_agent("orchestrator", status="failed", log="The loop failed. Check the logs.", log_level="error")
-            update_run_state({"active": False, "ticketId": None, "status": "failed", "progress": 0, "currentAgent": None})
+            update_run_state({"active": False, "ticketId": self.ticket_id, "status": "failed", "progress": 0, "currentAgent": None})
         # Mark the run inactive if this runner is still the active one.
         time.sleep(1)
         with run_lock:
@@ -1355,7 +1438,7 @@ Respond concisely and practically. Assume reasonable decisions for a .NET MVP wi
         except Exception as exc:
             self.log(f"Loop error: {exc}", "error")
             self._update_agent("orchestrator", status="failed", log=f"Loop error: {exc}", log_level="error")
-            update_run_state({"active": False, "ticketId": None, "status": "failed", "progress": 0, "currentAgent": None})
+            update_run_state({"active": False, "ticketId": self.ticket_id, "status": "failed", "progress": 0, "currentAgent": None})
             self._stop_runtime_heartbeat()
             paused_run_threads.pop(self.ticket_id, None)
             delete_ticket_snapshot(self.ticket_id)
@@ -1387,7 +1470,7 @@ Respond concisely and practically. Assume reasonable decisions for a .NET MVP wi
 
         update_ticket_status(self.ticket_id, "done")
         self._update_agent("orchestrator", status="done", progress=100, log="Loop completed. Ticket marked as Done.", log_level="success")
-        update_run_state({"active": False, "ticketId": None, "status": "completed", "progress": 100, "currentAgent": None})
+        update_run_state({"active": False, "ticketId": self.ticket_id, "status": "completed", "progress": 100, "currentAgent": None})
         self.log("Loop completed. Ticket marked as Done.", "success")
 
     def _resume_loop(self):
@@ -1396,7 +1479,7 @@ Respond concisely and practically. Assume reasonable decisions for a .NET MVP wi
         review = state.get("designReview") or {}
 
         if not review.get("answered"):
-            self._agent_log("orchestrator", "Reanudando desde Architecture/Design Review.")
+            self._agent_log("orchestrator", "Resuming from Architecture/Design Review.")
             self.set_phase("architect", "in-design", 40)
             self.run_architect()
             if self._should_stop_or_pause():
@@ -1410,7 +1493,7 @@ Respond concisely and practically. Assume reasonable decisions for a .NET MVP wi
             self._run_planner_and_execution()
             return
 
-        self._agent_log("orchestrator", "Reanudando desde Planning/Execution.")
+        self._agent_log("orchestrator", "Resuming from Planning/Execution.")
         self._run_planner_and_execution()
 
     def run_pm_analysis(self):
@@ -2202,7 +2285,7 @@ Expected format example:
 
     def run_execution(self):
         self._ensure_agent("engineer-squad", "Engineer Squad", "lead", "orchestrator", "running", 75)
-        self._update_agent("engineer-squad", progress=80, log="Implementando tareas en el repo en paralelo.")
+        self._update_agent("engineer-squad", progress=80, log="Implementing tasks in the repository in parallel.")
         self.log("Engineers are implementing tasks in the repository in parallel.")
 
         tasks_path = get_meta_dir() / "state" / f"tasks-{self.ticket_id}.json"
@@ -3232,7 +3315,7 @@ def _estimate_tokens(text):
 
 
 def _build_traces(state, limit=60):
-    """Construye una lista de traces combinando logs de agentes, eventos del bus y mensajes."""
+    """Build traces by combining agent logs, bus events, and messages."""
     traces = []
 
     # Logs de agentes
@@ -3334,9 +3417,14 @@ def _build_traces(state, limit=60):
 
 
 def _build_graph(state):
-    """Construye nodos y aristas para el grafo de agentes."""
+    """Build nodes and edges for the agent graph."""
     nodes = []
+    node_ids = set()
     for a in state.get("agents", []) or []:
+        node_id = a.get("id")
+        if not node_id:
+            continue
+        node_ids.add(node_id)
         nodes.append({
             "id": a.get("id"),
             "name": a.get("name"),
@@ -3350,14 +3438,35 @@ def _build_graph(state):
     for a in state.get("agents", []) or []:
         parent = a.get("parentId")
         if parent:
-            key = (parent, a["id"])
+            key = (parent, a["id"], "parent")
             if key not in seen:
                 edges.append({"source": parent, "target": a["id"], "type": "parent"})
                 seen.add(key)
+
+    communication_counts = {}
     for msg in state.get("messages", []) or []:
         key = (msg.get("from"), msg.get("to"))
-        if key[0] and key[1] and key not in seen:
-            edges.append({"source": key[0], "target": key[1], "type": "message"})
+        if key[0] in node_ids and key[1] in node_ids:
+            communication_counts[key] = communication_counts.get(key, 0) + 1
+
+    for entry in state.get("communication", {}).get("log", []) or []:
+        if entry.get("type") != "message":
+            continue
+        source = entry.get("from")
+        target = entry.get("to")
+        if source in node_ids and target in node_ids and source != target:
+            key = (source, target)
+            communication_counts[key] = communication_counts.get(key, 0) + 1
+
+    for (source, target), count in communication_counts.items():
+        key = (source, target, "communication")
+        if key not in seen:
+            edges.append({
+                "source": source,
+                "target": target,
+                "type": "communication",
+                "count": count,
+            })
             seen.add(key)
     return {"nodes": nodes, "edges": edges}
 
@@ -3422,8 +3531,8 @@ def api_answer_question(question_id):
 
 @app.route("/api/questions/<question_id>/skip", methods=["POST"])
 def api_skip_question(question_id):
-    """El usuario elige no responder; el agente decide solo."""
-    answer = "Decide solo (usuario)"
+    """The user chooses not to answer; the agent decides autonomously."""
+    answer = "Decide autonomously (user skipped)"
     q = answer_user_question(question_id, answer)
     if not q:
         return jsonify({"error": "question not found or already answered"}), 404
@@ -3826,7 +3935,7 @@ def main():
 
     if args.board:
         set_board_path(args.board)
-        # Derivar run-state y log del mismo directorio
+        # Derive run-state and log files from the same directory.
         board_path = Path(args.board)
         global RUN_STATE_FILE, LOG_FILE
         RUN_STATE_FILE = board_path.parent / "run-state.json"
@@ -3874,7 +3983,7 @@ def main():
         ticket = next((t for t in board.get("tickets", []) if t.get("id") == state["ticketId"]), None)
         if ticket and ticket.get("status") not in ("backlog", "done"):
             append_log(
-                f"[AUTO-RESUME] Reanudando {ticket['id']} tras reinicio del servidor.",
+                f"[AUTO-RESUME] Resuming {ticket['id']} after server restart.",
                 "warning",
             )
             # Limpiar la bandera para no reanudar en bucle si vuelve a fallar por otro motivo
