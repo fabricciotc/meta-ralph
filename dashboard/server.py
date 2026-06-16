@@ -25,6 +25,7 @@ from pathlib import Path
 
 import communication_bus as bus
 
+from core import pm_analysis
 from core.orchestrator import Orchestrator
 
 # Permitir volcar stack traces de todos los threads con SIGUSR1 para debugging
@@ -1485,7 +1486,6 @@ Responde de forma concisa y práctica. Asume decisiones razonables para un MVP .
         title = self.ticket.get("title", "")
         description = self.ticket.get("description", "")
         prd_path = get_meta_dir() / "state" / f"prd-{self.ticket_id}.md"
-        prd_path.parent.mkdir(parents=True, exist_ok=True)
 
         # Si ya existe un PRD pre-generado, saltar el análisis y usarlo directamente.
         if prd_path.exists() and prd_path.stat().st_size > 100:
@@ -1498,130 +1498,29 @@ Responde de forma concisa y práctica. Asume decisiones razonables para un MVP .
             self.set_phase("pm-lead", "in-design", 35)
             return
 
-        pm_research_dir = get_meta_dir() / "state" / "pm-research"
-        pm_research_dir.mkdir(parents=True, exist_ok=True)
+        self._update_agent("pm-research-agents", status="running", progress=10,
+                           log="Lanzando PM Research Agents con roles MetaGPT...")
 
-        results = {}
-        lock = threading.Lock()
+        def log_callback(message, level="info"):
+            self.log(message, level)
 
-        def run_subagent(sub_id, sub_name, focus, follow_up=None):
-            self._update_agent(sub_id, status="running", progress=10,
-                               log=f"{sub_name} analizando..." + (" (clarificación)" if follow_up else ""))
-            prompt = self._build_pm_subagent_prompt(sub_id, focus, title, description, follow_up=follow_up)
-            output = self._run_kimi_prompt(
+        # Ejecutar Fase 1 con el nuevo motor basado en roles/actions.
+        # Los subagentes corren en paralelo dentro del Environment.
+        generated_prd = pm_analysis.run_pm_analysis(
+            self.ticket,
+            run_kimi=lambda prompt, phase_name, timeout_seconds, agent_id=None: self._run_kimi_prompt(
                 prompt,
-                phase_name=f"PM Analysis {sub_id}",
-                timeout_seconds=600,
-                agent_id=sub_id,
-            )
-            research_path = pm_research_dir / f"{self.ticket_id}-{sub_id}.md"
-            if output:
-                with open(research_path, "w", encoding="utf-8") as f:
-                    f.write(output)
-                self._update_agent(sub_id, status="done", progress=100,
-                                   log=f"{sub_name} finalizó su análisis.")
-                with lock:
-                    results[sub_id] = research_path
-                # Notificar al PM Lead por el bus de comunicación
-                summary = output[:800].replace("\n", " ")
-                with run_lock:
-                    state = load_run_state()
-                    bus.send_message(
-                        state,
-                        sub_id,
-                        "pm-research-agents",
-                        "notify_completion",
-                        {"file": str(research_path), "summary": summary, "followUp": bool(follow_up)},
-                    )
-                    save_run_state(state)
-                    emit_communication_update(state)
-            else:
-                self._update_agent(sub_id, status="done", progress=100,
-                                   log=f"{sub_name} completado sin output.")
-                with lock:
-                    results[sub_id] = None
+                phase_name=phase_name,
+                timeout_seconds=timeout_seconds,
+                agent_id=agent_id,
+            ),
+            max_rounds=10,
+            log_callback=log_callback,
+        )
 
-        def run_all_subagents(follow_ups=None):
-            follow_ups = follow_ups or {}
-            threads = []
-            for sub_id, sub_name, focus in subagents:
-                if sub_id in follow_ups:
-                    self._update_agent(sub_id, status="queued", progress=0)
-                t = threading.Thread(target=run_subagent, args=(sub_id, sub_name, focus, follow_ups.get(sub_id)), daemon=True)
-                threads.append(t)
-                t.start()
-            for t in threads:
-                t.join(timeout=650)
-
-        # Primera ronda de investigación
-        run_all_subagents()
-
-        # Consolidar PRD
-        self._update_agent("pm-research-agents", status="running", progress=50,
-                           log="Consolidando hallazgos de PM Research Agents...")
-        self.set_phase("pm-lead", "in-design", 30)
-
-        research_files = {sid: path for sid, path in results.items() if path}
-        final_prd_content = None
-        if research_files and self.kimi:
-            self.log("Lanzando consolidador de PRD...")
-            prompt = self._build_pm_consolidator_prompt(title, description, research_files, str(prd_path))
-            prompt_chars = len(prompt)
-            self.log(f"Prompt del consolidador: {prompt_chars} caracteres ({len(research_files)} archivos de research).")
-            output = self._run_kimi_prompt(
-                prompt,
-                phase_name="PM Consolidator",
-                timeout_seconds=600,
-                agent_id="pm-research-agents",
-            )
-            if output:
-                # El consolidador puede solicitar clarificaciones antes de generar el PRD final.
-                clarifications = self._parse_clarifications(output)
-                if clarifications:
-                    self.log(f"PM Lead solicita clarificaciones: {list(clarifications.keys())}")
-                    self._update_agent("pm-research-agents", status="running", progress=55,
-                                       log="Solicitando clarificaciones a subagentes...")
-                    # Enviar mensajes de clarificación a los subagentes
-                    with run_lock:
-                        state = load_run_state()
-                        for sub_id, question in clarifications.items():
-                            bus.send_message(
-                                state,
-                                "pm-research-agents",
-                                sub_id,
-                                "request_clarification",
-                                {"question": question, "round": 2},
-                            )
-                        save_run_state(state)
-                        emit_communication_update(state)
-                    # Reejecutar solo los subagentes que deben clarificar
-                    run_all_subagents(follow_ups=clarifications)
-                    research_files = {sid: path for sid, path in results.items() if path}
-                    self.log("Relanzando consolidador con clarificaciones...")
-                    prompt = self._build_pm_consolidator_prompt(title, description, research_files, str(prd_path))
-                    output = self._run_kimi_prompt(
-                        prompt,
-                        phase_name="PM Consolidator (final)",
-                        timeout_seconds=600,
-                        agent_id="pm-research-agents",
-                    )
-                if output:
-                    final_prd_content = self._extract_prd_from_output(output, title, description)
-            if final_prd_content:
-                with open(prd_path, "w", encoding="utf-8") as f:
-                    f.write(final_prd_content)
-                self.log(f"Plan detallado guardado en {prd_path}")
-            else:
-                self.log("No se obtuvo output del consolidador; usando fallback local.", "warning")
-                self._write_fallback_prd(prd_path, title, description)
-                final_prd_content = prd_path.read_text(encoding="utf-8")
-        else:
-            self.log("No se obtuvieron outputs de PM Research Agents; usando fallback local.", "warning")
-            self._write_fallback_prd(prd_path, title, description)
-            final_prd_content = prd_path.read_text(encoding="utf-8")
-
-        # Notificar a través del bus que el PRD está listo
-        if final_prd_content:
+        if generated_prd and generated_prd.exists():
+            self.log(f"Plan detallado guardado en {generated_prd}")
+            final_prd_content = generated_prd.read_text(encoding="utf-8")
             with run_lock:
                 state = load_run_state()
                 bus.send_message(
@@ -1629,10 +1528,13 @@ Responde de forma concisa y práctica. Asume decisiones razonables para un MVP .
                     "pm-research-agents",
                     "orchestrator",
                     "notify_completion",
-                    {"artifact": "PRD", "path": str(prd_path), "preview": final_prd_content[:500]},
+                    {"artifact": "PRD", "path": str(generated_prd), "preview": final_prd_content[:500]},
                 )
                 save_run_state(state)
                 emit_communication_update(state)
+        else:
+            self.log("No se generó PRD; usando fallback local.", "warning")
+            self._write_fallback_prd(prd_path, title, description)
 
         for sub_id, sub_name, _ in subagents:
             self._update_agent(sub_id, status="done", progress=100,
