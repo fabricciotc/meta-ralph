@@ -1,16 +1,19 @@
 @echo off
-setlocal EnableExtensions
+setlocal
 
-set "SCRIPT_DIR=%~dp0"
-for %%I in ("%SCRIPT_DIR%.") do set "SCRIPT_DIR=%%~fI"
+set "GIT_BASH=C:\Program Files\Git\bin\bash.exe"
+set "SCRIPT=%~dp0meta-ralph.sh"
+set "SCRIPT=%SCRIPT:\=/%"
 
-where bash >nul 2>nul
-if errorlevel 1 (
-  echo Error: Git Bash is required. Install Git for Windows or run install.ps1.
+if not exist "%GIT_BASH%" (
+  set "GIT_BASH=C:\Program Files (x86)\Git\bin\bash.exe"
+)
+
+if not exist "%GIT_BASH%" (
+  echo Error: Git Bash is required to run meta-ralph on Windows.
+  echo Install Git for Windows or set META_RALPH_GIT_BASH to your bash.exe path.
   exit /b 1
 )
 
-for /f "delims=" %%B in ('where bash ^| findstr /i "\\Git\\bin\\bash.exe"') do set "BASH=%%B"
-if not defined BASH for /f "delims=" %%B in ('where bash') do set "BASH=%%B"
-
-"%BASH%" "%SCRIPT_DIR%meta-ralph.sh" %*
+"%GIT_BASH%" "%SCRIPT%" %*
+exit /b %ERRORLEVEL%
