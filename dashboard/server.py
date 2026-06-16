@@ -25,6 +25,7 @@ from pathlib import Path
 
 import communication_bus as bus
 
+from core import pm_analysis
 from core.orchestrator import Orchestrator
 
 # Permitir volcar stack traces de todos los threads con SIGUSR1 para debugging
@@ -366,6 +367,10 @@ def update_run_state(updates):
 QUESTION_TIMEOUT_SECONDS = 120
 _question_timers = {}
 
+# Waiters for synchronous user clarifications requested by the engineer squad.
+# Maps question_id -> (threading.Event, dict("answer": str))
+_clarification_waiters = {}
+
 
 def _extract_ask_json(raw_text):
     """Extrae y valida el JSON de pregunta entre DECISION_REQUERIDA y FIN_PREGUNTA."""
@@ -467,6 +472,7 @@ def answer_user_question(question_id, answer_text):
     timer = _question_timers.pop(question_id, None)
     if timer:
         timer.cancel()
+    answered = None
     with run_lock:
         state = load_run_state()
         questions = state.setdefault("pendingQuestions", [])
@@ -477,8 +483,17 @@ def answer_user_question(question_id, answer_text):
                 q["answeredAt"] = datetime.now(timezone.utc).isoformat()
                 save_run_state(state)
                 socketio.emit("question_answered", q)
-                return q
-    return None
+                answered = q
+                break
+
+    # Wake up any synchronous waiter (e.g. engineer squad clarification).
+    waiter = _clarification_waiters.pop(question_id, None)
+    if waiter:
+        event, container = waiter
+        container["answer"] = answer_text
+        event.set()
+
+    return answered
 
 
 def has_pending_question(ticket_id=None, phase_name=None, agent_id=None):
@@ -770,18 +785,35 @@ class AgentRunner(threading.Thread):
         self._stop_event = threading.Event()
         self._pause_event = threading.Event()
         self._resume_event = threading.Event()
+        from core.runners.registry import BackendRegistry
+        from core.skills_registry import SkillsRegistry
+        self.backend_registry = BackendRegistry.default()
+        self.skills_registry = SkillsRegistry()
+        available = [b.name for b in self.backend_registry.available_backends()]
+        self.log(f"Backends disponibles: {available}", "info")
+        self.orchestrator = Orchestrator(
+            ticket,
+            resume=resume,
+            callbacks=self._orchestrator_callbacks(),
+            backend_registry=self.backend_registry,
+            skills_registry=self.skills_registry,
+        )
 
     def stop(self):
         """Solicita la detención ordenada del runner."""
         self._stop_event.set()
         self._pause_event.clear()
         self._resume_event.set()
+        if hasattr(self, "orchestrator") and self.orchestrator:
+            self.orchestrator.stop()
         self._stop_runtime_heartbeat()
 
     def pause(self):
         """Pausa el runner en el próximo checkpoint."""
         self._resume_event.clear()
         self._pause_event.set()
+        if hasattr(self, "orchestrator") and self.orchestrator:
+            self.orchestrator.pause()
         update_run_state({"active": False, "status": "paused"})
         self.log(f"Ticket {self.ticket_id} pausado.", "warning")
 
@@ -789,6 +821,8 @@ class AgentRunner(threading.Thread):
         """Reanuda un runner pausado."""
         self._pause_event.clear()
         self._resume_event.set()
+        if hasattr(self, "orchestrator") and self.orchestrator:
+            self.orchestrator.resume()
 
     def _should_stop(self):
         """Retorna True si se solicitó detener el runner."""
@@ -1255,135 +1289,96 @@ Responde de forma concisa y práctica. Asume decisiones razonables para un MVP .
                 runtime_updates["totalSeconds"] = elapsed
         update_ticket_runtime(self.ticket_id, **runtime_updates)
 
-    def run(self):
-        try:
-            if self.resume:
-                self.log(f"Reanudando run para {self.ticket_id} desde estado existente.")
-                update_run_state({
-                    "active": True,
-                    "status": "in-progress",
-                    "currentAgent": "orchestrator",
-                    "summary": "Reanudando run tras interrupción...",
-                })
-                self._ensure_agent("orchestrator", "Orchestrator Principal", "orchestrator", None, "running", 75)
-                self._start_runtime_heartbeat()
-                self._resume_loop()
-                return
+    def _orchestrator_callbacks(self):
+        """Callbacks que el Orchestrator real usa para integrarse con el dashboard."""
+        return {
+            "run_kimi": self._run_kimi_prompt,
+            "log": self.log,
+            "set_phase": self.set_phase,
+            "ensure_agent": self._ensure_agent,
+            "update_agent": self._update_agent,
+            "request_design_review": self._wait_for_design_answers,
+            "request_clarification": self._wait_for_user_clarification,
+            "collect_outputs": self._collect_agent_outputs,
+            "get_dependency_context": self._get_dependency_context,
+            "on_started": self._on_orchestrator_started,
+            "on_complete": self._on_orchestrator_complete,
+        }
 
-            # Inicializar run-state con orquestador
-            with run_lock:
-                state = load_run_state()
-                state.update({
-                    "active": True,
+    def _on_orchestrator_started(self, ticket):
+        with run_lock:
+            state = load_run_state()
+            state.update({
+                "active": True,
+                "ticketId": self.ticket_id,
+                "status": "in-design",
+                "currentAgent": "orchestrator",
+                "progress": 5,
+                "startedAt": datetime.now(timezone.utc).isoformat(),
+                "logs": [],
+                "agents": [],
+                "messages": [],
+                "communication": {
                     "ticketId": self.ticket_id,
-                    "status": "in-design",
-                    "currentAgent": "orchestrator",
-                    "progress": 5,
-                    "startedAt": datetime.now(timezone.utc).isoformat(),
-                    "logs": [],
-                    "agents": [],
-                    "messages": [],
-                    "communication": {
-                        "ticketId": self.ticket_id,
-                        "participants": {},
-                        "log": [],
-                        "pendingActions": [],
-                        "maxLogSize": 500,
-                    },
-                    "designReview": None,
-                })
-                _ensure_agent(state, "orchestrator", "Orchestrator Principal", "orchestrator", None, "running", 5)
-                bus.register_participant(state, {
-                    "id": "orchestrator",
-                    "name": "Orchestrator Principal",
-                    "role": "orchestrator",
-                    "description": "Coordina las 5 fases del software factory loop",
-                    "capabilities": ["orchestration", "coordination"],
-                    "tools": ["dispatch", "monitor"],
-                })
-                _agent_log(state, "orchestrator", "Ticket movido a Ready for work. Iniciando software factory loop...")
-                save_run_state(state)
-                emit_communication_update(state)
-            self.log("Ticket movido a Ready for work. Iniciando software factory loop...")
-            self._start_runtime_heartbeat()
+                    "participants": {},
+                    "log": [],
+                    "pendingActions": [],
+                    "maxLogSize": 500,
+                },
+                "designReview": None,
+            })
+            _ensure_agent(state, "orchestrator", "Orchestrator Principal", "orchestrator", None, "running", 5)
+            bus.register_participant(state, {
+                "id": "orchestrator",
+                "name": "Orchestrator Principal",
+                "role": "orchestrator",
+                "description": "Coordina las 5 fases del software factory loop",
+                "capabilities": ["orchestration", "coordination"],
+                "tools": ["dispatch", "monitor"],
+            })
+            _agent_log(state, "orchestrator", "Ticket movido a Ready for work. Iniciando software factory loop...")
+            save_run_state(state)
+            emit_communication_update(state)
 
-            # Mover ticket a in-design e inicializar métricas de ejecución
-            now = datetime.now(timezone.utc)
-            update_ticket_status(self.ticket_id, "in-design")
-            update_ticket_runtime(
-                self.ticket_id,
-                startedAt=now.isoformat(),
-                elapsedSeconds=0,
-                summary="Iniciando software factory loop...",
-            )
-            self._agent_log("orchestrator", "Fase 1/5: PM Analysis — generando plan detallado con subagentes.")
-            self.set_phase("pm-research-agents", "in-design", 10)
+        now = datetime.now(timezone.utc)
+        update_ticket_status(self.ticket_id, "in-design")
+        update_ticket_runtime(
+            self.ticket_id,
+            startedAt=now.isoformat(),
+            elapsedSeconds=0,
+            summary="Iniciando software factory loop...",
+        )
+        self._start_runtime_heartbeat()
 
-            self._check_pause()
-            self.run_pm_analysis()
-            if self._should_stop_or_pause():
-                self.log("Run detenido por solicitud del usuario tras PM Analysis.", "warning")
-                return
-
-            self._agent_log("orchestrator", "Fase 2/5: Architecture — definiendo patrones técnicos globales.")
-            self.set_phase("architect", "in-design", 40)
-            self.run_architect()
-            if self._should_stop_or_pause():
-                self.log("Run detenido por solicitud del usuario tras Architecture.", "warning")
-                return
-
-            # Revisión de diseño con el usuario antes de planificar/implementar.
-            prd_path = get_meta_dir() / "state" / f"prd-{self.ticket_id}.md"
-            questions = self._generate_design_questions(prd_path)
-            self._agent_log("orchestrator", "Fase 2.5/5: Design Review — esperando confirmación de decisiones técnicas.")
-            answers = self._wait_for_design_answers(questions, timeout_seconds=60)
-            if self._should_stop_or_pause():
-                self.log("Run detenido por solicitud del usuario tras Design Review.", "warning")
-                return
-            self.log(f"Respuestas de design review: {answers}")
-
-            self._agent_log("orchestrator", "Fase 3/5: Planning & Dispatch — armando batches y DAG de dependencias.")
-            self.set_phase("project-manager", "in-design", 60)
-            self.run_planner()
-            if self._should_stop_or_pause():
-                self.log("Run detenido por solicitud del usuario tras Planning.", "warning")
-                return
-
-            self._agent_log("orchestrator", "Fase 4/5: Parallel Execution — implementando tareas en worktrees aislados.")
-            update_ticket_status(self.ticket_id, "in-progress")
-            self.set_phase("engineer-squad", "in-progress", 75)
-            self.run_execution()
-            if self._should_stop_or_pause():
-                self.log("Run detenido por solicitud del usuario tras Execution.", "warning")
-                return
-
-            self._agent_log("orchestrator", "Fase 5/5: QA Review — revisando integración del batch.")
-            self.set_phase("qa-engineer", "in-review", 90)
-            self.run_qa()
-            if self._should_stop_or_pause():
-                self.log("Run detenido por solicitud del usuario tras QA Review.", "warning")
-                return
-
+    def _on_orchestrator_complete(self, success):
+        self._stop_runtime_heartbeat()
+        if success:
             update_ticket_status(self.ticket_id, "done")
             self._update_agent("orchestrator", status="done", progress=100, log="Loop completado. Ticket marcado como Done.", log_level="success")
             update_run_state({"active": False, "ticketId": None, "status": "completed", "progress": 100, "currentAgent": None})
             self.log("Loop completado. Ticket marcado como Done.", "success")
+        else:
+            self._update_agent("orchestrator", status="failed", log="El loop falló. Revisa los logs.", log_level="error")
+            update_run_state({"active": False, "ticketId": None, "status": "failed", "progress": 0, "currentAgent": None})
+        # Marcar run como inactivo si este runner sigue siendo el activo
+        time.sleep(1)
+        with run_lock:
+            state = load_run_state()
+            if state.get("ticketId") == self.ticket_id:
+                state["active"] = False
+                save_run_state(state)
+        paused_run_threads.pop(self.ticket_id, None)
+        delete_ticket_snapshot(self.ticket_id)
 
+    def run(self):
+        try:
+            self.orchestrator.run()
         except Exception as exc:
             self.log(f"Error en el loop: {exc}", "error")
             self._update_agent("orchestrator", status="failed", log=f"Error en el loop: {exc}", log_level="error")
             update_run_state({"active": False, "ticketId": None, "status": "failed", "progress": 0, "currentAgent": None})
-        finally:
             self._stop_runtime_heartbeat()
-            # Marcar run como inactivo si este runner sigue siendo el activo
-            time.sleep(1)
-            with run_lock:
-                state = load_run_state()
-                if state.get("ticketId") == self.ticket_id and self._should_stop():
-                    state["active"] = False
-                    save_run_state(state)
             paused_run_threads.pop(self.ticket_id, None)
-            # Limpiar snapshot al terminar el run (done, failed o stop)
             delete_ticket_snapshot(self.ticket_id)
 
     def _run_planner_and_execution(self):
@@ -1485,7 +1480,6 @@ Responde de forma concisa y práctica. Asume decisiones razonables para un MVP .
         title = self.ticket.get("title", "")
         description = self.ticket.get("description", "")
         prd_path = get_meta_dir() / "state" / f"prd-{self.ticket_id}.md"
-        prd_path.parent.mkdir(parents=True, exist_ok=True)
 
         # Si ya existe un PRD pre-generado, saltar el análisis y usarlo directamente.
         if prd_path.exists() and prd_path.stat().st_size > 100:
@@ -1498,130 +1492,29 @@ Responde de forma concisa y práctica. Asume decisiones razonables para un MVP .
             self.set_phase("pm-lead", "in-design", 35)
             return
 
-        pm_research_dir = get_meta_dir() / "state" / "pm-research"
-        pm_research_dir.mkdir(parents=True, exist_ok=True)
+        self._update_agent("pm-research-agents", status="running", progress=10,
+                           log="Lanzando PM Research Agents con roles MetaGPT...")
 
-        results = {}
-        lock = threading.Lock()
+        def log_callback(message, level="info"):
+            self.log(message, level)
 
-        def run_subagent(sub_id, sub_name, focus, follow_up=None):
-            self._update_agent(sub_id, status="running", progress=10,
-                               log=f"{sub_name} analizando..." + (" (clarificación)" if follow_up else ""))
-            prompt = self._build_pm_subagent_prompt(sub_id, focus, title, description, follow_up=follow_up)
-            output = self._run_kimi_prompt(
+        # Ejecutar Fase 1 con el nuevo motor basado en roles/actions.
+        # Los subagentes corren en paralelo dentro del Environment.
+        generated_prd = pm_analysis.run_pm_analysis(
+            self.ticket,
+            run_kimi=lambda prompt, phase_name, timeout_seconds, agent_id=None: self._run_kimi_prompt(
                 prompt,
-                phase_name=f"PM Analysis {sub_id}",
-                timeout_seconds=600,
-                agent_id=sub_id,
-            )
-            research_path = pm_research_dir / f"{self.ticket_id}-{sub_id}.md"
-            if output:
-                with open(research_path, "w", encoding="utf-8") as f:
-                    f.write(output)
-                self._update_agent(sub_id, status="done", progress=100,
-                                   log=f"{sub_name} finalizó su análisis.")
-                with lock:
-                    results[sub_id] = research_path
-                # Notificar al PM Lead por el bus de comunicación
-                summary = output[:800].replace("\n", " ")
-                with run_lock:
-                    state = load_run_state()
-                    bus.send_message(
-                        state,
-                        sub_id,
-                        "pm-research-agents",
-                        "notify_completion",
-                        {"file": str(research_path), "summary": summary, "followUp": bool(follow_up)},
-                    )
-                    save_run_state(state)
-                    emit_communication_update(state)
-            else:
-                self._update_agent(sub_id, status="done", progress=100,
-                                   log=f"{sub_name} completado sin output.")
-                with lock:
-                    results[sub_id] = None
+                phase_name=phase_name,
+                timeout_seconds=timeout_seconds,
+                agent_id=agent_id,
+            ),
+            max_rounds=10,
+            log_callback=log_callback,
+        )
 
-        def run_all_subagents(follow_ups=None):
-            follow_ups = follow_ups or {}
-            threads = []
-            for sub_id, sub_name, focus in subagents:
-                if sub_id in follow_ups:
-                    self._update_agent(sub_id, status="queued", progress=0)
-                t = threading.Thread(target=run_subagent, args=(sub_id, sub_name, focus, follow_ups.get(sub_id)), daemon=True)
-                threads.append(t)
-                t.start()
-            for t in threads:
-                t.join(timeout=650)
-
-        # Primera ronda de investigación
-        run_all_subagents()
-
-        # Consolidar PRD
-        self._update_agent("pm-research-agents", status="running", progress=50,
-                           log="Consolidando hallazgos de PM Research Agents...")
-        self.set_phase("pm-lead", "in-design", 30)
-
-        research_files = {sid: path for sid, path in results.items() if path}
-        final_prd_content = None
-        if research_files and self.kimi:
-            self.log("Lanzando consolidador de PRD...")
-            prompt = self._build_pm_consolidator_prompt(title, description, research_files, str(prd_path))
-            prompt_chars = len(prompt)
-            self.log(f"Prompt del consolidador: {prompt_chars} caracteres ({len(research_files)} archivos de research).")
-            output = self._run_kimi_prompt(
-                prompt,
-                phase_name="PM Consolidator",
-                timeout_seconds=600,
-                agent_id="pm-research-agents",
-            )
-            if output:
-                # El consolidador puede solicitar clarificaciones antes de generar el PRD final.
-                clarifications = self._parse_clarifications(output)
-                if clarifications:
-                    self.log(f"PM Lead solicita clarificaciones: {list(clarifications.keys())}")
-                    self._update_agent("pm-research-agents", status="running", progress=55,
-                                       log="Solicitando clarificaciones a subagentes...")
-                    # Enviar mensajes de clarificación a los subagentes
-                    with run_lock:
-                        state = load_run_state()
-                        for sub_id, question in clarifications.items():
-                            bus.send_message(
-                                state,
-                                "pm-research-agents",
-                                sub_id,
-                                "request_clarification",
-                                {"question": question, "round": 2},
-                            )
-                        save_run_state(state)
-                        emit_communication_update(state)
-                    # Reejecutar solo los subagentes que deben clarificar
-                    run_all_subagents(follow_ups=clarifications)
-                    research_files = {sid: path for sid, path in results.items() if path}
-                    self.log("Relanzando consolidador con clarificaciones...")
-                    prompt = self._build_pm_consolidator_prompt(title, description, research_files, str(prd_path))
-                    output = self._run_kimi_prompt(
-                        prompt,
-                        phase_name="PM Consolidator (final)",
-                        timeout_seconds=600,
-                        agent_id="pm-research-agents",
-                    )
-                if output:
-                    final_prd_content = self._extract_prd_from_output(output, title, description)
-            if final_prd_content:
-                with open(prd_path, "w", encoding="utf-8") as f:
-                    f.write(final_prd_content)
-                self.log(f"Plan detallado guardado en {prd_path}")
-            else:
-                self.log("No se obtuvo output del consolidador; usando fallback local.", "warning")
-                self._write_fallback_prd(prd_path, title, description)
-                final_prd_content = prd_path.read_text(encoding="utf-8")
-        else:
-            self.log("No se obtuvieron outputs de PM Research Agents; usando fallback local.", "warning")
-            self._write_fallback_prd(prd_path, title, description)
-            final_prd_content = prd_path.read_text(encoding="utf-8")
-
-        # Notificar a través del bus que el PRD está listo
-        if final_prd_content:
+        if generated_prd and generated_prd.exists():
+            self.log(f"Plan detallado guardado en {generated_prd}")
+            final_prd_content = generated_prd.read_text(encoding="utf-8")
             with run_lock:
                 state = load_run_state()
                 bus.send_message(
@@ -1629,10 +1522,13 @@ Responde de forma concisa y práctica. Asume decisiones razonables para un MVP .
                     "pm-research-agents",
                     "orchestrator",
                     "notify_completion",
-                    {"artifact": "PRD", "path": str(prd_path), "preview": final_prd_content[:500]},
+                    {"artifact": "PRD", "path": str(generated_prd), "preview": final_prd_content[:500]},
                 )
                 save_run_state(state)
                 emit_communication_update(state)
+        else:
+            self.log("No se generó PRD; usando fallback local.", "warning")
+            self._write_fallback_prd(prd_path, title, description)
 
         for sub_id, sub_name, _ in subagents:
             self._update_agent(sub_id, status="done", progress=100,
@@ -2036,6 +1932,34 @@ No incluyas explicaciones fuera del JSON."""
 
         answered_event.wait()
         return answers_received["answers"]
+
+    def _wait_for_user_clarification(self, question, timeout_seconds=300):
+        """Block until the user answers a clarification question from the squad.
+
+        Falls back to a default answer if the timeout expires.
+        """
+        self.log(f"Engineer Squad solicita aclaración al usuario ({timeout_seconds}s).")
+        q = create_user_question(
+            ticket_id=self.ticket_id,
+            phase_name="engineer-squad",
+            agent_id="engineer-squad",
+            agent_name="Engineer Squad Lead",
+            question=question,
+            context="Escalación del Engineer Squad Lead por una duda de implementación.",
+            options=None,
+        )
+        qid = q["id"]
+        answered_event = threading.Event()
+        answer_container = {"answer": ""}
+        _clarification_waiters[qid] = (answered_event, answer_container)
+        try:
+            answered = answered_event.wait(timeout=timeout_seconds)
+            if not answered:
+                self.log("Timeout esperando aclaración del usuario. El squad decide solo.", "warning")
+                answer_user_question(qid, "Decide solo (timeout del squad)")
+        finally:
+            _clarification_waiters.pop(qid, None)
+        return answer_container["answer"] or "Decide solo (timeout del squad)"
 
     def _finalize_design_review(self, answers, auto=False):
         """Guarda las respuestas finales y limpia el estado de revisión."""
@@ -2827,6 +2751,37 @@ Reporta los archivos modificados y el resultado de la build.
         self._update_agent("qa-engineer", status="done", progress=100, log="QA Review completado.")
         self._agent_log("qa-engineer", "QA Review completado.", "success")
 
+    def chat_with_agent(self, recipient_id, message):
+        """Responde un mensaje humano como el agente indicado.
+
+        Se usa el mismo backend de Kimi configurado para el runner, con contexto
+        del ticket, PRD y tareas planificadas.
+        """
+        with run_lock:
+            state = load_run_state()
+            agents_by_id = {a["id"]: a for a in state.get("agents", [])}
+        recipient_name = agents_by_id.get(recipient_id, {}).get("name", recipient_id)
+        context_text = self._build_consultation_context()
+
+        prompt = f"""Activa la skill 'dotnet' y aplica sus convenciones y mejores prácticas a todo el código .NET que generes.
+
+Eres el agente {recipient_name} ({recipient_id}) de una software factory estilo MetaGPT. El operador humano te escribe:
+
+"{message}"
+
+CONTEXTO DEL PROYECTO:
+{context_text}
+
+Responde de forma concisa, técnica y útil. Si el mensaje es una instrucción (por ejemplo, "reintentar", "mejora", "revisa", "reactiva"), indica cómo la aplicarías o qué necesitas. Si no tienes suficiente contexto, dílo claramente."""
+
+        output = self._run_kimi_prompt(
+            prompt,
+            phase_name=f"Chat {recipient_id}",
+            timeout_seconds=60,
+            agent_id=recipient_id,
+        )
+        return (output or "No pude generar una respuesta en este momento.").strip()
+
     def _run_kimi_prompt(self, prompt, phase_name="Agent", timeout_seconds=120, agent_id=None):
         """Ejecuta un prompt con kimi CLI en modo prompt (-p) y retorna el contenido.
 
@@ -2988,6 +2943,65 @@ def play_ticket(ticket_id):
     return False, "No se pudo iniciar el ticket"
 
 
+def restart_ticket(ticket_id):
+    """Restart a ticket from scratch: stop runner, delete artifacts and run-state, then re-run.
+
+    This deletes the run snapshot, generated artifacts (PRD, tasks, architecture,
+    design review) and the in-memory/disk run state for the ticket. It then moves
+    the ticket back to ready-for-work and starts the pipeline as if it were new.
+    Source code changes in the project repo are NOT reverted.
+    """
+    global _active_run_thread
+
+    board = load_board()
+    ticket = next((t for t in board.get("tickets", []) if t.get("id") == ticket_id), None)
+    if not ticket:
+        return False, "Ticket no encontrado"
+
+    # Stop active runner for this ticket.
+    if (
+        _active_run_thread
+        and _active_run_thread.is_alive()
+        and getattr(_active_run_thread, "ticket_id", None) == ticket_id
+    ):
+        _active_run_thread.stop()
+        _active_run_thread.join(timeout=3)
+        _active_run_thread = None
+
+    # Remove any paused thread for this ticket.
+    paused_run_threads.pop(ticket_id, None)
+
+    # Delete snapshot on disk.
+    delete_ticket_snapshot(ticket_id)
+
+    # Delete generated artifacts.
+    state_dir = get_meta_dir() / "state"
+    if state_dir.exists():
+        for pattern in [
+            f"prd-{ticket_id}.md",
+            f"tasks-{ticket_id}.json",
+            f"architecture-{ticket_id}.md",
+            f"design-review-{ticket_id}.*",
+        ]:
+            for path in state_dir.glob(pattern):
+                try:
+                    path.unlink()
+                except OSError:
+                    pass
+
+    # Reset global run-state to idle.
+    reset_run_state_to_idle()
+
+    # Move ticket back to ready-for-work.
+    update_ticket_status(ticket_id, "ready-for-work")
+
+    # Start from scratch.
+    ok, msg = play_ticket(ticket_id)
+    if ok:
+        return True, f"Ticket {ticket_id} reiniciado desde cero"
+    return False, f"No se pudo reiniciar el ticket: {msg}"
+
+
 def start_automatic_run(ticket, resume=False, queue_if_active=True):
     """Inicia el loop multi-agente para un ticket. Si resume=True, reanuda desde run-state existente."""
     global _active_run_thread
@@ -3010,7 +3024,7 @@ def start_automatic_run(ticket, resume=False, queue_if_active=True):
                 )
             return False
 
-    _active_run_thread = Orchestrator(ticket, resume=resume, runner_factory=AgentRunner)
+    _active_run_thread = AgentRunner(ticket, resume=resume)
     _active_run_thread.start()
     return True
 
@@ -3132,9 +3146,17 @@ def process_next_in_queue():
         save_run_state(state)
 
     update_ticket_status(next_ticket["id"], "ready-for-work")
-    _active_run_thread = AgentRunner(next_ticket)
+    _active_run_thread = AgentRunner(next_ticket, resume=False)
     _active_run_thread.start()
     return True
+
+
+@app.after_request
+def add_no_cache_headers(response):
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
 
 
 @app.route("/")
@@ -3165,6 +3187,12 @@ def api_run_state():
 @app.route("/api/tickets/<ticket_id>/play", methods=["POST"])
 def api_play_ticket(ticket_id):
     ok, msg = play_ticket(ticket_id)
+    return jsonify({"ok": ok, "message": msg}), (200 if ok else 400)
+
+
+@app.route("/api/tickets/<ticket_id>/restart", methods=["POST"])
+def api_restart_ticket(ticket_id):
+    ok, msg = restart_ticket(ticket_id)
     return jsonify({"ok": ok, "message": msg}), (200 if ok else 400)
 
 
@@ -3770,6 +3798,52 @@ def handle_connect():
 def handle_request_update():
     notify_board_update()
     emit("run_state_update", load_run_state())
+
+
+@socketio.on("chat_send")
+def handle_chat_send(data):
+    """Recibe un mensaje del operador humano dirigido a un agente.
+
+    El mensaje se guarda en el log de comunicación y, si hay un runner activo,
+    se pide una respuesta al agente seleccionado usando el backend de IA.
+    """
+    recipient = (data or {}).get("to", "orchestrator")
+    text = ((data or {}).get("message") or "").strip()
+    if not text:
+        return
+
+    with run_lock:
+        state = load_run_state()
+        bus.send_message(state, "user", recipient, "chat", {"text": text})
+        save_run_state(state)
+    emit_communication_update(state)
+
+    runner = _active_run_thread
+    if runner and runner.is_alive():
+        def respond():
+            try:
+                answer = runner.chat_with_agent(recipient, text)
+                with run_lock:
+                    state = load_run_state()
+                    bus.send_message(state, recipient, "user", "chat", {"text": answer})
+                    save_run_state(state)
+                emit_communication_update(state)
+            except Exception as exc:
+                append_log(f"Error en chat con {recipient}: {exc}", "error")
+
+        threading.Thread(target=respond, daemon=True).start()
+    else:
+        with run_lock:
+            state = load_run_state()
+            bus.send_message(
+                state,
+                "system",
+                "user",
+                "chat",
+                {"text": "No hay un run activo. Inicia un ticket para chatear con los agentes."},
+            )
+            save_run_state(state)
+        emit_communication_update(state)
 
 
 def main():

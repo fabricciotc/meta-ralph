@@ -1,0 +1,10 @@
+{
+  "projectName": "Ejemplo",
+  "stories": [
+    {
+      "id": "US-001",
+      "title": "Historia de ejemplo",
+      "description": "Descripción de la historia de usuario."
+    }
+  ]
+}

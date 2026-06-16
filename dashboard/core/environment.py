@@ -31,17 +31,24 @@ class Environment:
         while self._queue:
             self.memory.add(self._queue.popleft())
 
-    async def run_round(self) -> bool:
+    async def run_round(self, **kwargs) -> bool:
         tasks = []
         for role in self.roles.values():
             if hasattr(role, "run"):
-                tasks.append(role.run(self))
+                tasks.append(role.run(self, **kwargs))
         if not tasks:
             return False
         results = await asyncio.gather(*tasks, return_exceptions=True)
+        had_activity = any(
+            r is True or isinstance(r, Message)
+            for r in results
+            if not isinstance(r, Exception)
+        )
+        # Messages published during the round count as activity even if no role
+        # explicitly returned True; otherwise clarification loops stall.
+        had_messages = len(self._queue) > 0
         self._drain_queue_to_memory()
-        active = any(r is True for r in results if not isinstance(r, Exception))
-        return active
+        return had_activity or had_messages
 
     def is_idle(self) -> bool:
         return len(self._queue) == 0

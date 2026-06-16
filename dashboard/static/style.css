@@ -487,6 +487,153 @@ body {
   flex-shrink: 0;
 }
 
+.chat-panel {
+  width: 320px;
+  min-width: 280px;
+  max-width: 420px;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--surface-tint-base);
+  background: var(--surface-base);
+  flex-shrink: 0;
+}
+
+.chat-agent-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--surface-tint-base);
+  background: var(--surface-base);
+  flex-shrink: 0;
+}
+
+.chat-agent-bar label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--on-surface-base-subtle);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.chat-agent-bar select {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.8rem;
+  padding: 0.35rem 0.5rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--surface-tint-base);
+  background: var(--surface-high);
+  color: var(--on-surface-base);
+}
+
+.chat-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.chat-empty {
+  text-align: center;
+  color: var(--on-surface-base-disabled);
+  font-size: 0.8rem;
+  padding: 1rem 0.5rem;
+}
+
+.chat-message {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  max-width: 92%;
+}
+
+.chat-message.user {
+  align-self: flex-end;
+  align-items: flex-end;
+}
+
+.chat-message.agent {
+  align-self: flex-start;
+  align-items: flex-start;
+}
+
+.chat-message.system {
+  align-self: center;
+  align-items: center;
+}
+
+.chat-bubble {
+  padding: 0.55rem 0.75rem;
+  border-radius: var(--radius-md);
+  font-size: 0.82rem;
+  line-height: 1.35;
+  word-break: break-word;
+}
+
+.chat-message.user .chat-bubble {
+  background: var(--primary);
+  color: #fff;
+  border-bottom-right-radius: 3px;
+}
+
+.chat-message.agent .chat-bubble {
+  background: var(--surface-high);
+  color: var(--on-surface-base);
+  border: 1px solid var(--surface-tint-base);
+  border-bottom-left-radius: 3px;
+}
+
+.chat-message.system .chat-bubble {
+  background: var(--warning-muted);
+  color: var(--wrn);
+  font-size: 0.75rem;
+}
+
+.chat-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.65rem;
+  color: var(--on-surface-base-disabled);
+}
+
+.chat-form {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  border-top: 1px solid var(--surface-tint-base);
+  background: var(--surface-base);
+  flex-shrink: 0;
+}
+
+.chat-form textarea {
+  flex: 1;
+  resize: none;
+  font-family: inherit;
+  font-size: 0.82rem;
+  padding: 0.5rem 0.65rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--surface-tint-base);
+  background: var(--surface-high);
+  color: var(--on-surface-base);
+  outline: none;
+}
+
+.chat-form textarea:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px var(--primary-muted);
+}
+
+.chat-form button {
+  flex-shrink: 0;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+}
+
 .main-area {
   flex: 1;
   display: flex;
@@ -1474,6 +1621,15 @@ body {
 .ticket-action-pause:hover {
   background: var(--warning-muted);
   color: var(--wrn);
+}
+
+.ticket-action-restart {
+  color: var(--err);
+}
+
+.ticket-action-restart:hover {
+  background: var(--danger-muted);
+  color: var(--err);
 }
 
 /* Adaline form */

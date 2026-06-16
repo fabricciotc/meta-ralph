@@ -14,6 +14,7 @@ __pycache__/
 dashboard/run-state.json
 dashboard/run-state.*.json
 dashboard/run.log
+dashboard/dashboard.log
 dashboard/board.json
 dashboard/scripts/meta-ralph/state/
 
@@ -30,3 +31,4 @@ Thumbs.db
 *.swp
 *.swo
 *~
+.worktrees/

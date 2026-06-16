@@ -81,6 +81,11 @@ const graphEmpty = document.getElementById('graph-empty');
 const ticketStatusBody = document.getElementById('ticket-status-body');
 const messagingFeed = document.getElementById('messaging-feed');
 
+const chatMessages = document.getElementById('chat-messages');
+const chatAgentSelect = document.getElementById('chat-agent-select');
+const chatForm = document.getElementById('chat-form');
+const chatInput = document.getElementById('chat-input');
+
 const debugLog = document.getElementById('debug-log');
 const debugMeta = document.getElementById('debug-meta');
 
@@ -543,7 +548,7 @@ function renderBehaviorsGraph() {
   lastRenderedGraphKey = key;
 
   if (!nodes.length) {
-    behaviorsSvg.innerHTML = `<defs><marker id="arrow-head" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="rgba(46,67,32,0.35)" /></marker></defs>`;
+    behaviorsSvg.innerHTML = `<defs><marker id="arrow-head" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="rgba(46,67,32,0.35)" /></marker></defs>`;
     graphNodes.innerHTML = '';
     graphStage.style.width = '';
     graphStage.style.height = '';
@@ -573,22 +578,40 @@ function renderBehaviorsGraph() {
 
   // SVG edges
   let svgHtml = `<defs>
-    <marker id="arrow-head" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="${arrowFill}" /></marker>
-    <marker id="arrow-head-active" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="${activeStroke}" /></marker>
+    <marker id="arrow-head" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="${arrowFill}" /></marker>
+    <marker id="arrow-head-active" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="${activeStroke}" /></marker>
   </defs>`;
 
   const byId = {};
   nodes.forEach(n => byId[n.id] = n);
 
-  function curve(p1, p2, type = 'parent') {
+  function curve(p1, p2, type = 'parent', sourceRadius = 0, targetRadius = 0) {
     const dx = p2.x - p1.x;
     const dy = p2.y - p1.y;
+    const dist = Math.hypot(dx, dy);
+    if (dist === 0) {
+      return `M ${p1.x.toFixed(1)} ${p1.y.toFixed(1)} C ${p1.x.toFixed(1)} ${p1.y.toFixed(1)}, ${p2.x.toFixed(1)} ${p2.y.toFixed(1)}, ${p2.x.toFixed(1)} ${p2.y.toFixed(1)}`;
+    }
+    const ux = dx / dist;
+    const uy = dy / dist;
+    // Trim the curve so it starts/ends at the node border instead of the center.
+    const start = { x: p1.x + ux * sourceRadius, y: p1.y + uy * sourceRadius };
+    const end = { x: p2.x - ux * targetRadius, y: p2.y - uy * targetRadius };
+    const newDx = end.x - start.x;
+    const newDy = end.y - start.y;
     // Message edges get a slight sideways curve so bidirectional messages don't overlap.
-    const sideOffset = type === 'message' ? Math.sign(dx || 1) * Math.min(40, Math.abs(dx) * 0.15 + 20) : 0;
-    const c1 = { x: p1.x + sideOffset, y: p1.y + dy * 0.5 };
-    const c2 = { x: p2.x + sideOffset, y: p2.y - dy * 0.5 };
-    return `M ${p1.x.toFixed(1)} ${p1.y.toFixed(1)} C ${c1.x.toFixed(1)} ${c1.y.toFixed(1)}, ${c2.x.toFixed(1)} ${c2.y.toFixed(1)}, ${p2.x.toFixed(1)} ${p2.y.toFixed(1)}`;
+    const sideOffset = type === 'message' ? Math.sign(newDx || 1) * Math.min(40, Math.abs(newDx) * 0.15 + 20) : 0;
+    const c1 = { x: start.x + sideOffset, y: start.y + newDy * 0.5 };
+    const c2 = { x: end.x + sideOffset, y: end.y - newDy * 0.5 };
+    return `M ${start.x.toFixed(1)} ${start.y.toFixed(1)} C ${c1.x.toFixed(1)} ${c1.y.toFixed(1)}, ${c2.x.toFixed(1)} ${c2.y.toFixed(1)}, ${end.x.toFixed(1)} ${end.y.toFixed(1)}`;
   }
+
+  const nodeRadii = {};
+  nodes.forEach(node => {
+    const baseSize = node.role === 'orchestrator' ? 56 : node.role === 'lead' ? 48 : 40;
+    const size = Math.max(26, Math.round(baseSize * (nodeDiameter / 48)));
+    nodeRadii[node.id] = size / 2;
+  });
 
   edges.forEach((e, i) => {
     const s = positions[e.source];
@@ -596,6 +619,8 @@ function renderBehaviorsGraph() {
     if (!s || !t) return;
     const sourceNode = byId[e.source];
     const targetNode = byId[e.target];
+    const sourceRadius = nodeRadii[e.source] || nodeDiameter / 2;
+    const targetRadius = nodeRadii[e.target] || nodeDiameter / 2;
     const isActive = sourceNode && targetNode && (sourceNode.status === 'running' || targetNode.status === 'running');
     const stroke = isActive ? activeStroke : defaultStroke;
     const marker = isActive ? 'url(#arrow-head-active)' : 'url(#arrow-head)';
@@ -604,7 +629,7 @@ function renderBehaviorsGraph() {
     const isMessage = e.type === 'message';
     const dash = isMessage ? '2,5' : 'none';
     const dashAnimate = isMessage ? '<animate attributeName="stroke-dashoffset" from="0" to="-14" dur="1s" repeatCount="indefinite" />' : '';
-    svgHtml += `<path id="${pathId}" d="${curve(s, t, e.type)}" fill="none" stroke="${stroke}" stroke-width="${width}" stroke-dasharray="${dash}" stroke-linecap="round" marker-end="${marker}">${dashAnimate}</path>`;
+    svgHtml += `<path id="${pathId}" d="${curve(s, t, e.type, sourceRadius, targetRadius)}" fill="none" stroke="${stroke}" stroke-width="${width}" stroke-dasharray="${dash}" stroke-linecap="round" marker-end="${marker}">${dashAnimate}</path>`;
     if (isActive) {
       svgHtml += `<circle r="2.5" fill="${activeStroke}"><animateMotion dur="1.2s" repeatCount="indefinite"><mpath href="#${pathId}"/></animateMotion></circle>`;
     }
@@ -755,11 +780,15 @@ function renderTicketsList() {
     const runStatus = getTicketRunStatus(ticket.id);
     const runIcon = runStatusIcon(runStatus);
     const isRunnable = ['idle', 'queued', 'paused'].includes(runStatus) && ['backlog', 'ready-for-work', 'in-design', 'in-progress', 'in-review'].includes(ticket.status);
+    const showRestart = ['ready-for-work', 'in-design', 'in-progress', 'in-review', 'done'].includes(ticket.status);
     const runAction = runStatus === 'running'
       ? `<button type="button" class="btn-icon btn-small ticket-action-pause" data-id="${escapeHtml(ticket.id)}" title="Pausar"><i data-lucide="pause"></i></button>`
       : isRunnable
         ? `<button type="button" class="btn-icon btn-small ticket-action-play" data-id="${escapeHtml(ticket.id)}" title="${runStatus === 'paused' ? 'Reanudar' : 'Ejecutar'}"><i data-lucide="play"></i></button>`
         : '';
+    const restartAction = showRestart
+      ? `<button type="button" class="btn-icon btn-small ticket-action-restart" data-id="${escapeHtml(ticket.id)}" title="Reiniciar desde cero"><i data-lucide="refresh-cw"></i></button>`
+      : '';
 
     const row = document.createElement('div');
     row.className = 'ticket-row ticket-row-' + runStatus;
@@ -770,6 +799,7 @@ function renderTicketsList() {
       <span class="ticket-row-status status-${ticket.status}">${COLUMN_LABELS[ticket.status] || ticket.status}</span>
       <div class="ticket-row-actions">
         ${runAction}
+        ${restartAction}
         <button type="button" class="btn-icon btn-small" title="Editar"><i data-lucide="pencil"></i></button>
         <button type="button" class="btn-icon btn-small" title="Eliminar"><i data-lucide="trash-2"></i></button>
       </div>
@@ -786,6 +816,8 @@ function renderTicketsList() {
     if (playBtn) playBtn.addEventListener('click', (e) => { e.stopPropagation(); playTicket(ticket.id); });
     const pauseBtn = row.querySelector('.ticket-action-pause');
     if (pauseBtn) pauseBtn.addEventListener('click', (e) => { e.stopPropagation(); pauseTicket(ticket.id); });
+    const restartBtn = row.querySelector('.ticket-action-restart');
+    if (restartBtn) restartBtn.addEventListener('click', (e) => { e.stopPropagation(); restartTicket(ticket.id); });
     ticketsList.appendChild(row);
   });
   if (window.lucide) lucide.createIcons();
@@ -828,6 +860,24 @@ async function pauseTicket(ticketId) {
     showToast(data.message);
   } catch (err) {
     showToast(err.message, 4000);
+  }
+}
+
+async function restartTicket(ticketId) {
+  const confirmed = await showConfirmModal({
+    title: 'Reiniciar ticket',
+    message: `¿Reiniciar el ticket ${ticketId} desde cero?\n\nSe borrarán el progreso del run, snapshots y los artefactos generados (PRD, plan de tareas, arquitectura). Los cambios de código en el repositorio no se eliminarán.`,
+    okText: 'Reiniciar',
+    cancelText: 'Cancelar',
+  });
+  if (!confirmed) return;
+  try {
+    const res = await fetch(`/api/tickets/${ticketId}/restart`, { method: 'POST' });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || 'Error');
+    showToast(data.message || 'Ticket reiniciado');
+  } catch (err) {
+    showToast('Error reiniciando ticket: ' + err.message, 4000);
   }
 }
 
@@ -993,7 +1043,7 @@ function renderMessaging() {
   if (!messagingFeed) return;
   const messages = runState.messages || [];
   if (!messages.length) {
-    messagingFeed.innerHTML = '<div class="messaging-empty">Sin mensajes aún...</div>';
+    messagingFeed.innerHTML = '<div class="messaging-empty">No internal messages yet...</div>';
     return;
   }
 
@@ -1019,6 +1069,107 @@ function renderMessaging() {
 
   const nearBottom = messagingFeed.scrollHeight - messagingFeed.scrollTop - messagingFeed.clientHeight < 80;
   if (nearBottom) messagingFeed.scrollTop = messagingFeed.scrollHeight;
+}
+
+/* ============================================================
+   Chat panel
+   ============================================================ */
+
+const DEFAULT_CHAT_AGENTS = [
+  { id: 'orchestrator', name: 'Orchestrator Principal' },
+  { id: 'product_manager', name: 'Product Manager' },
+  { id: 'architect', name: 'Architect' },
+  { id: 'project_manager', name: 'Project Manager' },
+  { id: 'engineer', name: 'Engineer' },
+  { id: 'qa', name: 'QA Engineer' },
+  { id: 'recovery', name: 'Recovery' },
+];
+
+function updateChatAgentSelect() {
+  if (!chatAgentSelect) return;
+  const currentValue = chatAgentSelect.value;
+  const agents = runState.agents || [];
+  const known = new Map();
+  DEFAULT_CHAT_AGENTS.forEach(a => known.set(a.id, a.name));
+  agents.forEach(a => {
+    if (!known.has(a.id)) known.set(a.id, a.name || a.id);
+  });
+
+  const participants = (runState.communication && runState.communication.participants) || {};
+  Object.entries(participants).forEach(([id, profile]) => {
+    if (!known.has(id)) known.set(id, profile.name || id);
+  });
+
+  chatAgentSelect.innerHTML = '';
+  Array.from(known.entries()).forEach(([id, name]) => {
+    const option = document.createElement('option');
+    option.value = id;
+    option.textContent = name;
+    chatAgentSelect.appendChild(option);
+  });
+  if (known.has(currentValue)) chatAgentSelect.value = currentValue;
+}
+
+let lastRenderedChatKey = null;
+
+function renderChat() {
+  if (!chatMessages) return;
+  const comm = runState.communication || {};
+  const log = (comm.log || []).filter(e => e.type === 'message' && e.messageType === 'chat');
+
+  const key = log.map(e => `${e.timestamp}|${e.from}|${e.to}|${JSON.stringify(e.payload)}`).join('//');
+  if (key === lastRenderedChatKey) return;
+  lastRenderedChatKey = key;
+
+  if (!log.length) {
+    chatMessages.innerHTML = '<div class="chat-empty">Selecciona un agente y escribe un mensaje o instrucción.</div>';
+    return;
+  }
+
+  chatMessages.innerHTML = '';
+  log.forEach(entry => {
+    const from = entry.from || 'system';
+    const text = (entry.payload && entry.payload.text) || '';
+    const side = from === 'user' ? 'user' : (from === 'system' ? 'system' : 'agent');
+    const displayName = from === 'user' ? 'Tú' : (from === 'system' ? 'Sistema' : stripEmojis(from));
+
+    const el = document.createElement('div');
+    el.className = `chat-message ${side}`;
+    el.innerHTML = `
+      <div class="chat-bubble">${escapeHtml(text)}</div>
+      <div class="chat-meta">
+        <span>${escapeHtml(displayName)}</span>
+        <span>${formatTime(entry.timestamp)}</span>
+      </div>
+    `;
+    chatMessages.appendChild(el);
+  });
+
+  const nearBottom = chatMessages.scrollHeight - chatMessages.scrollTop - chatMessages.clientHeight < 80;
+  if (nearBottom) chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
+async function sendChatMessage(e) {
+  e.preventDefault();
+  if (!chatInput || !chatAgentSelect) return;
+  const text = chatInput.value.trim();
+  if (!text) return;
+  const to = chatAgentSelect.value || 'orchestrator';
+  chatInput.value = '';
+  chatInput.disabled = true;
+  if (chatForm) chatForm.classList.add('sending');
+  try {
+    socket.emit('chat_send', { to, message: text });
+  } catch (err) {
+    console.error('Error enviando chat:', err);
+    showToast('No se pudo enviar el mensaje', 3000);
+  } finally {
+    setTimeout(() => {
+      chatInput.disabled = false;
+      chatInput.focus();
+      if (chatForm) chatForm.classList.remove('sending');
+    }, 400);
+  }
 }
 
 /* ============================================================
@@ -1360,6 +1511,8 @@ function renderRunState(state) {
   renderRunBar();
   renderTicketStatus();
   renderMessaging();
+  renderChat();
+  updateChatAgentSelect();
   renderDesignReview(runState);
   renderDebugFooter();
   renderTicketsList();
@@ -1428,6 +1581,16 @@ if (btnDesignReviewExtend) btnDesignReviewExtend.addEventListener('click', exten
 if (btnDesignReviewClose) btnDesignReviewClose.addEventListener('click', dismissDesignReview);
 if (btnDesignReviewLater) btnDesignReviewLater.addEventListener('click', dismissDesignReview);
 
+if (chatForm) chatForm.addEventListener('submit', sendChatMessage);
+if (chatInput) {
+  chatInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      if (chatForm) chatForm.dispatchEvent(new Event('submit'));
+    }
+  });
+}
+
 if (btnCloseCommunication) btnCloseCommunication.addEventListener('click', closeCommunicationPanel);
 if (communicationBackdrop) communicationBackdrop.addEventListener('click', closeCommunicationPanel);
 
@@ -1475,6 +1638,21 @@ socket.on('pending_question', (question) => {
 socket.on('question_answered', (question) => {
   if (currentQuestion && currentQuestion.id === question.id) closeQuestionModal();
   loadPendingQuestions();
+});
+
+socket.on('communication_update', (communication) => {
+  runState.communication = communication;
+  renderChat();
+  updateChatAgentSelect();
+});
+
+socket.on('chat_message', (entry) => {
+  if (entry && runState.communication) {
+    runState.communication.log = runState.communication.log || [];
+    runState.communication.log.push(entry);
+    renderChat();
+    updateChatAgentSelect();
+  }
 });
 
 /* ============================================================
