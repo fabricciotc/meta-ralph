@@ -4,8 +4,11 @@
 set -e
 
 SKILL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$SKILL_DIR/scripts"
+# shellcheck source=scripts/lib/platform.sh
+source "$SCRIPT_DIR/lib/platform.sh"
 SKILL_NAME="meta-ralph"
-SCRIPT="$SKILL_DIR/scripts/meta-ralph.sh"
+SCRIPT="$SCRIPT_DIR/meta-ralph.sh"
 
 if [ ! -f "$SCRIPT" ]; then
   echo "Error: $SCRIPT was not found."
@@ -14,13 +17,13 @@ fi
 
 chmod +x "$SCRIPT"
 
-if ! command -v python3 >/dev/null 2>&1; then
-  echo "Error: python3 is not installed. Meta-Ralph requires Python 3.10+."
+PY_BIN="$(python_cmd)" || {
+  echo "Error: python3 or python is not installed. Meta-Ralph requires Python 3.10+."
   exit 1
-fi
+}
 
-PY_MAJOR=$(python3 -c 'import sys; print(sys.version_info.major)')
-PY_MINOR=$(python3 -c 'import sys; print(sys.version_info.minor)')
+PY_MAJOR=$("$PY_BIN" -c 'import sys; print(sys.version_info.major)')
+PY_MINOR=$("$PY_BIN" -c 'import sys; print(sys.version_info.minor)')
 if [ "$PY_MAJOR" -lt 3 ] || { [ "$PY_MAJOR" -eq 3 ] && [ "$PY_MINOR" -lt 10 ]; }; then
   echo "Error: Python 3.10+ is required. Detected: $PY_MAJOR.$PY_MINOR"
   exit 1
@@ -72,9 +75,9 @@ DASHBOARD_DIR="$SKILL_DIR/dashboard"
 VENV_DIR="$DASHBOARD_DIR/.venv"
 if [ ! -d "$VENV_DIR" ]; then
   echo "Creating dashboard virtual environment..."
-  python3 -m venv "$VENV_DIR"
-  "$VENV_DIR/bin/pip" install -q --upgrade pip
-  "$VENV_DIR/bin/pip" install -q -r "$DASHBOARD_DIR/requirements.txt"
+  "$PY_BIN" -m venv "$VENV_DIR"
+  "$(venv_pip "$VENV_DIR")" install -q --upgrade pip
+  "$(venv_pip "$VENV_DIR")" install -q -r "$DASHBOARD_DIR/requirements.txt"
   echo "Dashboard dependencies installed."
 else
   echo "Dashboard virtual environment already exists."
@@ -148,6 +151,15 @@ fi
 ln -sf "$SCRIPT" "$BIN_DIR/meta-ralph"
 echo "Created CLI symlink: $BIN_DIR/meta-ralph -> $SCRIPT"
 
+if is_windows; then
+  GIT_BASH="$(git_bash_path)" || GIT_BASH="C:\\Program Files\\Git\\bin\\bash.exe"
+  cat >"$BIN_DIR/meta-ralph.cmd" <<EOF
+@echo off
+"$GIT_BASH" "$SCRIPT" %*
+EOF
+  echo "Created Windows launcher: $BIN_DIR/meta-ralph.cmd"
+fi
+
 if [ "$SHELL_NAME" = "fish" ]; then
   if ! grep -q "$BIN_DIR" "$RC_FILE" 2>/dev/null; then
     echo "" >> "$RC_FILE"
@@ -182,7 +194,12 @@ detect_backend() {
 
 detect_backend kimi
 detect_backend claude
-detect_backend cursor
+if command -v cursor-agent >/dev/null 2>&1 || command -v agent >/dev/null 2>&1; then
+  echo "  ok: cursor-agent"
+  BACKENDS_FOUND=$((BACKENDS_FOUND + 1))
+else
+  echo "  missing: cursor-agent"
+fi
 detect_backend codex
 if [ -n "$OPENAI_API_KEY" ]; then
   echo "  ok: openai_api (OPENAI_API_KEY is set)"

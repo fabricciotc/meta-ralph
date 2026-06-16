@@ -39,6 +39,21 @@ cd meta-ralph
 ./install.sh
 ```
 
+On Windows, you can also use PowerShell:
+
+```powershell
+git clone https://github.com/fabricciotc/meta-ralph.git
+cd meta-ralph
+.\install.ps1
+```
+
+Or run the CLI through Git Bash using the bundled launcher:
+
+```cmd
+scripts\meta-ralph.cmd init
+scripts\meta-ralph.cmd dashboard
+```
+
 The installer:
 
 1. Registers the skill in available assistant skill directories.
@@ -56,9 +71,10 @@ Restart your terminal or run `source ~/.zshrc`, `source ~/.bashrc`, or `source ~
 - At least one AI runner:
   - `kimi`
   - `claude`
-  - `cursor`
+  - `cursor-agent` (or `agent` on Windows)
   - `codex`
   - `OPENAI_API_KEY` for OpenAI-compatible API mode
+- Git Bash on Windows for the shell launcher, or use `install.ps1`
 - A modern browser for the dashboard
 
 ## Usage

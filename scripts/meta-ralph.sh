@@ -11,6 +11,8 @@ if [ -L "$SCRIPT_SOURCE" ]; then
 fi
 SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_SOURCE")" && pwd)"
 SKILL_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+# shellcheck source=lib/platform.sh
+source "$SCRIPT_DIR/lib/platform.sh"
 META_DIR="scripts/meta-ralph"
 MAX_WORKERS=20
 
@@ -132,7 +134,7 @@ cmd_stop() {
   if [ -f "$dashboard_pid_file" ]; then
     local pid
     pid=$(cat "$dashboard_pid_file")
-    if kill -0 "$pid" 2>/dev/null; then
+    if is_process_running "$pid"; then
       echo "Stopping dashboard (PID $pid)..."
       kill "$pid" 2>/dev/null || true
     fi
@@ -144,12 +146,35 @@ cmd_stop() {
 
 dashboard_venv() {
   local venv_dir="$SKILL_DIR/dashboard/.venv"
+  local py
+  local pip
+
+  py="$(python_cmd)" || {
+    echo "Error: Python 3.10+ is required for the Meta-Ralph dashboard." >&2
+    exit 1
+  }
+
   if [ ! -d "$venv_dir" ]; then
     echo "Installing dashboard dependencies..."
-    python3 -m venv "$venv_dir"
-    "$venv_dir/bin/pip" install -q -r "$SKILL_DIR/dashboard/requirements.txt"
+    "$py" -m venv "$venv_dir"
+    pip="$(venv_pip "$venv_dir")"
+    "$pip" install -q -r "$SKILL_DIR/dashboard/requirements.txt"
   fi
+
   echo "$venv_dir"
+}
+
+resolve_dashboard_python() {
+  local venv_dir
+  local py
+
+  venv_dir="$(dashboard_venv)"
+  py="$(resolve_venv_python "$venv_dir")" || {
+    echo "Error: dashboard virtualenv python not found at $(venv_python "$venv_dir")" >&2
+    exit 1
+  }
+
+  echo "$py"
 }
 
 cmd_dashboard() {
@@ -177,7 +202,9 @@ cmd_dashboard() {
   done
 
   local venv_dir
+  local python_bin
   venv_dir=$(dashboard_venv)
+  python_bin=$(resolve_dashboard_python)
 
   local board_file
   board_file="$(pwd)/$META_DIR/state/board.json"
@@ -188,11 +215,7 @@ cmd_dashboard() {
   fi
 
   echo "Starting Meta-Ralph Dashboard at http://localhost:$port"
-  "$venv_dir/bin/python" "$SKILL_DIR/dashboard/server.py" --port "$port" --board "$board_file" $no_browser
-}
-
-command_exists() {
-  command -v "$1" >/dev/null 2>&1
+  "$python_bin" "$SKILL_DIR/dashboard/server.py" --port "$port" --board "$board_file" $no_browser
 }
 
 run_with_backend() {
@@ -218,14 +241,8 @@ run_with_backend() {
       fi
       ;;
     cursor)
-      if command_exists cursor-agent; then
-        cursor-agent -p "$prompt"
-        return $?
-      fi
-      if command_exists cursor; then
-        cursor -p "$prompt"
-        return $?
-      fi
+      run_cursor_agent "$prompt_file"
+      return $?
       ;;
     codex)
       if command_exists codex; then
@@ -235,7 +252,9 @@ run_with_backend() {
       ;;
     openai_api)
       if [ -n "$OPENAI_API_KEY" ]; then
-        python3 - "$prompt_file" <<'PY'
+        local py
+        py="$(python_cmd)" || return 127
+        "$py" - "$prompt_file" <<'PY'
 import json
 import os
 import sys
@@ -377,19 +396,22 @@ cmd_run() {
 
   if [ "$no_dashboard" != "true" ]; then
     local dashboard_pid_file="$META_DIR/state/dashboard.pid"
-    if [ -f "$dashboard_pid_file" ] && kill -0 "$(cat "$dashboard_pid_file")" 2>/dev/null; then
+    if [ -f "$dashboard_pid_file" ] && is_process_running "$(cat "$dashboard_pid_file")"; then
       echo "Dashboard is already running at http://localhost:$DASHBOARD_PORT"
     else
-      local venv_dir
-      venv_dir=$(dashboard_venv)
+      local python_bin
       local board_file
+      local dashboard_pid
+      python_bin=$(resolve_dashboard_python)
       board_file="$(pwd)/$META_DIR/state/board.json"
       mkdir -p "$META_DIR/state"
-      nohup "$venv_dir/bin/python" "$SKILL_DIR/dashboard/server.py" \
-        --port "$DASHBOARD_PORT" \
-        --board "$board_file" \
-        --no-browser > "$META_DIR/state/dashboard.log" 2>&1 &
-      echo $! > "$dashboard_pid_file"
+      dashboard_pid=$(start_dashboard_background \
+        "$python_bin" \
+        "$SKILL_DIR/dashboard/server.py" \
+        "$DASHBOARD_PORT" \
+        "$board_file" \
+        "$META_DIR/state/dashboard.log")
+      echo "$dashboard_pid" >"$dashboard_pid_file"
       echo "Dashboard started at http://localhost:$DASHBOARD_PORT"
     fi
   fi
