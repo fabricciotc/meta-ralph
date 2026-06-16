@@ -152,10 +152,12 @@ ln -sf "$SCRIPT" "$BIN_DIR/meta-ralph"
 echo "Created CLI symlink: $BIN_DIR/meta-ralph -> $SCRIPT"
 
 if is_windows; then
-  GIT_BASH="$(git_bash_path)" || GIT_BASH="C:\\Program Files\\Git\\bin\\bash.exe"
+  GIT_BASH="$(git_bash_path)" || GIT_BASH="/c/Program Files/Git/bin/bash.exe"
+  GIT_BASH_CMD="$(to_windows_cmd_path "$GIT_BASH")"
+  SCRIPT_CMD="$(to_windows_cmd_path "$SCRIPT")"
   cat >"$BIN_DIR/meta-ralph.cmd" <<EOF
 @echo off
-"$GIT_BASH" "$SCRIPT" %*
+"$GIT_BASH_CMD" "$SCRIPT_CMD" %*
 EOF
   echo "Created Windows launcher: $BIN_DIR/meta-ralph.cmd"
 fi

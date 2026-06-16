@@ -98,11 +98,6 @@ git_bash_path() {
     return 0
   fi
 
-  if command_exists bash; then
-    command -v bash
-    return 0
-  fi
-
   local candidate
   for candidate in \
     "/c/Program Files/Git/bin/bash.exe" \
@@ -113,5 +108,36 @@ git_bash_path() {
     fi
   done
 
+  if command_exists bash; then
+    command -v bash
+    return 0
+  fi
+
   return 1
+}
+
+to_windows_cmd_path() {
+  local path="$1"
+
+  if ! is_windows; then
+    echo "$path"
+    return 0
+  fi
+
+  if command_exists cygpath; then
+    cygpath -m "$path"
+    return 0
+  fi
+
+  case "$path" in
+    /[a-zA-Z]/*)
+      local drive rest
+      drive=$(printf '%s' "$path" | cut -c2 | tr '[:lower:]' '[:upper:]')
+      rest=$(printf '%s' "$path" | cut -c3-)
+      printf '%s:%s' "$drive" "$rest"
+      ;;
+    *)
+      printf '%s' "$path"
+      ;;
+  esac
 }
