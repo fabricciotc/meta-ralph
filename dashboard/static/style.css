@@ -1257,7 +1257,15 @@ body {
   justify-content: space-between;
   font-size: 0.7rem;
   color: var(--on-surface-base-disabled);
-  margin-bottom: 0.35rem;
+  margin-bottom: 0.1rem;
+}
+
+.comm-item-meta {
+  font-size: 0.65rem;
+  color: var(--primary);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  margin-bottom: 0.25rem;
 }
 
 .comm-item-body {

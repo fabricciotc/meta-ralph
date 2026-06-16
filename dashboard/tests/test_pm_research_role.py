@@ -85,7 +85,7 @@ class TestResearchAction(unittest.TestCase):
 
         self.assertEqual(msg.sent_from, "pm-domain")
         self.assertEqual(msg.cause_by, "research")
-        self.assertEqual(msg.send_to, {"pm-research-agents"})
+        self.assertEqual(msg.send_to, {"pm-research-agents", "all"})
         self.assertEqual(msg.content, "# Hallazgos\n- Punto clave")
         self.assertEqual(msg.metadata["file"], str(expected_path))
         self.assertEqual(msg.metadata["sub_id"], "pm-domain")
@@ -290,7 +290,7 @@ class TestPMResearchRole(unittest.TestCase):
         response = history[-1]
         self.assertEqual(response.sent_from, "pm-domain")
         self.assertEqual(response.cause_by, "research")
-        self.assertEqual(response.send_to, {"pm-research-agents"})
+        self.assertEqual(response.send_to, {"pm-research-agents", "all"})
         self.assertEqual(response.metadata["sub_id"], "pm-domain")
         self.assertEqual(response.metadata["file"], str(expected_path))
 

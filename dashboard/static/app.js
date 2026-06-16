@@ -1148,29 +1148,70 @@ function renderTicketStatus() {
 
 function renderMessaging() {
   if (!messagingFeed) return;
-  const messages = runState.messages || [];
-  if (!messages.length) {
+  const comm = runState.communication || {};
+  const log = comm.log || [];
+  const legacyMessages = (runState.messages || []).map(m => ({ ...m, _source: 'legacy' }));
+  const entries = [...log, ...legacyMessages].sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+
+  if (!entries.length) {
     messagingFeed.innerHTML = '<div class="messaging-empty">No internal messages yet...</div>';
     return;
   }
 
   messagingFeed.innerHTML = '';
-  messages.slice().reverse().forEach(msg => {
+  entries.slice().reverse().forEach(entry => {
     const el = document.createElement('div');
     el.className = 'comm-item';
-    const answeredAt = msg.answeredAt ? formatTime(msg.answeredAt) : '';
-    const answerBlock = msg.answer
-      ? `<div class="comm-item-answer"><strong>${escapeHtml(stripEmojis(msg.to))}:</strong> ${escapeHtml(stripEmojis(msg.answer))}</div>`
-      : '<div class="comm-item-answer">Waiting for response...</div>';
-    el.innerHTML = `
-      <div class="comm-item-header">
-        <span>${escapeHtml(stripEmojis(msg.from))} → ${escapeHtml(stripEmojis(msg.to))}</span>
-        <span>${formatTime(msg.timestamp)}</span>
-      </div>
-      <div class="comm-item-body">${escapeHtml(stripEmojis(msg.question))}</div>
-      ${answerBlock}
-      ${answeredAt ? `<div class="comm-item-answer">Answered ${answeredAt}</div>` : ''}
-    `;
+
+    let headerText = '';
+    let bodyText = '';
+    let badge = '';
+
+    if (entry._source === 'legacy') {
+      headerText = `${entry.from || 'unknown'} → ${entry.to || 'all'}`;
+      bodyText = entry.question || '';
+      badge = entry.answer ? 'answered' : 'pending';
+      const answerHtml = entry.answer
+        ? `<div class="comm-item-answer"><strong>${escapeHtml(stripEmojis(entry.to))}:</strong> ${escapeHtml(stripEmojis(entry.answer))}</div>`
+        : '<div class="comm-item-answer">Waiting for response...</div>';
+      el.innerHTML = `
+        <div class="comm-item-header">
+          <span>${escapeHtml(stripEmojis(headerText))}</span>
+          <span>${formatTime(entry.timestamp)}</span>
+        </div>
+        <div class="comm-item-meta">${escapeHtml(badge)}</div>
+        <div class="comm-item-body">${escapeHtml(stripEmojis(bodyText))}</div>
+        ${answerHtml}
+      `;
+    } else if (entry.type === 'message') {
+      headerText = `${entry.from || 'unknown'} → ${entry.to || 'all'}`;
+      bodyText = entry.payload && entry.payload.text ? entry.payload.text : '';
+      badge = entry.messageType || 'message';
+      el.innerHTML = `
+        <div class="comm-item-header">
+          <span>${escapeHtml(stripEmojis(headerText))}</span>
+          <span>${formatTime(entry.timestamp)}</span>
+        </div>
+        <div class="comm-item-meta">${escapeHtml(badge)}</div>
+        <div class="comm-item-body">${escapeHtml(stripEmojis(bodyText))}</div>
+      `;
+    } else if (entry.type === 'event') {
+      headerText = entry.eventType || 'event';
+      const payload = entry.payload || {};
+      bodyText = typeof payload === 'object'
+        ? Object.entries(payload).map(([k, v]) => `${k}: ${JSON.stringify(v)}`).join(' · ')
+        : String(payload);
+      badge = entry.participantId || 'system';
+      el.innerHTML = `
+        <div class="comm-item-header">
+          <span>${escapeHtml(stripEmojis(headerText))}</span>
+          <span>${formatTime(entry.timestamp)}</span>
+        </div>
+        <div class="comm-item-meta">${escapeHtml(badge)}</div>
+        <div class="comm-item-body">${escapeHtml(stripEmojis(bodyText))}</div>
+      `;
+    }
+
     messagingFeed.appendChild(el);
   });
 
@@ -1752,6 +1793,7 @@ socket.on('question_answered', (question) => {
 
 socket.on('communication_update', (communication) => {
   runState.communication = communication;
+  renderMessaging();
   renderChat();
   updateChatAgentSelect();
 });
@@ -1760,6 +1802,7 @@ socket.on('chat_message', (entry) => {
   if (entry && runState.communication) {
     runState.communication.log = runState.communication.log || [];
     runState.communication.log.push(entry);
+    renderMessaging();
     renderChat();
     updateChatAgentSelect();
   }

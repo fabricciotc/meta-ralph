@@ -901,6 +901,9 @@ class AgentRunner(threading.Thread):
         recipients = sorted(getattr(msg, "send_to", set()) or {"all"})
         if not recipients:
             recipients = ["all"]
+        # Log once even when the original message has multiple recipients; this
+        # keeps the Agent Internal Communication panel readable.
+        to_label = ", ".join(recipients)
         payload = {
             "text": self._summarize_internal_message(msg),
             "causeBy": getattr(msg, "cause_by", "message"),
@@ -909,15 +912,14 @@ class AgentRunner(threading.Thread):
         message_type = self._message_type_for_bus(getattr(msg, "cause_by", "message"))
         with run_lock:
             state = load_run_state()
-            for recipient in recipients:
-                bus.send_message(
-                    state,
-                    getattr(msg, "sent_from", "unknown"),
-                    recipient,
-                    message_type,
-                    payload,
-                    add_pending=False,
-                )
+            bus.send_message(
+                state,
+                getattr(msg, "sent_from", "unknown"),
+                to_label,
+                message_type,
+                payload,
+                add_pending=False,
+            )
             save_run_state(state)
             emit_communication_update(state)
 
