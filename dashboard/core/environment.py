@@ -31,11 +31,11 @@ class Environment:
         while self._queue:
             self.memory.add(self._queue.popleft())
 
-    async def run_round(self) -> bool:
+    async def run_round(self, **kwargs) -> bool:
         tasks = []
         for role in self.roles.values():
             if hasattr(role, "run"):
-                tasks.append(role.run(self))
+                tasks.append(role.run(self, **kwargs))
         if not tasks:
             return False
         results = await asyncio.gather(*tasks, return_exceptions=True)

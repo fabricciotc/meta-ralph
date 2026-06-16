@@ -771,18 +771,35 @@ class AgentRunner(threading.Thread):
         self._stop_event = threading.Event()
         self._pause_event = threading.Event()
         self._resume_event = threading.Event()
+        from core.runners.registry import BackendRegistry
+        from core.skills_registry import SkillsRegistry
+        self.backend_registry = BackendRegistry.default()
+        self.skills_registry = SkillsRegistry()
+        available = [b.name for b in self.backend_registry.available_backends()]
+        self.log(f"Backends disponibles: {available}", "info")
+        self.orchestrator = Orchestrator(
+            ticket,
+            resume=resume,
+            callbacks=self._orchestrator_callbacks(),
+            backend_registry=self.backend_registry,
+            skills_registry=self.skills_registry,
+        )
 
     def stop(self):
         """Solicita la detención ordenada del runner."""
         self._stop_event.set()
         self._pause_event.clear()
         self._resume_event.set()
+        if hasattr(self, "orchestrator") and self.orchestrator:
+            self.orchestrator.stop()
         self._stop_runtime_heartbeat()
 
     def pause(self):
         """Pausa el runner en el próximo checkpoint."""
         self._resume_event.clear()
         self._pause_event.set()
+        if hasattr(self, "orchestrator") and self.orchestrator:
+            self.orchestrator.pause()
         update_run_state({"active": False, "status": "paused"})
         self.log(f"Ticket {self.ticket_id} pausado.", "warning")
 
@@ -790,6 +807,8 @@ class AgentRunner(threading.Thread):
         """Reanuda un runner pausado."""
         self._pause_event.clear()
         self._resume_event.set()
+        if hasattr(self, "orchestrator") and self.orchestrator:
+            self.orchestrator.resume()
 
     def _should_stop(self):
         """Retorna True si se solicitó detener el runner."""
@@ -1256,135 +1275,95 @@ Responde de forma concisa y práctica. Asume decisiones razonables para un MVP .
                 runtime_updates["totalSeconds"] = elapsed
         update_ticket_runtime(self.ticket_id, **runtime_updates)
 
-    def run(self):
-        try:
-            if self.resume:
-                self.log(f"Reanudando run para {self.ticket_id} desde estado existente.")
-                update_run_state({
-                    "active": True,
-                    "status": "in-progress",
-                    "currentAgent": "orchestrator",
-                    "summary": "Reanudando run tras interrupción...",
-                })
-                self._ensure_agent("orchestrator", "Orchestrator Principal", "orchestrator", None, "running", 75)
-                self._start_runtime_heartbeat()
-                self._resume_loop()
-                return
+    def _orchestrator_callbacks(self):
+        """Callbacks que el Orchestrator real usa para integrarse con el dashboard."""
+        return {
+            "run_kimi": self._run_kimi_prompt,
+            "log": self.log,
+            "set_phase": self.set_phase,
+            "ensure_agent": self._ensure_agent,
+            "update_agent": self._update_agent,
+            "request_design_review": self._wait_for_design_answers,
+            "collect_outputs": self._collect_agent_outputs,
+            "get_dependency_context": self._get_dependency_context,
+            "on_started": self._on_orchestrator_started,
+            "on_complete": self._on_orchestrator_complete,
+        }
 
-            # Inicializar run-state con orquestador
-            with run_lock:
-                state = load_run_state()
-                state.update({
-                    "active": True,
+    def _on_orchestrator_started(self, ticket):
+        with run_lock:
+            state = load_run_state()
+            state.update({
+                "active": True,
+                "ticketId": self.ticket_id,
+                "status": "in-design",
+                "currentAgent": "orchestrator",
+                "progress": 5,
+                "startedAt": datetime.now(timezone.utc).isoformat(),
+                "logs": [],
+                "agents": [],
+                "messages": [],
+                "communication": {
                     "ticketId": self.ticket_id,
-                    "status": "in-design",
-                    "currentAgent": "orchestrator",
-                    "progress": 5,
-                    "startedAt": datetime.now(timezone.utc).isoformat(),
-                    "logs": [],
-                    "agents": [],
-                    "messages": [],
-                    "communication": {
-                        "ticketId": self.ticket_id,
-                        "participants": {},
-                        "log": [],
-                        "pendingActions": [],
-                        "maxLogSize": 500,
-                    },
-                    "designReview": None,
-                })
-                _ensure_agent(state, "orchestrator", "Orchestrator Principal", "orchestrator", None, "running", 5)
-                bus.register_participant(state, {
-                    "id": "orchestrator",
-                    "name": "Orchestrator Principal",
-                    "role": "orchestrator",
-                    "description": "Coordina las 5 fases del software factory loop",
-                    "capabilities": ["orchestration", "coordination"],
-                    "tools": ["dispatch", "monitor"],
-                })
-                _agent_log(state, "orchestrator", "Ticket movido a Ready for work. Iniciando software factory loop...")
-                save_run_state(state)
-                emit_communication_update(state)
-            self.log("Ticket movido a Ready for work. Iniciando software factory loop...")
-            self._start_runtime_heartbeat()
+                    "participants": {},
+                    "log": [],
+                    "pendingActions": [],
+                    "maxLogSize": 500,
+                },
+                "designReview": None,
+            })
+            _ensure_agent(state, "orchestrator", "Orchestrator Principal", "orchestrator", None, "running", 5)
+            bus.register_participant(state, {
+                "id": "orchestrator",
+                "name": "Orchestrator Principal",
+                "role": "orchestrator",
+                "description": "Coordina las 5 fases del software factory loop",
+                "capabilities": ["orchestration", "coordination"],
+                "tools": ["dispatch", "monitor"],
+            })
+            _agent_log(state, "orchestrator", "Ticket movido a Ready for work. Iniciando software factory loop...")
+            save_run_state(state)
+            emit_communication_update(state)
 
-            # Mover ticket a in-design e inicializar métricas de ejecución
-            now = datetime.now(timezone.utc)
-            update_ticket_status(self.ticket_id, "in-design")
-            update_ticket_runtime(
-                self.ticket_id,
-                startedAt=now.isoformat(),
-                elapsedSeconds=0,
-                summary="Iniciando software factory loop...",
-            )
-            self._agent_log("orchestrator", "Fase 1/5: PM Analysis — generando plan detallado con subagentes.")
-            self.set_phase("pm-research-agents", "in-design", 10)
+        now = datetime.now(timezone.utc)
+        update_ticket_status(self.ticket_id, "in-design")
+        update_ticket_runtime(
+            self.ticket_id,
+            startedAt=now.isoformat(),
+            elapsedSeconds=0,
+            summary="Iniciando software factory loop...",
+        )
+        self._start_runtime_heartbeat()
 
-            self._check_pause()
-            self.run_pm_analysis()
-            if self._should_stop_or_pause():
-                self.log("Run detenido por solicitud del usuario tras PM Analysis.", "warning")
-                return
-
-            self._agent_log("orchestrator", "Fase 2/5: Architecture — definiendo patrones técnicos globales.")
-            self.set_phase("architect", "in-design", 40)
-            self.run_architect()
-            if self._should_stop_or_pause():
-                self.log("Run detenido por solicitud del usuario tras Architecture.", "warning")
-                return
-
-            # Revisión de diseño con el usuario antes de planificar/implementar.
-            prd_path = get_meta_dir() / "state" / f"prd-{self.ticket_id}.md"
-            questions = self._generate_design_questions(prd_path)
-            self._agent_log("orchestrator", "Fase 2.5/5: Design Review — esperando confirmación de decisiones técnicas.")
-            answers = self._wait_for_design_answers(questions, timeout_seconds=60)
-            if self._should_stop_or_pause():
-                self.log("Run detenido por solicitud del usuario tras Design Review.", "warning")
-                return
-            self.log(f"Respuestas de design review: {answers}")
-
-            self._agent_log("orchestrator", "Fase 3/5: Planning & Dispatch — armando batches y DAG de dependencias.")
-            self.set_phase("project-manager", "in-design", 60)
-            self.run_planner()
-            if self._should_stop_or_pause():
-                self.log("Run detenido por solicitud del usuario tras Planning.", "warning")
-                return
-
-            self._agent_log("orchestrator", "Fase 4/5: Parallel Execution — implementando tareas en worktrees aislados.")
-            update_ticket_status(self.ticket_id, "in-progress")
-            self.set_phase("engineer-squad", "in-progress", 75)
-            self.run_execution()
-            if self._should_stop_or_pause():
-                self.log("Run detenido por solicitud del usuario tras Execution.", "warning")
-                return
-
-            self._agent_log("orchestrator", "Fase 5/5: QA Review — revisando integración del batch.")
-            self.set_phase("qa-engineer", "in-review", 90)
-            self.run_qa()
-            if self._should_stop_or_pause():
-                self.log("Run detenido por solicitud del usuario tras QA Review.", "warning")
-                return
-
+    def _on_orchestrator_complete(self, success):
+        self._stop_runtime_heartbeat()
+        if success:
             update_ticket_status(self.ticket_id, "done")
             self._update_agent("orchestrator", status="done", progress=100, log="Loop completado. Ticket marcado como Done.", log_level="success")
             update_run_state({"active": False, "ticketId": None, "status": "completed", "progress": 100, "currentAgent": None})
             self.log("Loop completado. Ticket marcado como Done.", "success")
+        else:
+            self._update_agent("orchestrator", status="failed", log="El loop falló. Revisa los logs.", log_level="error")
+            update_run_state({"active": False, "ticketId": None, "status": "failed", "progress": 0, "currentAgent": None})
+        # Marcar run como inactivo si este runner sigue siendo el activo
+        time.sleep(1)
+        with run_lock:
+            state = load_run_state()
+            if state.get("ticketId") == self.ticket_id:
+                state["active"] = False
+                save_run_state(state)
+        paused_run_threads.pop(self.ticket_id, None)
+        delete_ticket_snapshot(self.ticket_id)
 
+    def run(self):
+        try:
+            self.orchestrator.run()
         except Exception as exc:
             self.log(f"Error en el loop: {exc}", "error")
             self._update_agent("orchestrator", status="failed", log=f"Error en el loop: {exc}", log_level="error")
             update_run_state({"active": False, "ticketId": None, "status": "failed", "progress": 0, "currentAgent": None})
-        finally:
             self._stop_runtime_heartbeat()
-            # Marcar run como inactivo si este runner sigue siendo el activo
-            time.sleep(1)
-            with run_lock:
-                state = load_run_state()
-                if state.get("ticketId") == self.ticket_id and self._should_stop():
-                    state["active"] = False
-                    save_run_state(state)
             paused_run_threads.pop(self.ticket_id, None)
-            # Limpiar snapshot al terminar el run (done, failed o stop)
             delete_ticket_snapshot(self.ticket_id)
 
     def _run_planner_and_execution(self):
@@ -2912,7 +2891,7 @@ def start_automatic_run(ticket, resume=False, queue_if_active=True):
                 )
             return False
 
-    _active_run_thread = Orchestrator(ticket, resume=resume, runner_factory=AgentRunner)
+    _active_run_thread = AgentRunner(ticket, resume=resume)
     _active_run_thread.start()
     return True
 
@@ -3034,7 +3013,7 @@ def process_next_in_queue():
         save_run_state(state)
 
     update_ticket_status(next_ticket["id"], "ready-for-work")
-    _active_run_thread = AgentRunner(next_ticket)
+    _active_run_thread = AgentRunner(next_ticket, resume=False)
     _active_run_thread.start()
     return True
 

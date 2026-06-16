@@ -1,0 +1,187 @@
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+from core.actions.implement_action import ImplementAction
+from core.models import Message
+from core.roles.base import Role
+
+
+class EngineerRole(Role):
+    """Engineer worker role that reacts to task assignments and implements them.
+
+    Uses the MetaGPT-style ``_watch`` + ``set_actions`` pattern: it watches for
+    ``task_assigned`` messages and executes its registered :class:`ImplementAction`.
+    """
+
+    _watch = ["task_assigned"]
+    react_mode = "by_order"
+
+    def __init__(
+        self,
+        role_id: str,
+        focus: str,
+        run_kimi: Optional[Any] = None,
+        repo_path: Optional[Any] = None,
+        branch_prefix: str = "feature",
+        update_agent: Optional[Any] = None,
+        phase_name: str = "engineer_implement",
+        timeout_seconds: int = 600,
+    ):
+        super().__init__(
+            role_id=role_id,
+            profile="Engineer",
+            goal=f"Implement assigned tasks with focus: {focus}",
+            addresses={role_id},
+        )
+        self.focus = focus
+        self.run_kimi = run_kimi
+        self.repo_path = Path(repo_path) if repo_path else None
+        self.branch_prefix = branch_prefix
+        self.update_agent = update_agent or self._default_update_agent
+        self.phase_name = phase_name
+        self.timeout_seconds = timeout_seconds
+
+        # Register the single action this role performs. In the future an engineer
+        # could have multiple actions (e.g. implement, test, fix) selected by react_mode.
+        self.set_actions([
+            ImplementAction(
+                action_id=f"{role_id}-implement",
+                name=f"Engineer {role_id} Implement",
+                desc=f"Implement task with focus: {focus}",
+            ),
+        ])
+
+    def _find_trigger(self, context: List[Message]) -> Optional[Message]:
+        """Return the most recent task_assigned message addressed to this role."""
+        # Delegate to the base trigger logic which uses _watch.
+        trigger = super()._find_trigger(context)
+        if trigger is not None:
+            return trigger
+        # Fallback for messages not yet observed by the base filter (legacy tests
+        # sometimes call this method with a raw context).
+        for msg in reversed(context):
+            if msg.cause_by != "task_assigned":
+                continue
+            if msg.sent_from == self.role_id:
+                continue
+            if msg.id in self._processed_trigger_ids:
+                continue
+            if "all" in msg.send_to or self.role_id in msg.send_to:
+                return msg
+        return None
+
+    async def think(self, context: List[Message]) -> Optional[ImplementAction]:
+        """Select the implementation action when a task assignment is observed."""
+        trigger = self._find_trigger(context)
+        if trigger is None:
+            self.todo = None
+            return None
+        # Use the action registered via set_actions.
+        self.todo = self.actions[0] if self.actions else ImplementAction(
+            action_id=f"{self.role_id}-implement",
+            name=f"Engineer {self.role_id} Implement",
+            desc=f"Implement task with focus: {self.focus}",
+        )
+        return self.todo
+
+    async def run(self, env: Any, **kwargs) -> Optional[Message]:
+        history = env.history() if hasattr(env, "history") else []
+        queue = env.get_messages_for(self.role_id) if hasattr(env, "get_messages_for") else []
+        context = self.observe(history + queue)
+        action = await self.think(context)
+        if not action:
+            return None
+
+        trigger = self._find_trigger(context)
+        if trigger is None:
+            return None
+        self._mark_trigger_processed(trigger)
+
+        task: Dict[str, Any] = dict(trigger.metadata.get("task", {}))
+        ticket_id = trigger.metadata.get("ticket_id", "")
+        ticket_title = trigger.metadata.get("ticket_title", "")
+        ticket_description = trigger.metadata.get("ticket_description", "")
+
+        repo_path = Path(trigger.metadata.get("repo_path", self.repo_path or "."))
+        branch = str(
+            trigger.metadata.get("branch")
+            or kwargs.get("branch")
+            or f"{self.branch_prefix}/{ticket_id}-{task.get('id', 'T')}".lower()
+        )
+
+        dependencies_context = trigger.metadata.get("dependencies_context", "")
+        prd_path = trigger.metadata.get("prd_path") or kwargs.get("prd_path")
+        architecture_path = trigger.metadata.get("architecture_path") or kwargs.get("architecture_path")
+
+        action_kwargs = {
+            "run_kimi": self.run_kimi,
+            "task": task,
+            "repo_path": repo_path,
+            "branch": branch,
+            "dependencies_context": dependencies_context,
+            "prd_path": Path(prd_path) if prd_path else None,
+            "architecture_path": Path(architecture_path) if architecture_path else None,
+            "ticket_id": ticket_id,
+            "ticket_title": ticket_title,
+            "ticket_description": ticket_description,
+            "agent_id": self.role_id,
+            "build_prompt": kwargs.get("build_prompt") or self._default_build_prompt,
+            "update_agent": kwargs.get("update_agent") or self.update_agent,
+            "phase_name": kwargs.get("phase_name") or self.phase_name,
+            "timeout_seconds": kwargs.get("timeout_seconds") or self.timeout_seconds,
+        }
+
+        response = await self.act(action, context, **action_kwargs)
+        response.sent_from = self.role_id
+        env.publish_message(response)
+        return response
+
+    def _default_build_prompt(
+        self,
+        *,
+        task: Dict[str, Any],
+        repo_path: Path,
+        branch: str,
+        dependencies_context: str,
+        prd_path: Optional[Path],
+        architecture_path: Optional[Path],
+        ticket_title: str,
+        ticket_description: str,
+    ) -> str:
+        files_section = ""
+        files_to_touch = task.get("files_to_touch", []) or []
+        if files_to_touch:
+            files_section = "\nArchivos a modificar:\n" + "\n".join(f"- {f}" for f in files_to_touch)
+
+        deps_section = ""
+        if dependencies_context:
+            deps_section = f"\n\nContexto de dependencias completadas:\n{dependencies_context}"
+
+        prd_section = ""
+        if prd_path and prd_path.exists():
+            prd_section = f"\n\nPRD: {prd_path}"
+
+        arch_section = ""
+        if architecture_path and architecture_path.exists():
+            arch_section = f"\n\nArchitecture: {architecture_path}"
+
+        return (
+            "Eres un ingeniero de software senior en una software factory estilo MetaGPT. "
+            f"Tu identidad es {self.role_id} y tu foco es: {self.focus}.\n\n"
+            "Implementa la siguiente tarea en el repositorio dado, en la rama indicada. "
+            "No escribas explicaciones fuera del código; genera cambios reales, tests si aplica, "
+            "y respeta las convenciones del proyecto.\n\n"
+            f"TICKET: {ticket_title}\n"
+            f"DESCRIPCIÓN: {ticket_description}\n\n"
+            f"TAREA: {task.get('title', '')}\n"
+            f"ID TAREA: {task.get('id', '')}\n"
+            f"DESCRIPCIÓN TAREA: {task.get('description', '')}\n"
+            f"REPO: {repo_path}\n"
+            f"BRANCH: {branch}{files_section}{deps_section}{prd_section}{arch_section}\n\n"
+            "Responde con un resumen breve de los cambios realizados."
+        )
+
+    def _default_update_agent(self, agent_id: str, **kwargs) -> None:
+        pass

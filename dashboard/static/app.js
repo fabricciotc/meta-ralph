@@ -543,7 +543,7 @@ function renderBehaviorsGraph() {
   lastRenderedGraphKey = key;
 
   if (!nodes.length) {
-    behaviorsSvg.innerHTML = `<defs><marker id="arrow-head" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="rgba(46,67,32,0.35)" /></marker></defs>`;
+    behaviorsSvg.innerHTML = `<defs><marker id="arrow-head" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="rgba(46,67,32,0.35)" /></marker></defs>`;
     graphNodes.innerHTML = '';
     graphStage.style.width = '';
     graphStage.style.height = '';
@@ -573,22 +573,40 @@ function renderBehaviorsGraph() {
 
   // SVG edges
   let svgHtml = `<defs>
-    <marker id="arrow-head" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="${arrowFill}" /></marker>
-    <marker id="arrow-head-active" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="${activeStroke}" /></marker>
+    <marker id="arrow-head" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="${arrowFill}" /></marker>
+    <marker id="arrow-head-active" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="${activeStroke}" /></marker>
   </defs>`;
 
   const byId = {};
   nodes.forEach(n => byId[n.id] = n);
 
-  function curve(p1, p2, type = 'parent') {
+  function curve(p1, p2, type = 'parent', sourceRadius = 0, targetRadius = 0) {
     const dx = p2.x - p1.x;
     const dy = p2.y - p1.y;
+    const dist = Math.hypot(dx, dy);
+    if (dist === 0) {
+      return `M ${p1.x.toFixed(1)} ${p1.y.toFixed(1)} C ${p1.x.toFixed(1)} ${p1.y.toFixed(1)}, ${p2.x.toFixed(1)} ${p2.y.toFixed(1)}, ${p2.x.toFixed(1)} ${p2.y.toFixed(1)}`;
+    }
+    const ux = dx / dist;
+    const uy = dy / dist;
+    // Trim the curve so it starts/ends at the node border instead of the center.
+    const start = { x: p1.x + ux * sourceRadius, y: p1.y + uy * sourceRadius };
+    const end = { x: p2.x - ux * targetRadius, y: p2.y - uy * targetRadius };
+    const newDx = end.x - start.x;
+    const newDy = end.y - start.y;
     // Message edges get a slight sideways curve so bidirectional messages don't overlap.
-    const sideOffset = type === 'message' ? Math.sign(dx || 1) * Math.min(40, Math.abs(dx) * 0.15 + 20) : 0;
-    const c1 = { x: p1.x + sideOffset, y: p1.y + dy * 0.5 };
-    const c2 = { x: p2.x + sideOffset, y: p2.y - dy * 0.5 };
-    return `M ${p1.x.toFixed(1)} ${p1.y.toFixed(1)} C ${c1.x.toFixed(1)} ${c1.y.toFixed(1)}, ${c2.x.toFixed(1)} ${c2.y.toFixed(1)}, ${p2.x.toFixed(1)} ${p2.y.toFixed(1)}`;
+    const sideOffset = type === 'message' ? Math.sign(newDx || 1) * Math.min(40, Math.abs(newDx) * 0.15 + 20) : 0;
+    const c1 = { x: start.x + sideOffset, y: start.y + newDy * 0.5 };
+    const c2 = { x: end.x + sideOffset, y: end.y - newDy * 0.5 };
+    return `M ${start.x.toFixed(1)} ${start.y.toFixed(1)} C ${c1.x.toFixed(1)} ${c1.y.toFixed(1)}, ${c2.x.toFixed(1)} ${c2.y.toFixed(1)}, ${end.x.toFixed(1)} ${end.y.toFixed(1)}`;
   }
+
+  const nodeRadii = {};
+  nodes.forEach(node => {
+    const baseSize = node.role === 'orchestrator' ? 56 : node.role === 'lead' ? 48 : 40;
+    const size = Math.max(26, Math.round(baseSize * (nodeDiameter / 48)));
+    nodeRadii[node.id] = size / 2;
+  });
 
   edges.forEach((e, i) => {
     const s = positions[e.source];
@@ -596,6 +614,8 @@ function renderBehaviorsGraph() {
     if (!s || !t) return;
     const sourceNode = byId[e.source];
     const targetNode = byId[e.target];
+    const sourceRadius = nodeRadii[e.source] || nodeDiameter / 2;
+    const targetRadius = nodeRadii[e.target] || nodeDiameter / 2;
     const isActive = sourceNode && targetNode && (sourceNode.status === 'running' || targetNode.status === 'running');
     const stroke = isActive ? activeStroke : defaultStroke;
     const marker = isActive ? 'url(#arrow-head-active)' : 'url(#arrow-head)';
@@ -604,7 +624,7 @@ function renderBehaviorsGraph() {
     const isMessage = e.type === 'message';
     const dash = isMessage ? '2,5' : 'none';
     const dashAnimate = isMessage ? '<animate attributeName="stroke-dashoffset" from="0" to="-14" dur="1s" repeatCount="indefinite" />' : '';
-    svgHtml += `<path id="${pathId}" d="${curve(s, t, e.type)}" fill="none" stroke="${stroke}" stroke-width="${width}" stroke-dasharray="${dash}" stroke-linecap="round" marker-end="${marker}">${dashAnimate}</path>`;
+    svgHtml += `<path id="${pathId}" d="${curve(s, t, e.type, sourceRadius, targetRadius)}" fill="none" stroke="${stroke}" stroke-width="${width}" stroke-dasharray="${dash}" stroke-linecap="round" marker-end="${marker}">${dashAnimate}</path>`;
     if (isActive) {
       svgHtml += `<circle r="2.5" fill="${activeStroke}"><animateMotion dur="1.2s" repeatCount="indefinite"><mpath href="#${pathId}"/></animateMotion></circle>`;
     }
