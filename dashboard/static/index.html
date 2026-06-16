@@ -118,7 +118,18 @@
         </section>
       </main>
 
-      <aside class="chat-panel" aria-label="Agent chat">
+      <aside class="chat-panel" aria-label="Agent chat and deliverables">
+        <section class="deliverables-panel" aria-label="Deliverables">
+          <div class="panel-header">
+            <span class="panel-title"><i data-lucide="folder-open"></i> Deliverables</span>
+            <button type="button" class="btn-ghost btn-small" id="btn-refresh-deliverables" title="Refresh deliverables"><i data-lucide="refresh-cw"></i></button>
+          </div>
+          <div class="deliverables-list" id="deliverables-list">
+            <div class="deliverables-empty">No deliverables yet.</div>
+          </div>
+        </section>
+
+        <div class="chat-panel-body">
         <div class="panel-header">
           <span class="panel-title"><i data-lucide="message-circle"></i> Chat</span>
           <span class="badge-live"><span class="live-dot"></span> live</span>
@@ -142,6 +153,7 @@
           <textarea id="chat-input" rows="2" placeholder="Write instructions, questions, or /reactivate..." aria-label="Message"></textarea>
           <button type="submit" class="btn-primary" aria-label="Send message"><i data-lucide="send"></i></button>
         </form>
+        </div>
       </aside>
     </div>
 
@@ -333,6 +345,6 @@
   <!-- Toast -->
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-  <script src="/static/app.js?v=5"></script>
+  <script src="/static/app.js?v=6"></script>
 </body>
 </html>

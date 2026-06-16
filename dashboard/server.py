@@ -3899,6 +3899,104 @@ def api_restart_agent(ticket_id, agent_id):
     return jsonify({"error": "No active runner is available to restart this agent"}), 409
 
 
+def _ticket_by_id(ticket_id):
+    if not ticket_id:
+        return None
+    board = load_board()
+    return next((t for t in board.get("tickets", []) if t.get("id") == ticket_id), None)
+
+
+def _add_deliverable(entries, seen, path, kind, name, source):
+    """Append a deliverable entry if the path has not been listed yet."""
+    path_str = str(path)
+    if not path_str or path_str in seen:
+        return
+    seen.add(path_str)
+    exists = os.path.exists(path_str)
+    size_bytes = None
+    updated_at = None
+    if exists and os.path.isfile(path_str):
+        try:
+            size_bytes = os.path.getsize(path_str)
+            updated_at = datetime.fromtimestamp(
+                os.path.getmtime(path_str), tz=timezone.utc
+            ).isoformat()
+        except OSError:
+            pass
+    entries.append({
+        "path": path_str,
+        "type": kind,
+        "name": name,
+        "source": source,
+        "exists": exists,
+        "sizeBytes": size_bytes,
+        "updatedAt": updated_at,
+    })
+
+
+def collect_deliverables(ticket_id):
+    """Collect generated files and agent outputs for a ticket."""
+    entries = []
+    seen = set()
+    state_dir = get_meta_dir() / "state"
+
+    standard_artifacts = [
+        (state_dir / f"prd-{ticket_id}.md", "prd", "Product Requirements Document"),
+        (state_dir / f"architecture-{ticket_id}.md", "architecture", "Architecture"),
+        (state_dir / f"tasks-{ticket_id}.json", "tasks", "Task Plan"),
+    ]
+    for path, kind, name in standard_artifacts:
+        if path.exists():
+            _add_deliverable(entries, seen, path, kind, name, "system")
+
+    for path in sorted(state_dir.glob(f"qa-rejection-{ticket_id}-*.md")):
+        task_label = path.stem.replace(f"qa-rejection-{ticket_id}-", "")
+        _add_deliverable(
+            entries, seen, path, "qa-rejection", f"QA Rejection: {task_label}", "qa-engineer"
+        )
+
+    research_dir = state_dir / "pm-research"
+    if research_dir.exists():
+        for path in sorted(research_dir.glob(f"{ticket_id}-*.md")):
+            label = path.stem.replace(f"{ticket_id}-", "")
+            _add_deliverable(entries, seen, path, "research", f"PM Research: {label}", "pm-research")
+
+    with run_lock:
+        state = load_run_state()
+        agents = (state.get("agents", []) or []) if state.get("ticketId") == ticket_id else []
+
+    for agent in agents:
+        agent_id = agent.get("id", "agent")
+        for output_path in agent.get("outputs", []) or []:
+            _add_deliverable(
+                entries,
+                seen,
+                output_path,
+                "agent-output",
+                f"{agent_id}: {os.path.basename(str(output_path))}",
+                agent_id,
+            )
+
+    ticket = _ticket_by_id(ticket_id)
+    repo_path = ticket.get("repoPath") if ticket else ""
+    if repo_path:
+        notes_dir = Path(repo_path) / ".meta-ralph" / "engineer-notes"
+        if notes_dir.exists():
+            for path in sorted(notes_dir.glob(f"*{ticket_id}*.md")):
+                _add_deliverable(entries, seen, path, "agent-output", path.name, "engineer-notes")
+
+    entries.sort(key=lambda item: item.get("updatedAt") or "", reverse=True)
+    return entries
+
+
+@app.route("/api/deliverables", methods=["GET"])
+def api_deliverables():
+    ticket_id = request.args.get("ticketId") or load_run_state().get("ticketId")
+    if not ticket_id:
+        return jsonify({"ticketId": None, "deliverables": []})
+    return jsonify({"ticketId": ticket_id, "deliverables": collect_deliverables(ticket_id)})
+
+
 @app.route("/api/open-path", methods=["POST"])
 def api_open_path():
     data = request.get_json(silent=True) or {}

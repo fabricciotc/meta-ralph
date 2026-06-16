@@ -37,6 +37,7 @@ let systemInfo = { model: '—' };
 let traces = [];
 let graphData = { nodes: [], edges: [] };
 let selectedTicketId = localStorage.getItem('meta-ralph-selected-ticket') || null;
+let deliverables = [];
 
 let isConnected = false;
 let lastFetchError = false;
@@ -86,6 +87,8 @@ const chatMessages = document.getElementById('chat-messages');
 const chatAgentSelect = document.getElementById('chat-agent-select');
 const chatForm = document.getElementById('chat-form');
 const chatInput = document.getElementById('chat-input');
+const deliverablesList = document.getElementById('deliverables-list');
+const btnRefreshDeliverables = document.getElementById('btn-refresh-deliverables');
 
 const debugLog = document.getElementById('debug-log');
 const debugMeta = document.getElementById('debug-meta');
@@ -337,6 +340,8 @@ function setSelectedTicket(ticketId) {
   } else {
     localStorage.removeItem('meta-ralph-selected-ticket');
   }
+  lastRenderedDeliverablesKey = null;
+  loadDeliverables();
 }
 
 function getDisplayTicket() {
@@ -1259,6 +1264,94 @@ function updateChatAgentSelect() {
 }
 
 let lastRenderedChatKey = null;
+let lastRenderedDeliverablesKey = null;
+
+function formatFileSize(bytes) {
+  if (bytes == null || Number.isNaN(bytes)) return '';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function deliverableIcon(type) {
+  switch (type) {
+    case 'prd':
+    case 'architecture':
+    case 'research':
+    case 'qa-rejection':
+      return 'file-text';
+    case 'tasks':
+      return 'list-tree';
+    default:
+      return 'file';
+  }
+}
+
+function renderDeliverables() {
+  if (!deliverablesList) return;
+  const key = JSON.stringify(deliverables.map(d => [d.path, d.updatedAt, d.exists]));
+  if (key === lastRenderedDeliverablesKey) return;
+  lastRenderedDeliverablesKey = key;
+
+  if (!deliverables.length) {
+    deliverablesList.innerHTML = '<div class="deliverables-empty">No deliverables yet.</div>';
+    return;
+  }
+
+  deliverablesList.innerHTML = '';
+  deliverables.forEach(item => {
+    const el = document.createElement('div');
+    el.className = `deliverable-item${item.exists ? '' : ' missing'}`;
+    const size = formatFileSize(item.sizeBytes);
+    const updated = item.updatedAt ? formatTime(item.updatedAt) : '';
+    el.innerHTML = `
+      <div class="deliverable-main">
+        <i data-lucide="${deliverableIcon(item.type)}"></i>
+        <div class="deliverable-copy">
+          <div class="deliverable-title" title="${escapeHtml(item.name || item.path)}">${escapeHtml(item.name || 'Deliverable')}</div>
+          <div class="deliverable-path" title="${escapeHtml(item.path || '')}">${escapeHtml(item.path || 'No path available')}</div>
+          <div class="deliverable-meta">
+            <span>${escapeHtml(item.type || 'file')}</span>
+            ${size ? `<span>${escapeHtml(size)}</span>` : ''}
+            ${updated ? `<span>${escapeHtml(updated)}</span>` : ''}
+          </div>
+        </div>
+      </div>
+      <div class="deliverable-actions">
+        <button type="button" class="btn-icon btn-small deliverable-open-file" title="Open file" ${item.exists ? '' : 'disabled'}><i data-lucide="file"></i></button>
+        <button type="button" class="btn-icon btn-small deliverable-open-folder" title="Open folder" ${item.path ? '' : 'disabled'}><i data-lucide="folder-open"></i></button>
+      </div>
+    `;
+    const openFileBtn = el.querySelector('.deliverable-open-file');
+    const openFolderBtn = el.querySelector('.deliverable-open-folder');
+    if (openFileBtn) openFileBtn.addEventListener('click', () => openPath(item.path, false));
+    if (openFolderBtn) openFolderBtn.addEventListener('click', () => openPath(item.path, true));
+    deliverablesList.appendChild(el);
+  });
+  if (window.lucide) lucide.createIcons();
+}
+
+async function loadDeliverables() {
+  if (!deliverablesList) return;
+  const displayTicket = getDisplayTicket();
+  if (!displayTicket || !displayTicket.id) {
+    deliverables = [];
+    lastRenderedDeliverablesKey = null;
+    renderDeliverables();
+    return;
+  }
+  try {
+    const res = await fetch(`/api/deliverables?ticketId=${encodeURIComponent(displayTicket.id)}`);
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    deliverables = data.deliverables || [];
+    renderDeliverables();
+  } catch (err) {
+    console.warn('Error loading deliverables:', err);
+    deliverablesList.innerHTML = '<div class="deliverables-empty">Could not load deliverables.</div>';
+    lastRenderedDeliverablesKey = null;
+  }
+}
 
 function formatChatContent(text) {
   if (!text) return '';
@@ -1692,6 +1785,7 @@ function renderRunState(state) {
   renderTicketStatus();
   renderMessaging();
   renderChat();
+  loadDeliverables();
   updateChatAgentSelect();
   renderDesignReview(runState);
   renderDebugFooter();
@@ -1762,6 +1856,10 @@ if (btnDesignReviewClose) btnDesignReviewClose.addEventListener('click', dismiss
 if (btnDesignReviewLater) btnDesignReviewLater.addEventListener('click', dismissDesignReview);
 
 if (chatForm) chatForm.addEventListener('submit', sendChatMessage);
+if (btnRefreshDeliverables) btnRefreshDeliverables.addEventListener('click', () => {
+  lastRenderedDeliverablesKey = null;
+  loadDeliverables();
+});
 if (chatInput) {
   chatInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
