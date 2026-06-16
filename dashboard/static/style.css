@@ -234,6 +234,15 @@ body {
   color: var(--info);
 }
 
+.pill-value.status-done,
+.pill-value.status-completed {
+  color: var(--ok);
+}
+
+.pill-value.status-failed {
+  color: var(--err);
+}
+
 .pill-value.status-paused {
   color: var(--wrn);
 }
@@ -435,6 +444,17 @@ body {
 .run-bar-status.paused {
   background: var(--warning-muted);
   color: var(--wrn);
+}
+
+.run-bar-status.done,
+.run-bar-status.completed {
+  background: var(--success-muted);
+  color: var(--ok);
+}
+
+.run-bar-status.failed {
+  background: var(--danger-muted);
+  color: var(--err);
 }
 
 .progress-track {
@@ -1084,6 +1104,19 @@ body {
   display: inline-block;
 }
 
+.legend-line {
+  width: 18px;
+  height: 0;
+  display: inline-block;
+  border-top: 1px solid var(--on-surface-base-disabled);
+  transform: translateY(-2px);
+}
+
+.legend-line-communication {
+  border-top-style: dashed;
+  opacity: 0.7;
+}
+
 /* ============================================================
    Ticket status panel
    ============================================================ */
@@ -1525,6 +1558,15 @@ body {
 
 .ticket-row-paused::before {
   background: var(--wrn);
+}
+
+.ticket-row.selected {
+  border-color: var(--primary);
+  background: var(--primary-muted);
+}
+
+.ticket-row.selected::before {
+  background: var(--primary);
 }
 
 .ticket-row-queued::before {

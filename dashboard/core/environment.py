@@ -32,6 +32,7 @@ class Environment:
             self.memory.add(self._queue.popleft())
 
     async def run_round(self, **kwargs) -> bool:
+        context = kwargs.get("context")
         tasks = []
         for role in self.roles.values():
             if hasattr(role, "run"):
@@ -47,6 +48,7 @@ class Environment:
         # Messages published during the round count as activity even if no role
         # explicitly returned True; otherwise clarification loops stall.
         had_messages = len(self._queue) > 0
+        self._emit_visible_messages(context)
         self._drain_queue_to_memory()
         return had_activity or had_messages
 
@@ -55,3 +57,9 @@ class Environment:
 
     def history(self) -> List[Message]:
         return self.memory.get()
+
+    def _emit_visible_messages(self, context) -> None:
+        if context is None or not hasattr(context, "callback"):
+            return
+        for msg in list(self._queue):
+            context.callback("publish_message", msg)

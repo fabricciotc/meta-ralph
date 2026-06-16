@@ -18,7 +18,7 @@ class DummyRole:
         self.observed = env.get_messages_for(self.role_id)
         return self.observed
 
-    async def run(self, env):
+    async def run(self, env, **kwargs):
         msgs = self.observe(env)
         if msgs:
             env.publish_message(
@@ -58,6 +58,30 @@ class TestEnvironment(unittest.TestCase):
         active = asyncio.run(env.run_round())
         self.assertTrue(active)
         self.assertEqual(len(env.memory.get()), 2)
+
+    def test_run_round_publishes_visible_messages_to_context_callback(self):
+        import asyncio
+
+        class DummyContext:
+            def __init__(self):
+                self.messages = []
+
+            def callback(self, name, *args, **kwargs):
+                if name == "publish_message":
+                    self.messages.append(args[0])
+
+        env = Environment()
+        context = DummyContext()
+        role = DummyRole("role1")
+        env.add_role(role)
+        env.publish_message(
+            Message(content="hello", sent_from="user", cause_by="start", send_to={"role1"})
+        )
+
+        active = asyncio.run(env.run_round(context=context))
+
+        self.assertTrue(active)
+        self.assertEqual([m.cause_by for m in context.messages], ["start", "ack"])
 
 
 if __name__ == "__main__":

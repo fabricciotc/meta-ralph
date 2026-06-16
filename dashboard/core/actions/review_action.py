@@ -23,7 +23,8 @@ def default_build_review_prompt(
     files_str = ", ".join(str(f) for f in files) if files else "N/A"
 
     return (
-        "You are an expert QA Engineer. Review this task's changes and decide whether to approve or reject them.\n\n"
+        "You are an expert QA Engineer. Review this task's changes and decide whether to approve or reject them. "
+        "Write the reason and suggestion as direct, actionable feedback to the implementing Engineer.\n\n"
         f"TASK: {task.get('id', '')} - {task.get('title', '')}\n"
         f"DESCRIPTION: {task.get('description', '')}\n"
         f"COMPLEXITY: {task.get('complexity', 'M')}\n"
