@@ -81,6 +81,11 @@ const graphEmpty = document.getElementById('graph-empty');
 const ticketStatusBody = document.getElementById('ticket-status-body');
 const messagingFeed = document.getElementById('messaging-feed');
 
+const chatMessages = document.getElementById('chat-messages');
+const chatAgentSelect = document.getElementById('chat-agent-select');
+const chatForm = document.getElementById('chat-form');
+const chatInput = document.getElementById('chat-input');
+
 const debugLog = document.getElementById('debug-log');
 const debugMeta = document.getElementById('debug-meta');
 
@@ -1042,6 +1047,107 @@ function renderMessaging() {
 }
 
 /* ============================================================
+   Chat panel
+   ============================================================ */
+
+const DEFAULT_CHAT_AGENTS = [
+  { id: 'orchestrator', name: 'Orchestrator Principal' },
+  { id: 'product_manager', name: 'Product Manager' },
+  { id: 'architect', name: 'Architect' },
+  { id: 'project_manager', name: 'Project Manager' },
+  { id: 'engineer', name: 'Engineer' },
+  { id: 'qa', name: 'QA Engineer' },
+  { id: 'recovery', name: 'Recovery' },
+];
+
+function updateChatAgentSelect() {
+  if (!chatAgentSelect) return;
+  const currentValue = chatAgentSelect.value;
+  const agents = runState.agents || [];
+  const known = new Map();
+  DEFAULT_CHAT_AGENTS.forEach(a => known.set(a.id, a.name));
+  agents.forEach(a => {
+    if (!known.has(a.id)) known.set(a.id, a.name || a.id);
+  });
+
+  const participants = (runState.communication && runState.communication.participants) || {};
+  Object.entries(participants).forEach(([id, profile]) => {
+    if (!known.has(id)) known.set(id, profile.name || id);
+  });
+
+  chatAgentSelect.innerHTML = '';
+  Array.from(known.entries()).forEach(([id, name]) => {
+    const option = document.createElement('option');
+    option.value = id;
+    option.textContent = name;
+    chatAgentSelect.appendChild(option);
+  });
+  if (known.has(currentValue)) chatAgentSelect.value = currentValue;
+}
+
+let lastRenderedChatKey = null;
+
+function renderChat() {
+  if (!chatMessages) return;
+  const comm = runState.communication || {};
+  const log = (comm.log || []).filter(e => e.type === 'message' && e.messageType === 'chat');
+
+  const key = log.map(e => `${e.timestamp}|${e.from}|${e.to}|${JSON.stringify(e.payload)}`).join('//');
+  if (key === lastRenderedChatKey) return;
+  lastRenderedChatKey = key;
+
+  if (!log.length) {
+    chatMessages.innerHTML = '<div class="chat-empty">Selecciona un agente y escribe un mensaje o instrucción.</div>';
+    return;
+  }
+
+  chatMessages.innerHTML = '';
+  log.forEach(entry => {
+    const from = entry.from || 'system';
+    const text = (entry.payload && entry.payload.text) || '';
+    const side = from === 'user' ? 'user' : (from === 'system' ? 'system' : 'agent');
+    const displayName = from === 'user' ? 'Tú' : (from === 'system' ? 'Sistema' : stripEmojis(from));
+
+    const el = document.createElement('div');
+    el.className = `chat-message ${side}`;
+    el.innerHTML = `
+      <div class="chat-bubble">${escapeHtml(text)}</div>
+      <div class="chat-meta">
+        <span>${escapeHtml(displayName)}</span>
+        <span>${formatTime(entry.timestamp)}</span>
+      </div>
+    `;
+    chatMessages.appendChild(el);
+  });
+
+  const nearBottom = chatMessages.scrollHeight - chatMessages.scrollTop - chatMessages.clientHeight < 80;
+  if (nearBottom) chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
+async function sendChatMessage(e) {
+  e.preventDefault();
+  if (!chatInput || !chatAgentSelect) return;
+  const text = chatInput.value.trim();
+  if (!text) return;
+  const to = chatAgentSelect.value || 'orchestrator';
+  chatInput.value = '';
+  chatInput.disabled = true;
+  if (chatForm) chatForm.classList.add('sending');
+  try {
+    socket.emit('chat_send', { to, message: text });
+  } catch (err) {
+    console.error('Error enviando chat:', err);
+    showToast('No se pudo enviar el mensaje', 3000);
+  } finally {
+    setTimeout(() => {
+      chatInput.disabled = false;
+      chatInput.focus();
+      if (chatForm) chatForm.classList.remove('sending');
+    }, 400);
+  }
+}
+
+/* ============================================================
    Design review modal
    ============================================================ */
 
@@ -1380,6 +1486,8 @@ function renderRunState(state) {
   renderRunBar();
   renderTicketStatus();
   renderMessaging();
+  renderChat();
+  updateChatAgentSelect();
   renderDesignReview(runState);
   renderDebugFooter();
   renderTicketsList();
@@ -1448,6 +1556,16 @@ if (btnDesignReviewExtend) btnDesignReviewExtend.addEventListener('click', exten
 if (btnDesignReviewClose) btnDesignReviewClose.addEventListener('click', dismissDesignReview);
 if (btnDesignReviewLater) btnDesignReviewLater.addEventListener('click', dismissDesignReview);
 
+if (chatForm) chatForm.addEventListener('submit', sendChatMessage);
+if (chatInput) {
+  chatInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      if (chatForm) chatForm.dispatchEvent(new Event('submit'));
+    }
+  });
+}
+
 if (btnCloseCommunication) btnCloseCommunication.addEventListener('click', closeCommunicationPanel);
 if (communicationBackdrop) communicationBackdrop.addEventListener('click', closeCommunicationPanel);
 
@@ -1495,6 +1613,21 @@ socket.on('pending_question', (question) => {
 socket.on('question_answered', (question) => {
   if (currentQuestion && currentQuestion.id === question.id) closeQuestionModal();
   loadPendingQuestions();
+});
+
+socket.on('communication_update', (communication) => {
+  runState.communication = communication;
+  renderChat();
+  updateChatAgentSelect();
+});
+
+socket.on('chat_message', (entry) => {
+  if (entry && runState.communication) {
+    runState.communication.log = runState.communication.log || [];
+    runState.communication.log.push(entry);
+    renderChat();
+    updateChatAgentSelect();
+  }
 });
 
 /* ============================================================

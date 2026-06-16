@@ -116,6 +116,32 @@
           </div>
         </section>
       </main>
+
+      <aside class="chat-panel" aria-label="Chat con agentes">
+        <div class="panel-header">
+          <span class="panel-title"><i data-lucide="message-circle"></i> Chat</span>
+          <span class="badge-live"><span class="live-dot"></span> live</span>
+        </div>
+        <div class="chat-agent-bar">
+          <label for="chat-agent-select">Para</label>
+          <select id="chat-agent-select" aria-label="Seleccionar agente">
+            <option value="orchestrator">Orchestrator Principal</option>
+            <option value="product_manager">Product Manager</option>
+            <option value="architect">Architect</option>
+            <option value="project_manager">Project Manager</option>
+            <option value="engineer">Engineer</option>
+            <option value="qa">QA Engineer</option>
+            <option value="recovery">Recovery</option>
+          </select>
+        </div>
+        <div class="chat-messages" id="chat-messages">
+          <div class="chat-empty">Selecciona un agente y escribe un mensaje o instrucción.</div>
+        </div>
+        <form class="chat-form" id="chat-form">
+          <textarea id="chat-input" rows="2" placeholder="Escribe instrucciones, preguntas o /reactivar..." aria-label="Mensaje"></textarea>
+          <button type="submit" class="btn-primary" aria-label="Enviar mensaje"><i data-lucide="send"></i></button>
+        </form>
+      </aside>
     </div>
 
     <footer class="debug-footer" id="debug-footer">
@@ -306,6 +332,6 @@
   <!-- Toast -->
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-  <script src="/static/app.js?v=2"></script>
+  <script src="/static/app.js?v=3"></script>
 </body>
 </html>

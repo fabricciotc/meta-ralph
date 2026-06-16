@@ -2708,6 +2708,37 @@ Reporta los archivos modificados y el resultado de la build.
         self._update_agent("qa-engineer", status="done", progress=100, log="QA Review completado.")
         self._agent_log("qa-engineer", "QA Review completado.", "success")
 
+    def chat_with_agent(self, recipient_id, message):
+        """Responde un mensaje humano como el agente indicado.
+
+        Se usa el mismo backend de Kimi configurado para el runner, con contexto
+        del ticket, PRD y tareas planificadas.
+        """
+        with run_lock:
+            state = load_run_state()
+            agents_by_id = {a["id"]: a for a in state.get("agents", [])}
+        recipient_name = agents_by_id.get(recipient_id, {}).get("name", recipient_id)
+        context_text = self._build_consultation_context()
+
+        prompt = f"""Activa la skill 'dotnet' y aplica sus convenciones y mejores prácticas a todo el código .NET que generes.
+
+Eres el agente {recipient_name} ({recipient_id}) de una software factory estilo MetaGPT. El operador humano te escribe:
+
+"{message}"
+
+CONTEXTO DEL PROYECTO:
+{context_text}
+
+Responde de forma concisa, técnica y útil. Si el mensaje es una instrucción (por ejemplo, "reintentar", "mejora", "revisa", "reactiva"), indica cómo la aplicarías o qué necesitas. Si no tienes suficiente contexto, dílo claramente."""
+
+        output = self._run_kimi_prompt(
+            prompt,
+            phase_name=f"Chat {recipient_id}",
+            timeout_seconds=60,
+            agent_id=recipient_id,
+        )
+        return (output or "No pude generar una respuesta en este momento.").strip()
+
     def _run_kimi_prompt(self, prompt, phase_name="Agent", timeout_seconds=120, agent_id=None):
         """Ejecuta un prompt con kimi CLI en modo prompt (-p) y retorna el contenido.
 
@@ -3016,6 +3047,14 @@ def process_next_in_queue():
     _active_run_thread = AgentRunner(next_ticket, resume=False)
     _active_run_thread.start()
     return True
+
+
+@app.after_request
+def add_no_cache_headers(response):
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
 
 
 @app.route("/")
@@ -3651,6 +3690,52 @@ def handle_connect():
 def handle_request_update():
     notify_board_update()
     emit("run_state_update", load_run_state())
+
+
+@socketio.on("chat_send")
+def handle_chat_send(data):
+    """Recibe un mensaje del operador humano dirigido a un agente.
+
+    El mensaje se guarda en el log de comunicación y, si hay un runner activo,
+    se pide una respuesta al agente seleccionado usando el backend de IA.
+    """
+    recipient = (data or {}).get("to", "orchestrator")
+    text = ((data or {}).get("message") or "").strip()
+    if not text:
+        return
+
+    with run_lock:
+        state = load_run_state()
+        bus.send_message(state, "user", recipient, "chat", {"text": text})
+        save_run_state(state)
+    emit_communication_update(state)
+
+    runner = _active_run_thread
+    if runner and runner.is_alive():
+        def respond():
+            try:
+                answer = runner.chat_with_agent(recipient, text)
+                with run_lock:
+                    state = load_run_state()
+                    bus.send_message(state, recipient, "user", "chat", {"text": answer})
+                    save_run_state(state)
+                emit_communication_update(state)
+            except Exception as exc:
+                append_log(f"Error en chat con {recipient}: {exc}", "error")
+
+        threading.Thread(target=respond, daemon=True).start()
+    else:
+        with run_lock:
+            state = load_run_state()
+            bus.send_message(
+                state,
+                "system",
+                "user",
+                "chat",
+                {"text": "No hay un run activo. Inicia un ticket para chatear con los agentes."},
+            )
+            save_run_state(state)
+        emit_communication_update(state)
 
 
 def main():
