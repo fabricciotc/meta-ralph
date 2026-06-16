@@ -113,6 +113,7 @@ class QARole(Role):
         self,
         run_ai: Optional[Any] = None,
         max_rounds: int = 3,
+        force_approve_on_max_rounds: bool = False,
         build_review_prompt: Optional[Callable[..., str]] = None,
         extract_review_result: Optional[Callable[..., Dict[str, Any]]] = None,
         build_correction_prompt: Optional[Callable[..., str]] = None,
@@ -126,6 +127,7 @@ class QARole(Role):
         )
         self.run_ai = run_ai
         self.max_rounds = max(1, max_rounds)
+        self.force_approve_on_max_rounds = force_approve_on_max_rounds
         self.build_review_prompt = build_review_prompt or default_build_review_prompt
         self.extract_review_result = extract_review_result or default_extract_review_result
         self.build_correction_prompt = build_correction_prompt or default_build_correction_prompt
@@ -214,21 +216,38 @@ class QARole(Role):
         state = self._review_state.setdefault(task_id, {"rounds": 0, "history": []})
 
         if state["rounds"] >= self.max_rounds:
+            if self.force_approve_on_max_rounds:
+                msg = Message(
+                    content=f"Task {task_id} approved after {self.max_rounds} correction rounds.",
+                    sent_from=self.role_id,
+                    cause_by="review_approved",
+                    send_to={"orchestrator"},
+                    metadata={
+                        "task_id": task_id,
+                        "task": task,
+                        "approved": True,
+                        "reason": f"Forced approval after {self.max_rounds} correction rounds.",
+                        "suggested_fix": "",
+                        "forced": True,
+                    },
+                )
+                state["rounds"] = 0
+                self._store_review_context(kwargs.get("context"), task_id, msg.metadata)
+                return msg
             msg = Message(
-                content=f"Task {task_id} approved after {self.max_rounds} correction rounds.",
+                content=f"Task {task_id} still rejected after {self.max_rounds} review rounds.",
                 sent_from=self.role_id,
-                cause_by="review_approved",
+                cause_by="reject_with_feedback",
                 send_to={"orchestrator"},
                 metadata={
                     "task_id": task_id,
                     "task": task,
-                    "approved": True,
-                    "reason": f"Forced approval after {self.max_rounds} correction rounds.",
-                    "suggested_fix": "",
-                    "forced": True,
+                    "approved": False,
+                    "reason": f"Task still failing after {self.max_rounds} QA review rounds.",
+                    "suggested_fix": "Engineer must address all QA findings before the ticket can complete.",
+                    "max_rounds_exceeded": True,
                 },
             )
-            state["rounds"] = 0
             self._store_review_context(kwargs.get("context"), task_id, msg.metadata)
             return msg
 

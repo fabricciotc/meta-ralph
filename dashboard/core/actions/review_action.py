@@ -46,9 +46,9 @@ def default_extract_review_result(output: Optional[str]) -> Dict[str, Any]:
     """Extract the review verdict from runner output."""
     if not output:
         return {
-            "approved": True,
-            "reason": "No output from runner; auto-approving.",
-            "suggested_fix": "",
+            "approved": False,
+            "reason": "No output from QA reviewer.",
+            "suggested_fix": "Re-run the review with build/test evidence.",
         }
 
     text = output.strip()

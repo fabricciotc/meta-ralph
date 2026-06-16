@@ -1260,6 +1260,54 @@ function updateChatAgentSelect() {
 
 let lastRenderedChatKey = null;
 
+function formatChatContent(text) {
+  if (!text) return '';
+  let html = escapeHtml(text);
+  html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  html = html.replace(/`([^`]+)`/g, '<code class="chat-inline-code">$1</code>');
+  html = html.replace(/\n/g, '<br>');
+  return html;
+}
+
+function buildChatMessageHtml(entry) {
+  const from = entry.from || 'system';
+  const payload = entry.payload || {};
+  const reply = payload.reply || payload.text || '';
+  const meta = payload.meta || {};
+  const trace = Array.isArray(payload.trace) ? payload.trace : [];
+  const side = from === 'user' ? 'user' : (from === 'system' ? 'system' : 'agent');
+  const displayName = from === 'user' ? 'You' : (from === 'system' ? 'System' : stripEmojis(from));
+
+  const skills = Array.isArray(meta.skills) ? meta.skills : [];
+  const skillsHtml = skills.length
+    ? `<div class="chat-skills">${skills.map(s => `<span class="chat-skill-tag">${escapeHtml(s)}</span>`).join('')}</div>`
+    : '';
+
+  const traceHtml = trace.length
+    ? `<details class="chat-trace">
+        <summary>Agent trace (${trace.length})</summary>
+        <div class="chat-trace-body">${trace.map(line => `<p>${formatChatContent(line)}</p>`).join('')}</div>
+      </details>`
+    : '';
+
+  const sessionHint = meta.sessionHint
+    ? `<div class="chat-session-hint" title="Backend session">${escapeHtml(meta.sessionHint)}</div>`
+    : '';
+
+  return `
+    <div class="chat-message ${side}">
+      <div class="chat-bubble">${formatChatContent(reply)}</div>
+      ${skillsHtml}
+      ${traceHtml}
+      ${sessionHint}
+      <div class="chat-meta">
+        <span>${escapeHtml(displayName)}</span>
+        <span>${formatTime(entry.timestamp)}</span>
+      </div>
+    </div>
+  `;
+}
+
 function renderChat() {
   if (!chatMessages) return;
   const comm = runState.communication || {};
@@ -1274,24 +1322,7 @@ function renderChat() {
     return;
   }
 
-  chatMessages.innerHTML = '';
-  log.forEach(entry => {
-    const from = entry.from || 'system';
-    const text = (entry.payload && entry.payload.text) || '';
-    const side = from === 'user' ? 'user' : (from === 'system' ? 'system' : 'agent');
-    const displayName = from === 'user' ? 'You' : (from === 'system' ? 'System' : stripEmojis(from));
-
-    const el = document.createElement('div');
-    el.className = `chat-message ${side}`;
-    el.innerHTML = `
-      <div class="chat-bubble">${escapeHtml(text)}</div>
-      <div class="chat-meta">
-        <span>${escapeHtml(displayName)}</span>
-        <span>${formatTime(entry.timestamp)}</span>
-      </div>
-    `;
-    chatMessages.appendChild(el);
-  });
+  chatMessages.innerHTML = log.map(buildChatMessageHtml).join('');
 
   const nearBottom = chatMessages.scrollHeight - chatMessages.scrollTop - chatMessages.clientHeight < 80;
   if (nearBottom) chatMessages.scrollTop = chatMessages.scrollHeight;

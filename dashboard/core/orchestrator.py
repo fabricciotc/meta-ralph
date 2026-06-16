@@ -734,26 +734,122 @@ class Orchestrator(threading.Thread):
             tasks = json.loads(tasks_path.read_text(encoding="utf-8"))
         except Exception as exc:
             self.log(f"Error reading tasks.json: {exc}", "error")
-            self._update_agent("qa-engineer", status="done", progress=100, log="Error reading tasks.")
+            self._update_agent("qa-engineer", status="failed", progress=100, log="Error reading tasks.")
+            raise
+
+        if not tasks:
+            self.log("No tasks to review.")
+            self._update_agent("qa-engineer", status="done", progress=100, log="No tasks to review.")
             return
 
         repo_path = self._repo_path()
         branch = self._branch()
+        tasks_by_id = {t["id"]: t for t in tasks}
+        reviewed_task_ids = [t["id"] for t in tasks]
+        approved_tasks: Set[str] = set()
 
-        # Publish review requests for every completed task.
+        qa_lead = QARole(
+            run_ai=self._run_ai,
+            max_rounds=self._max_qa_rounds,
+            force_approve_on_max_rounds=False,
+        )
+        self.env.add_role(qa_lead)
+        self._ensure_engineer_squad_in_env(tasks)
+
+        for correction_round in range(self._max_qa_rounds):
+            pending_ids = [tid for tid in reviewed_task_ids if tid not in approved_tasks]
+            if not pending_ids:
+                break
+
+            self.log(
+                f"QA review round {correction_round + 1}/{self._max_qa_rounds}: "
+                f"{len(pending_ids)} task(s) pending."
+            )
+            self._update_agent(
+                "qa-engineer",
+                progress=90 + min(correction_round, 4),
+                log=f"Review round {correction_round + 1}: {len(pending_ids)} task(s).",
+            )
+
+            qa_lead._processed_message_ids.clear()
+            self._publish_qa_review_requests(pending_ids, tasks_by_id, repo_path, branch)
+
+            for tid in pending_ids:
+                self._update_agent(
+                    f"qa-{tid}",
+                    status="running",
+                    progress=50,
+                    log=f"Reviewing task {tid} (round {correction_round + 1}).",
+                )
+
+            self._run_environment_rounds()
+            self._finalize_qa_subagent_status(pending_ids)
+
+            verdicts = self._latest_qa_verdicts(pending_ids)
+            rejections: List[Dict[str, Any]] = []
+            for tid in pending_ids:
+                verdict = verdicts.get(tid)
+                if verdict and verdict.cause_by == "review_approved":
+                    approved_tasks.add(tid)
+                    continue
+                rejections.append({
+                    "task_id": tid,
+                    "task": tasks_by_id[tid],
+                    "reason": str((verdict.metadata if verdict else {}).get("reason", "Review was not approved")),
+                    "suggested_fix": str((verdict.metadata if verdict else {}).get("suggested_fix", "")),
+                })
+
+            if not rejections:
+                break
+
+            if correction_round >= self._max_qa_rounds - 1:
+                self._fail_qa_with_open_rejections(rejections)
+                return
+
+            self.log(f"QA rejected {len(rejections)} task(s); dispatching corrections to Engineer Squad.")
+            self._apply_qa_corrections(rejections, repo_path, branch, qa_lead, correction_round + 1)
+
+        still_rejected = [tid for tid in reviewed_task_ids if tid not in approved_tasks]
+        if still_rejected:
+            remaining = [
+                {
+                    "task_id": tid,
+                    "task": tasks_by_id[tid],
+                    "reason": "Task was not approved by QA.",
+                    "suggested_fix": "",
+                }
+                for tid in still_rejected
+            ]
+            self._fail_qa_with_open_rejections(remaining)
+            return
+
+        approved_count = len(approved_tasks)
+        self.log(f"QA: all {approved_count} task(s) approved.")
+        self._update_agent(
+            "qa-engineer",
+            status="done",
+            progress=100,
+            log=f"QA Review completed: {approved_count} approved.",
+        )
+        self._set_phase("qa-engineer", "in-review", 95)
+
+    def _publish_qa_review_requests(
+        self,
+        task_ids: List[str],
+        tasks_by_id: Dict[str, Dict[str, Any]],
+        repo_path: str,
+        branch: str,
+    ) -> None:
         completed_by_task = {
             m.metadata.get("task_id"): m
             for m in self.env.history()
             if m.cause_by == "task_completed" and m.metadata.get("task_id")
         }
-        review_requested = False
-        for task in tasks:
-            tid = task["id"]
-            agent_id = f"engineer-{tid}"
+        for tid in task_ids:
+            self._ensure_agent(f"qa-{tid}", f"QA {tid}", "qa", "qa-engineer", "queued", 90)
             completed = completed_by_task.get(tid)
             build_output = completed.metadata.get("build_output", "") if completed else ""
             test_output = completed.metadata.get("test_output", "") if completed else ""
-            self._ensure_agent(f"qa-{tid}", f"QA {tid}", "qa", "qa-engineer", "queued", 90)
             self.env.publish_message(Message(
                 content=f"Review task {tid}",
                 sent_from="orchestrator",
@@ -761,7 +857,7 @@ class Orchestrator(threading.Thread):
                 send_to={"qa-lead"},
                 metadata={
                     "task_id": tid,
-                    "task": task,
+                    "task": tasks_by_id[tid],
                     "repo_path": repo_path,
                     "branch": branch,
                     "diff": "",
@@ -769,24 +865,216 @@ class Orchestrator(threading.Thread):
                     "test_output": test_output,
                 },
             ))
-            review_requested = True
 
-        if not review_requested:
-            self.log("No tasks to review.")
-            self._update_agent("qa-engineer", status="done", progress=100, log="No tasks to review.")
-            return
+    def _latest_qa_verdicts(self, task_ids: List[str]) -> Dict[str, Message]:
+        verdict_by_task: Dict[str, Message] = {}
+        for msg in self.env.history():
+            if msg.cause_by not in {"review_approved", "reject_with_feedback"}:
+                continue
+            task_id = msg.metadata.get("task_id")
+            if task_id in task_ids:
+                verdict_by_task[task_id] = msg
+        return verdict_by_task
 
-        qa_lead = QARole(
-            run_ai=self._run_ai,
-            max_rounds=self._max_qa_rounds,
+    def _write_qa_rejection_report(
+        self,
+        task_id: str,
+        task: Dict[str, Any],
+        reason: str,
+        suggested_fix: str,
+        correction_prompt: str,
+        round_num: int,
+    ) -> Path:
+        path = self._meta_dir() / "state" / f"qa-rejection-{self.ticket_id}-{task_id}.md"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        content = (
+            f"# QA Rejection Report: {task_id}\n\n"
+            f"**Ticket:** {self.ticket_id}\n"
+            f"**Task:** {task.get('title', task_id)}\n"
+            f"**Review round:** {round_num}\n\n"
+            f"## Rejection Reason\n{reason}\n\n"
+            f"## Suggested Changes\n{suggested_fix or '(none provided)'}\n\n"
+            f"## Correction Instructions for Engineer\n{correction_prompt}\n"
         )
-        self.env.add_role(qa_lead)
+        path.write_text(content, encoding="utf-8")
+        self._callback("collect_outputs", f"qa-{task_id}", str(path.parent))
+        return path
 
-        self._run_environment_rounds()
+    def _ensure_engineer_squad_in_env(self, tasks: List[Dict[str, Any]]) -> None:
+        if self.env is None:
+            self.env = Environment()
+        if "engineer-squad" in self.env.roles:
+            return
+        squad = EngineerSquadRole(
+            run_ai=self._run_ai,
+            ticket_id=self.ticket_id,
+            ticket_title=self.ticket.get("title", ""),
+            ticket_description=self.ticket.get("description", ""),
+            prd_path=self._prd_path(),
+            tasks=tasks,
+            max_retries=2,
+            phase_name="engineer-squad",
+            timeout_seconds=300,
+            request_clarification=self._request_user_clarification,
+        )
+        self.env.add_role(squad)
 
-        approved = [m for m in self.env.history() if m.cause_by == "review_approved"]
-        rejected = [m for m in self.env.history() if m.cause_by == "reject_with_feedback"]
+    def _ensure_engineer_role(self, task_id: str, task: Dict[str, Any], repo_path: str) -> str:
+        agent_id = f"engineer-{task_id}"
+        if self.env is None:
+            self.env = Environment()
+        if agent_id not in self.env.roles:
+            role = EngineerRole(
+                role_id=agent_id,
+                focus=task.get("title", task_id),
+                run_ai=self._run_ai,
+                repo_path=repo_path,
+                branch_prefix="feature",
+                update_agent=lambda aid, **kwargs: self._update_agent(aid, **kwargs),
+                phase_name=f"engineer-{task_id}",
+                timeout_seconds=1800,
+            )
+            self.env.add_role(role)
+        self._ensure_agent(agent_id, f"Engineer {task_id}", "sub", "engineer-squad", "running", 75)
+        return agent_id
 
-        self.log(f"QA: {len(approved)} approved, {len(rejected)} rejected.")
-        self._update_agent("qa-engineer", status="done", progress=100, log=f"QA Review completed: {len(approved)} approved, {len(rejected)} rejected.")
-        self._set_phase("qa-engineer", "in-review", 95)
+    def _apply_qa_corrections(
+        self,
+        rejections: List[Dict[str, Any]],
+        repo_path: str,
+        branch: str,
+        qa_lead: QARole,
+        round_num: int,
+    ) -> None:
+        self._update_agent(
+            "engineer-squad",
+            status="running",
+            progress=85,
+            log=f"Coordinating corrections for {len(rejections)} QA rejection(s).",
+        )
+        for item in rejections:
+            task_id = item["task_id"]
+            task = item["task"]
+            reason = item["reason"]
+            suggested_fix = item["suggested_fix"]
+            engineer_id = self._ensure_engineer_role(task_id, task, repo_path)
+
+            correction_msg = asyncio.run(qa_lead.generate_correction_prompt(
+                context=self.env.history(),
+                task_id=task_id,
+                task=task,
+                reason=reason,
+                suggested_fix=suggested_fix,
+                repo_path=repo_path,
+                branch=branch,
+                shared_context=self.context,
+            ))
+            report_path = self._write_qa_rejection_report(
+                task_id,
+                task,
+                reason,
+                suggested_fix,
+                correction_msg.content,
+                round_num,
+            )
+
+            self.env.publish_message(Message(
+                content=f"QA rejected task {task_id}: {reason}",
+                sent_from=f"qa-{task_id}",
+                cause_by="reject_with_feedback",
+                send_to={engineer_id, "engineer-squad"},
+                metadata={
+                    "task_id": task_id,
+                    "task": task,
+                    "engineer_id": engineer_id,
+                    "reason": reason,
+                    "suggested_fix": suggested_fix,
+                    "correction_prompt": correction_msg.content,
+                    "report_path": str(report_path),
+                    "repo_path": repo_path,
+                    "branch": branch or f"feature/{self.ticket_id}-{task_id}".lower(),
+                },
+            ))
+
+            history_len = len(self.env.history())
+            for _ in range(self._max_rounds_per_phase):
+                if self._should_stop_or_pause():
+                    return
+                asyncio.run(self.env.run_round(context=self.context))
+                if self._has_new_task_completion(task_id, history_len):
+                    self._collect_outputs(engineer_id, repo_path)
+                    self._update_agent(
+                        engineer_id,
+                        status="done",
+                        progress=100,
+                        log=f"Task {task_id} corrected after QA feedback.",
+                    )
+                    break
+            else:
+                self.log(f"Engineer {task_id} did not finish QA corrections in time.", "warning")
+                self._update_agent(
+                    engineer_id,
+                    status="failed",
+                    progress=100,
+                    log=f"Task {task_id} correction timed out.",
+                )
+
+        self._update_agent(
+            "engineer-squad",
+            status="running",
+            progress=88,
+            log="Engineer corrections submitted; QA will re-review.",
+        )
+
+    def _has_new_task_completion(self, task_id: str, since_len: int) -> bool:
+        for msg in self.env.history()[since_len:]:
+            if msg.cause_by == "task_completed" and msg.metadata.get("task_id") == task_id:
+                return True
+        return False
+
+    def _fail_qa_with_open_rejections(self, rejections: List[Dict[str, Any]]) -> None:
+        summary = ", ".join(f"{item['task_id']}: {item['reason'][:80]}" for item in rejections)
+        message = (
+            f"QA did not approve after {self._max_qa_rounds} round(s). "
+            f"Open rejections: {summary}"
+        )
+        self.log(message, "error")
+        self._update_agent("qa-engineer", status="failed", progress=100, log=message, log_level="error")
+        raise RuntimeError(message)
+
+    def _finalize_qa_subagent_status(self, task_ids: List[str]) -> None:
+        """Mark per-task QA subagents done/failed based on review verdicts."""
+        verdict_by_task: Dict[str, Message] = {}
+        for msg in self.env.history():
+            if msg.cause_by not in {"review_approved", "reject_with_feedback"}:
+                continue
+            task_id = msg.metadata.get("task_id")
+            if task_id:
+                verdict_by_task[task_id] = msg
+
+        for tid in task_ids:
+            qa_id = f"qa-{tid}"
+            verdict = verdict_by_task.get(tid)
+            if verdict is None:
+                self._update_agent(
+                    qa_id,
+                    status="failed",
+                    progress=100,
+                    log=f"Task {tid}: no review verdict recorded.",
+                )
+                continue
+            reason = str(verdict.metadata.get("reason", "") or verdict.content or "")[:120]
+            if verdict.cause_by == "review_approved":
+                self._update_agent(
+                    qa_id,
+                    status="done",
+                    progress=100,
+                    log=f"Task {tid} approved{f': {reason}' if reason else ''}.",
+                )
+            else:
+                self._update_agent(
+                    qa_id,
+                    status="failed",
+                    progress=100,
+                    log=f"Task {tid} rejected{f': {reason}' if reason else ''}.",
+                )

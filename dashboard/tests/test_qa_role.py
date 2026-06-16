@@ -128,8 +128,8 @@ class TestReviewAction(unittest.TestCase):
             **self._default_kwargs({"extract_review_result": default_extract_review_result}),
         ))
 
-        self.assertEqual(msg.cause_by, "review_approved")
-        self.assertTrue(msg.metadata["approved"])
+        self.assertEqual(msg.cause_by, "reject_with_feedback")
+        self.assertFalse(msg.metadata["approved"])
         self.assertIn("No output", msg.metadata["reason"])
 
     def test_review_action_missing_kwargs_raises(self):
@@ -339,7 +339,7 @@ class TestQARole(unittest.TestCase):
         def mock_run_ai(prompt, phase_name, timeout_seconds, agent_id=None):
             return "VERDICT: REJECTED\nREASON: Still failing."
 
-        role = QARole(run_ai=mock_run_ai, max_rounds=2)
+        role = QARole(run_ai=mock_run_ai, max_rounds=2, force_approve_on_max_rounds=True)
         env.add_role(role)
 
         task = self._make_task()
@@ -362,6 +362,24 @@ class TestQARole(unittest.TestCase):
         self.assertTrue(response.metadata["approved"])
         self.assertTrue(response.metadata.get("forced"))
         self.assertIn("after 2 correction rounds", response.content)
+
+    def test_qa_role_stays_rejected_after_max_rounds_by_default(self):
+        env = Environment()
+
+        def mock_run_ai(prompt, phase_name, timeout_seconds, agent_id=None):
+            return "VERDICT: REJECTED\nREASON: Still failing."
+
+        role = QARole(run_ai=mock_run_ai, max_rounds=2)
+        env.add_role(role)
+        task = self._make_task()
+
+        for _ in range(3):
+            self._publish_review_request(env, "T1", task)
+            response = asyncio.run(role.run(env))
+
+        self.assertEqual(response.cause_by, "reject_with_feedback")
+        self.assertFalse(response.metadata["approved"])
+        self.assertTrue(response.metadata.get("max_rounds_exceeded"))
 
     def test_qa_role_ignores_duplicate_request(self):
         env = Environment()

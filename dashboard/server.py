@@ -569,6 +569,66 @@ def _update_agent(state, agent_id, **kwargs):
     return None
 
 
+def _reconcile_stale_qa_agents(state) -> bool:
+    """Fix per-task QA agents left queued after QA lead completed."""
+    agents = state.get("agents") or []
+    agents_by_id = {agent.get("id"): agent for agent in agents}
+    qa_lead = agents_by_id.get("qa-engineer")
+    if not qa_lead or qa_lead.get("status") != "done":
+        return False
+
+    stale_qa = [
+        agent for agent in agents
+        if str(agent.get("id", "")).startswith("qa-")
+        and agent.get("id") != "qa-engineer"
+        and agent.get("status") in {"queued", "running"}
+    ]
+    if not stale_qa:
+        return False
+
+    verdict_by_task = {}
+    for entry in reversed((state.get("communication") or {}).get("log", [])):
+        if entry.get("type") != "message":
+            continue
+        payload = entry.get("payload") or {}
+        cause = payload.get("causeBy") or ""
+        if cause not in {"review_approved", "reject_with_feedback"}:
+            continue
+        metadata = payload.get("metadata") or {}
+        task_id = metadata.get("task_id") or payload.get("taskId")
+        if not task_id:
+            from_id = entry.get("from") or ""
+            if from_id.startswith("qa-"):
+                task_id = from_id[3:]
+        if task_id:
+            verdict_by_task[task_id] = cause
+
+    changed = False
+    for agent in stale_qa:
+        agent_id = agent.get("id")
+        task_id = agent_id[3:] if agent_id and agent_id.startswith("qa-") else ""
+        verdict = verdict_by_task.get(task_id)
+        if verdict == "review_approved":
+            _update_agent(
+                state,
+                agent_id,
+                status="done",
+                progress=100,
+                log=f"Task {task_id} approved (reconciled).",
+            )
+            changed = True
+        elif verdict == "reject_with_feedback":
+            _update_agent(
+                state,
+                agent_id,
+                status="failed",
+                progress=100,
+                log=f"Task {task_id} rejected (reconciled).",
+            )
+            changed = True
+    return changed
+
+
 def recompute_stats(board):
     tickets = board.get("tickets", [])
     stats = {
@@ -2827,24 +2887,34 @@ Report the modified files and build result.
         recipient_name = agents_by_id.get(recipient_id, {}).get("name", recipient_id)
         context_text = self._build_consultation_context()
 
-        prompt = f"""Activate the 'dotnet' skill and apply its conventions and best practices to all .NET code you generate.
-
-You are agent {recipient_name} ({recipient_id}) in a MetaGPT-style software factory. The human operator writes:
+        prompt = f"""You are agent {recipient_name} ({recipient_id}) in a MetaGPT-style software factory. The human operator writes:
 
 "{message}"
 
 PROJECT CONTEXT:
 {context_text}
 
-Respond concisely, technically, and usefully. If the message is an instruction such as "retry", "improve", "review", or "reactivate", explain how you would apply it or what you need. If you do not have enough context, say so clearly."""
+Reply rules (strict):
+- Output ONLY your final message to the human. No internal reasoning, planning, or tool notes.
+- Do NOT mention skills, sessions, CLI commands, or "To resume this session".
+- Use the same language as the human's message.
+- Be concise and useful (2-6 sentences unless they ask for detail).
+- If the message is an instruction such as "retry", "improve", "review", or "reactivate", explain how you would apply it or what you need.
+- If you lack context, say so clearly in one short paragraph."""
 
-        output = self._run_ai_prompt(
+        raw_output = self._run_ai_prompt(
             prompt,
             phase_name=f"Chat {recipient_id}",
             timeout_seconds=60,
             agent_id=recipient_id,
         )
-        return (output or "I could not generate an answer right now.").strip()
+        from core.chat_formatter import format_chat_response
+
+        formatted = format_chat_response(raw_output or "")
+        if not formatted.get("reply"):
+            formatted["reply"] = "I could not generate an answer right now."
+            formatted["text"] = formatted["reply"]
+        return formatted
 
     def _run_ai_prompt(self, prompt, phase_name="Agent", timeout_seconds=120, agent_id=None):
         """Run a prompt through the configured AI backend registry."""
@@ -3241,9 +3311,12 @@ def api_board():
 
 @app.route("/api/run-state", methods=["GET"])
 def api_run_state():
-    state = load_run_state()
-    state["pausedTickets"] = list_ticket_snapshots()
-    return jsonify(state)
+    with run_lock:
+        state = load_run_state()
+        if _reconcile_stale_qa_agents(state):
+            save_run_state(state)
+        state["pausedTickets"] = list_ticket_snapshots()
+        return jsonify(state)
 
 
 @app.route("/api/tickets/<ticket_id>/play", methods=["POST"])
@@ -3891,41 +3964,59 @@ def handle_chat_send(data):
     """
     recipient = (data or {}).get("to", "orchestrator")
     text = ((data or {}).get("message") or "").strip()
+    requested_ticket_id = (data or {}).get("ticketId")
     if not text:
         return
 
     with run_lock:
         state = load_run_state()
+        ticket_id = requested_ticket_id or state.get("ticketId")
         bus.send_message(state, "user", recipient, "chat", {"text": text})
         save_run_state(state)
     emit_communication_update(state)
 
     runner = _active_run_thread
-    if runner and runner.is_alive():
-        def respond():
-            try:
-                answer = runner.chat_with_agent(recipient, text)
-                with run_lock:
-                    state = load_run_state()
-                    bus.send_message(state, recipient, "user", "chat", {"text": answer})
-                    save_run_state(state)
-                emit_communication_update(state)
-            except Exception as exc:
-                append_log(f"Error in chat with {recipient}: {exc}", "error")
+    active_runner = runner if runner and runner.is_alive() and (not ticket_id or runner.ticket_id == ticket_id) else None
 
-        threading.Thread(target=respond, daemon=True).start()
-    else:
-        with run_lock:
-            state = load_run_state()
-            bus.send_message(
-                state,
-                "system",
-                "user",
-                "chat",
-                {"text": "No active run. Start a ticket to chat with agents."},
-            )
-            save_run_state(state)
-        emit_communication_update(state)
+    def respond():
+        try:
+            from core.chat_formatter import format_chat_response
+
+            chat_runner = active_runner
+            if chat_runner is None:
+                ticket = _ticket_by_id(ticket_id) if ticket_id else None
+                if not ticket:
+                    payload = format_chat_response(
+                        "No ticket is selected. Select a ticket before chatting with agents."
+                    )
+                else:
+                    chat_runner = AgentRunner(ticket, resume=True)
+                    answer = chat_runner.chat_with_agent(recipient, text)
+                    payload = answer if isinstance(answer, dict) else format_chat_response(answer or "")
+            else:
+                answer = chat_runner.chat_with_agent(recipient, text)
+                payload = answer if isinstance(answer, dict) else format_chat_response(answer or "")
+
+            with run_lock:
+                state = load_run_state()
+                bus.send_message(state, recipient, "user", "chat", payload)
+                save_run_state(state)
+            emit_communication_update(state)
+        except Exception as exc:
+            append_log(f"Error in chat with {recipient}: {exc}", "error")
+            with run_lock:
+                state = load_run_state()
+                bus.send_message(
+                    state,
+                    "system",
+                    "user",
+                    "chat",
+                    {"text": f"Could not get a response from {recipient}: {exc}"},
+                )
+                save_run_state(state)
+            emit_communication_update(state)
+
+    threading.Thread(target=respond, daemon=True).start()
 
 
 def main():

@@ -32,6 +32,7 @@ class EngineerSquadRole(Role):
         "request_info_from_pm_response",
         "escalate_to_user_response",
         "squad_chat",
+        "reject_with_feedback",
     ]
 
     def __init__(
@@ -96,6 +97,8 @@ class EngineerSquadRole(Role):
 
         if trigger.cause_by == "task_report":
             return await self._handle_task_report(trigger, env)
+        if trigger.cause_by == "reject_with_feedback":
+            return await self._handle_qa_rejection(trigger, env)
         if trigger.cause_by == "request_info_from_pm_response":
             return await self._handle_pm_response(trigger, env)
         if trigger.cause_by == "escalate_to_user_response":
@@ -197,6 +200,60 @@ class EngineerSquadRole(Role):
                 metadata={"task_ids": list(self.task_reports.keys()), "status": "completed"},
             ))
 
+        return chat_msg
+
+    async def _handle_qa_rejection(self, trigger: Message, env: Any) -> Message:
+        """Route QA rejection feedback to the responsible engineer."""
+        task_id = trigger.metadata.get("task_id", "unknown")
+        engineer_id = trigger.metadata.get("engineer_id") or f"engineer-{task_id}"
+        reason = trigger.metadata.get("reason", trigger.content)
+        suggested_fix = trigger.metadata.get("suggested_fix", "")
+        correction_prompt = trigger.metadata.get("correction_prompt", "")
+        report_path = trigger.metadata.get("report_path", "")
+        task = trigger.metadata.get("task") or {}
+
+        instruction_parts = [
+            f"QA rejected task {task_id}. Fix the implementation before requesting review again.",
+            f"Rejection reason: {reason}",
+        ]
+        if suggested_fix:
+            instruction_parts.append(f"QA suggestion: {suggested_fix}")
+        if correction_prompt:
+            instruction_parts.append(f"Correction plan:\n{correction_prompt}")
+        if report_path:
+            instruction_parts.append(f"Full QA report: {report_path}")
+        instruction = "\n\n".join(instruction_parts)
+
+        chat_msg = Message(
+            content=f"QA rejected {task_id}. {engineer_id} must apply corrections.",
+            sent_from=self.role_id,
+            cause_by="squad_chat",
+            send_to={"all"},
+            metadata={"task_id": task_id, "status": "qa_rejected", "reason": reason[:300]},
+        )
+        env.publish_message(chat_msg)
+
+        squad_instruction = self._instruction_to_engineer(
+            task_id=task_id,
+            engineer_id=engineer_id,
+            instruction=instruction,
+            context=reason,
+        )
+        squad_instruction.metadata.update({
+            "task": task,
+            "ticket_id": self.ticket_id,
+            "ticket_title": self.ticket_title,
+            "ticket_description": self.ticket_description,
+            "repo_path": trigger.metadata.get("repo_path", ""),
+            "branch": trigger.metadata.get("branch", ""),
+            "prd_path": str(self.prd_path) if self.prd_path else None,
+            "qa_rejection": True,
+            "reason": reason,
+            "suggested_fix": suggested_fix,
+            "correction_prompt": correction_prompt,
+            "report_path": report_path,
+        })
+        env.publish_message(squad_instruction)
         return chat_msg
 
     async def _handle_pm_response(self, trigger: Message, env: Any) -> Optional[Message]:
