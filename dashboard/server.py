@@ -2919,6 +2919,7 @@ Reply rules (strict):
             phase_name=f"Chat {recipient_id}",
             timeout_seconds=60,
             agent_id=recipient_id,
+            use_skill_prefix=False,
         )
         from core.chat_formatter import format_chat_response
 
@@ -2928,11 +2929,12 @@ Reply rules (strict):
             formatted["text"] = formatted["reply"]
         return formatted
 
-    def _run_ai_prompt(self, prompt, phase_name="Agent", timeout_seconds=120, agent_id=None):
+    def _run_ai_prompt(self, prompt, phase_name="Agent", timeout_seconds=120, agent_id=None, use_skill_prefix=True):
         """Run a prompt through the configured AI backend registry."""
         safe_phase = phase_name.lower().replace(' ', '-')
-        output_path = get_meta_dir() / "state" / f"output-{self.ticket_id}-{safe_phase}.txt"
-        prompt_path = get_meta_dir() / "state" / f"prompt-{self.ticket_id}-{safe_phase}.txt"
+        safe_agent = re.sub(r'[^a-z0-9_-]+', '-', (agent_id or '').lower()).strip('-') or 'no-agent'
+        output_path = get_meta_dir() / "state" / f"output-{self.ticket_id}-{safe_phase}-{safe_agent}.txt"
+        prompt_path = get_meta_dir() / "state" / f"prompt-{self.ticket_id}-{safe_phase}-{safe_agent}.txt"
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
         # Clear previous output.
@@ -2955,12 +2957,14 @@ Reply rules (strict):
 
             backend_names = ", ".join(backend.name for backend in available)
             log_to_agent(f"Running AI backend for {phase_name} (available: {backend_names}; timeout {timeout_seconds}s)...")
-            # Apply the .NET skill by default to all development prompts.
-            dotnet_prefix = (
-                "Activate the 'dotnet' skill and apply its conventions and best practices "
-                "to all .NET code you generate. "
-            )
-            full_prompt = dotnet_prefix + prompt
+            # Apply the .NET skill by default to development prompts (not chat).
+            full_prompt = prompt
+            if use_skill_prefix:
+                dotnet_prefix = (
+                    "Activate the 'dotnet' skill and apply its conventions and best practices "
+                    "to all .NET code you generate. "
+                )
+                full_prompt = dotnet_prefix + prompt
             # The working directory must be the ticket repo so tools operate on code.
             repo_path = self.ticket.get("repoPath") or ""
             cwd = resolve_repo_path(repo_path) or str(Path.cwd())

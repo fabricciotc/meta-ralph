@@ -67,6 +67,7 @@ class Orchestrator(threading.Thread):
         self.env: Optional[Environment] = None
         self._max_rounds_per_phase = 25
         self._max_qa_rounds = 3
+        self._max_correction_attempts = 3
 
         self.context = Context(
             ticket=ticket,
@@ -281,6 +282,26 @@ class Orchestrator(threading.Thread):
         if fn is None:
             return ""
         return fn(question, timeout_seconds)
+
+    def _ask_user_for_qa_help(
+        self,
+        task_id: str,
+        reason: str,
+        suggested_fix: str,
+        attempts: int,
+        timeout_seconds: int = 300,
+    ) -> str:
+        """Ask the user for guidance when the QA/engineer correction loop stalls."""
+        question = (
+            f"Task {task_id} has been rejected by QA {attempts} time(s) and the Engineer "
+            "has not been able to resolve the feedback automatically.\n\n"
+            f"Latest rejection reason:\n{reason}\n\n"
+            f"Suggested fix:\n{suggested_fix or '(none provided)'}\n\n"
+            "Please provide specific guidance for the Engineer or QA so the review loop can close. "
+            "For example: 'add unit tests for X', 'relax the requirement about Y', or "
+            "'approve it manually because Z'. If you do not answer, the task will be marked as failed."
+        )
+        return self._request_user_clarification(question, timeout_seconds)
 
     def _meta_dir(self) -> Path:
         return Path.cwd() / "scripts" / "meta-ralph"
@@ -979,45 +1000,123 @@ class Orchestrator(threading.Thread):
                 round_num,
             )
 
+            instruction_parts = [
+                f"QA rejected task {task_id}. Fix the implementation before requesting review again.",
+                f"Rejection reason: {reason}",
+            ]
+            if suggested_fix:
+                instruction_parts.append(f"QA suggestion: {suggested_fix}")
+            if correction_msg.content:
+                instruction_parts.append(f"Correction plan:\n{correction_msg.content}")
+            instruction = "\n\n".join(instruction_parts)
+
+            # Reset the engineer so the dashboard shows it is actively correcting.
+            self._update_agent(
+                engineer_id,
+                status="running",
+                progress=75,
+                log=f"QA feedback received; applying corrections for {task_id}.",
+            )
+
+            # Visible coordination message for the squad/chat.
             self.env.publish_message(Message(
-                content=f"QA rejected task {task_id}: {reason}",
-                sent_from=f"qa-{task_id}",
-                cause_by="reject_with_feedback",
-                send_to={engineer_id, "engineer-squad"},
-                metadata={
-                    "task_id": task_id,
-                    "task": task,
-                    "engineer_id": engineer_id,
-                    "reason": reason,
-                    "suggested_fix": suggested_fix,
-                    "correction_prompt": correction_msg.content,
-                    "report_path": str(report_path),
-                    "repo_path": repo_path,
-                    "branch": branch or f"feature/{self.ticket_id}-{task_id}".lower(),
-                },
+                content=f"QA rejected {task_id}; correction instructions will be sent to {engineer_id}.",
+                sent_from="orchestrator",
+                cause_by="squad_chat",
+                send_to={"engineer-squad", "all"},
+                metadata={"task_id": task_id, "status": "qa_rejected"},
             ))
 
-            history_len = len(self.env.history())
-            for _ in range(self._max_rounds_per_phase):
-                if self._should_stop_or_pause():
-                    return
-                asyncio.run(self.env.run_round(context=self.context))
-                if self._has_new_task_completion(task_id, history_len):
-                    self._collect_outputs(engineer_id, repo_path)
-                    self._update_agent(
-                        engineer_id,
-                        status="done",
-                        progress=100,
-                        log=f"Task {task_id} corrected after QA feedback.",
+            completed = False
+            user_guidance = ""
+            consecutive_attempts = 0
+            consultations = 0
+            max_user_consultations = 2
+            while not completed:
+                consecutive_attempts += 1
+
+                # After several unsuccessful attempts, ask the user for guidance
+                # instead of silently spinning forever.
+                if consecutive_attempts > self._max_correction_attempts:
+                    if consultations >= max_user_consultations:
+                        self.log(
+                            f"Engineer {task_id} still failing after {consultations} user consultation(s).",
+                            "warning",
+                        )
+                        break
+                    user_guidance = self._ask_user_for_qa_help(
+                        task_id, reason, suggested_fix, consecutive_attempts - 1
                     )
-                    break
-            else:
+                    consultations += 1
+                    if not user_guidance or "Decide automatically" in user_guidance:
+                        self.log(
+                            f"User did not provide guidance for {task_id}; stopping correction loop.",
+                            "warning",
+                        )
+                        break
+                    consecutive_attempts = 1
+
+                current_instruction = instruction
+                if user_guidance:
+                    current_instruction += f"\n\nAdditional user guidance:\n{user_guidance}"
+
+                self._update_agent(
+                    engineer_id,
+                    status="running",
+                    progress=75,
+                    log=f"Applying QA corrections for {task_id} (attempt {consecutive_attempts}).",
+                )
+                self.env.publish_message(Message(
+                    content=f"QA correction instructions for {task_id} (attempt {consecutive_attempts}).",
+                    sent_from="orchestrator",
+                    cause_by="squad_instruction",
+                    send_to={engineer_id},
+                    metadata={
+                        "task_id": task_id,
+                        "task": task,
+                        "instruction": current_instruction,
+                        "context": f"QA reason: {reason}\nQA suggestion: {suggested_fix}",
+                        "repo_path": repo_path,
+                        "branch": branch or f"feature/{self.ticket_id}-{task_id}".lower(),
+                        "qa_rejection": True,
+                        "reason": reason,
+                        "suggested_fix": suggested_fix,
+                        "correction_prompt": correction_msg.content,
+                        "report_path": str(report_path),
+                        "retry_attempt": consecutive_attempts,
+                        "user_guidance": user_guidance,
+                    },
+                ))
+
+                history_len = len(self.env.history())
+                for _ in range(self._max_rounds_per_phase):
+                    if self._should_stop_or_pause():
+                        return
+                    asyncio.run(self.env.run_round(context=self.context))
+                    if self._has_new_task_completion(task_id, history_len):
+                        self._collect_outputs(engineer_id, repo_path)
+                        self._update_agent(
+                            engineer_id,
+                            status="done",
+                            progress=100,
+                            log=f"Task {task_id} corrected after QA feedback (attempt {consecutive_attempts}).",
+                        )
+                        completed = True
+                        break
+                    if self._has_new_task_failure(task_id, history_len):
+                        self.log(
+                            f"Engineer {task_id} correction attempt {consecutive_attempts} failed; retrying.",
+                            "warning",
+                        )
+                        break
+
+            if not completed:
                 self.log(f"Engineer {task_id} did not finish QA corrections in time.", "warning")
                 self._update_agent(
                     engineer_id,
                     status="failed",
                     progress=100,
-                    log=f"Task {task_id} correction timed out.",
+                    log=f"Task {task_id} correction loop ended without success after {consultations} user consultation(s).",
                 )
 
         self._update_agent(
@@ -1030,6 +1129,12 @@ class Orchestrator(threading.Thread):
     def _has_new_task_completion(self, task_id: str, since_len: int) -> bool:
         for msg in self.env.history()[since_len:]:
             if msg.cause_by == "task_completed" and msg.metadata.get("task_id") == task_id:
+                return True
+        return False
+
+    def _has_new_task_failure(self, task_id: str, since_len: int) -> bool:
+        for msg in self.env.history()[since_len:]:
+            if msg.cause_by in {"task_failed", "task_error"} and msg.metadata.get("task_id") == task_id:
                 return True
         return False
 

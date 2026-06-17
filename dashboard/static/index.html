@@ -149,6 +149,14 @@
         <div class="chat-messages" id="chat-messages">
           <div class="chat-empty">Select an agent and write a message or instruction.</div>
         </div>
+        <div class="chat-typing" id="chat-typing" style="display:none;" aria-live="polite" aria-label="Agent is writing a message">
+          <div class="dotmatrix-loader" aria-hidden="true">
+            <span style="--dmx-i:0"></span><span style="--dmx-i:1"></span><span style="--dmx-i:2"></span>
+            <span style="--dmx-i:3"></span><span style="--dmx-i:4"></span><span style="--dmx-i:5"></span>
+            <span style="--dmx-i:6"></span><span style="--dmx-i:7"></span><span style="--dmx-i:8"></span>
+          </div>
+          <span class="chat-typing-text">Writing message...</span>
+        </div>
         <form class="chat-form" id="chat-form">
           <textarea id="chat-input" rows="2" placeholder="Write instructions, questions, or /reactivate..." aria-label="Message"></textarea>
           <button type="submit" class="btn-primary" aria-label="Send message"><i data-lucide="send"></i></button>
@@ -345,6 +353,6 @@
   <!-- Toast -->
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-  <script src="/static/app.js?v=6"></script>
+  <script src="/static/app.js?v=11"></script>
 </body>
 </html>

@@ -48,6 +48,31 @@ INTERNAL_MARKERS = (
     "must follow skill",
     "must invoke",
     "bash ls",
+    # first-person chain-of-thought markers that leak from backends
+    "i should",
+    "i need to",
+    "i have to",
+    "i must",
+    "i can",
+    "i will",
+    "i would",
+    "i could",
+    "i think",
+    "i believe",
+    "i suppose",
+    "i guess",
+    "let me",
+    "wait,",
+    "actually,",
+    "looking at",
+    "given the",
+    "the instruction says",
+    "output only your final message",
+    "use the same language",
+    "final response should be",
+    "humanizer skill",
+    "skill is loaded",
+    "loaded. now",
 )
 
 
@@ -77,7 +102,39 @@ def _is_internal(text: str) -> bool:
     lower = text.lower()
     if any(marker in lower for marker in INTERNAL_MARKERS):
         return True
-    if len(text) > 420 and any(word in lower for word in ("respond", "invoke", "skill", "context")):
+    if len(text) > 420 and sum(word in lower for word in ("respond", "invoke", "skill", "context")) >= 2:
+        return True
+    return False
+
+
+def _split_paragraphs(text: str) -> List[str]:
+    """Split text into paragraphs, respecting bullet markers."""
+    # Split on double newlines or bullet markers, keeping bullets as separators.
+    parts = re.split(r"\s*•\s*|\n\n+", text)
+    return [part.strip() for part in parts if part and part.strip()]
+
+
+def _looks_like_reasoning(text: str) -> bool:
+    """Heuristic for first-person reasoning leaked by CLI backends."""
+    lower = text.lower().strip()
+    # First person modal verbs at the start of a paragraph strongly indicate CoT.
+    if re.match(
+        r"^(i|let me|wait,|actually,|so,|okay,|ok,|well,|now,)\s+"
+        r"(should|need|must|can|will|would|could|think|believe|guess|suppose|check|look|try)",
+        lower,
+    ):
+        return True
+    # Spanish first-person reasoning markers.
+    if re.match(
+        r"^(debo|tengo\s+que|necesito|debería|podría|puedo|voy\s+a|pienso|creo\s+que|supongo\s+que|espera,|en\s+realidad,|bueno,|ok,|ahora,)\s+",
+        lower,
+    ):
+        return True
+    # Explicit meta-commentary about skills, the prompt, or the user message.
+    if re.search(
+        r"\bskill\s+is\s+loaded\b|\bnow\s+i\s+need\s+to\s+respond\b|\bthe\s+instruction\s+says\b|\boutput\s+only\s+your\s+final\s+message\b|\bel\s+usuario\s+(saluda|pregunta|escribe|dice)\b|\brazonamiento\s+interno\b|\bno\s+mostrar\s+razonamiento\b|\bresponder\s+en\s+español\b",
+        lower,
+    ):
         return True
     return False
 
@@ -94,15 +151,34 @@ def format_chat_response(raw: str) -> Dict[str, Any]:
         session_hint = session_match.group(0).replace("To resume this session:", "").strip()
     cleaned = SESSION_RE.sub("", cleaned).strip()
 
-    bullets = _split_bullets(cleaned)
-    if not bullets:
-        bullets = [cleaned]
+    # If the model explicitly marked a final response, use it.
+    final_match = re.search(r"FINAL RESPONSE:\s*(.+?)(?=\n\n|\n•|$)", cleaned, re.IGNORECASE | re.DOTALL)
+    if final_match:
+        reply = final_match.group(1).strip()
+        if reply:
+            return {"text": reply, "reply": reply, "meta": {"skills": _extract_skills(reply)}, "trace": []}
+
+    # Often the model wraps the final answer in quotes after long reasoning.
+    # Prefer the last long quoted block that is not internal/reasoning.
+    for match in reversed(list(re.finditer(r'[""]([^""]{40,})[""]', cleaned))):
+        quoted = match.group(1).strip()
+        stripped = _strip_skill_prefix(quoted)
+        if stripped and not _is_internal(stripped) and not _looks_like_reasoning(stripped):
+            # Ignore quotes that appear to repeat the user's question.
+            prefix = cleaned[:match.start()].lower()
+            if "user asked" in prefix[-200:] or "user said" in prefix[-200:] or "user wrote" in prefix[-200:]:
+                continue
+            return {"text": stripped, "reply": stripped, "meta": {"skills": _extract_skills(stripped)}, "trace": []}
+
+    paragraphs = _split_paragraphs(cleaned)
+    if not paragraphs:
+        paragraphs = [cleaned]
 
     skills: List[str] = []
     reply_parts: List[str] = []
     trace: List[str] = []
 
-    for part in bullets:
+    for part in paragraphs:
         part = part.strip()
         if not part:
             continue
@@ -112,20 +188,26 @@ def format_chat_response(raw: str) -> Dict[str, Any]:
         stripped = _strip_skill_prefix(part)
         if not stripped:
             continue
-        if _is_internal(stripped):
-            trace.append(part[:600])
+        if _is_internal(stripped) or _looks_like_reasoning(stripped):
+            trace.append(part[:800])
             continue
         reply_parts.append(stripped)
 
     reply = "\n\n".join(reply_parts).strip()
     if not reply:
-        fallback = _strip_skill_prefix(bullets[0])
-        fallback = SESSION_RE.sub("", fallback).strip()
-        if fallback and not _is_internal(fallback):
-            reply = fallback
-        else:
+        # Fallback 1: last paragraph that is not obviously reasoning.
+        for candidate in reversed(paragraphs):
+            stripped = _strip_skill_prefix(candidate.strip())
+            if stripped and not _is_internal(stripped) and not _looks_like_reasoning(stripped):
+                reply = stripped
+                break
+        # Fallback 2: very last paragraph, cleaned of session hints.
+        if not reply:
+            last = _strip_skill_prefix(paragraphs[-1].strip())
+            reply = SESSION_RE.sub("", last).strip() if last else ""
+        if not reply:
             reply = "I couldn't produce a clean reply. Check the agent logs for details."
-            trace.extend(bullets)
+            trace.extend(paragraphs)
 
     meta: Dict[str, Any] = {}
     if skills:

@@ -11,7 +11,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from core.actions.correction_action import CorrectionAction
-from core.actions.review_action import ReviewAction
+from core.actions.review_action import ReviewAction, default_extract_review_result
 from core.context import Context
 from core.environment import Environment
 from core.models import Message
@@ -468,6 +468,58 @@ class TestQARole(unittest.TestCase):
         self.assertEqual(response.cause_by, "qa_batch_reviewed")
         self.assertEqual(response.metadata["approved"], 2)
         self.assertEqual(set(shared_context.shared["qa_reviews"].keys()), {"T1", "T2"})
+
+
+class TestDefaultExtractReviewResult(unittest.TestCase):
+    def _sample_output_with_reasoning(self) -> str:
+        return (
+            "PASS: Ubuntu Docker image built and verified successfully\n"
+            "Both unit and integration tests pass. The image builds and runs correctly.\n"
+            "Now I need to provide the final QA verdict in the exact format requested.\n"
+            "VERDICT: APPROVED\n"
+            "REASON: Dockerfile builds and image passes verification.\n"
+            "SUGGESTION: Add a healthcheck for long-running containers."
+        )
+
+    def test_approves_with_reasoning_and_exact_verdict(self):
+        result = default_extract_review_result(self._sample_output_with_reasoning())
+        self.assertTrue(result["approved"])
+        self.assertEqual(result["reason"], "Dockerfile builds and image passes verification.")
+        self.assertEqual(result["suggested_fix"], "Add a healthcheck for long-running containers.")
+
+    def test_rejects_placeholder_verdict(self):
+        output = (
+            "PASS: Ubuntu Docker image built and verified successfully\n"
+            "VERDICT: APPROVED|REJECTED\n"
+            "REASON: <concise reason>\n"
+            "SUGGESTION: <correction suggestion if applicable>"
+        )
+        result = default_extract_review_result(output)
+        self.assertFalse(result["approved"])
+        self.assertIn("did not contain a clear", result["reason"])
+
+    def test_rejects_when_verdict_is_rejected(self):
+        output = (
+            "Some reasoning about APPROVED examples.\n"
+            "VERDICT: REJECTED\n"
+            "REASON: Missing tests.\n"
+            "SUGGESTION: Add more tests."
+        )
+        result = default_extract_review_result(output)
+        self.assertFalse(result["approved"])
+        self.assertEqual(result["reason"], "Missing tests.")
+        self.assertEqual(result["suggested_fix"], "Add more tests.")
+
+    def test_rejects_on_empty_output(self):
+        result = default_extract_review_result("")
+        self.assertFalse(result["approved"])
+        self.assertIn("No output", result["reason"])
+
+    def test_falls_back_to_first_lines_when_no_reason_tag(self):
+        output = "VERDICT: APPROVED\n"
+        result = default_extract_review_result(output)
+        self.assertTrue(result["approved"])
+        self.assertEqual(result["reason"], "VERDICT: APPROVED")
 
 
 if __name__ == "__main__":

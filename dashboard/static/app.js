@@ -87,6 +87,7 @@ const chatMessages = document.getElementById('chat-messages');
 const chatAgentSelect = document.getElementById('chat-agent-select');
 const chatForm = document.getElementById('chat-form');
 const chatInput = document.getElementById('chat-input');
+const chatTyping = document.getElementById('chat-typing');
 const deliverablesList = document.getElementById('deliverables-list');
 const btnRefreshDeliverables = document.getElementById('btn-refresh-deliverables');
 
@@ -631,7 +632,7 @@ function renderBehaviorsGraph() {
   const arrowFill = isDark ? 'rgba(96,165,250,0.7)' : 'rgba(36,90,120,0.65)';
   const activeStroke = isDark ? 'rgba(96,165,250,0.8)' : 'rgba(36,90,120,0.8)';
   const hierarchyStroke = isDark ? 'rgba(96,165,250,0.42)' : 'rgba(36,90,120,0.38)';
-  const communicationStroke = isDark ? 'rgba(148,163,184,0.22)' : 'rgba(46,67,32,0.22)';
+  const communicationStroke = isDark ? 'rgba(203,213,225,0.92)' : 'rgba(71,85,105,0.88)';
 
   const { positions, nodeDiameter, width: graphWidth, height: graphHeight } = computeGraphLayout(nodes, edges);
   const rect = behaviorsGraph.getBoundingClientRect();
@@ -715,13 +716,13 @@ function renderBehaviorsGraph() {
     const stroke = isCommunication ? communicationStroke : (isActive ? activeStroke : hierarchyStroke);
     const marker = isCommunication ? '' : (isActive ? 'url(#arrow-head-active)' : 'url(#arrow-head)');
     const pathId = `graph-edge-${i}`;
-    const width = isCommunication ? Math.min(1.4, 0.85 + Math.min(3, e.count || 1) * 0.12) : (isActive ? 2.35 : 1.45);
-    const dash = isCommunication ? '3,9' : 'none';
+    const width = isCommunication ? Math.min(2.8, 1.6 + Math.min(5, e.count || 1) * 0.22) : (isActive ? 2.35 : 1.45);
+    const dash = isCommunication ? '5,5' : 'none';
     const groupKey = [e.source, e.target, e.type].join('→');
     const groupIndex = edgeSeen[groupKey] || 0;
     edgeSeen[groupKey] = groupIndex + 1;
     const siblingOffset = groupIndex ? (groupIndex % 2 === 0 ? -1 : 1) * (10 + groupIndex * 4) : 0;
-    const opacity = isCommunication ? (selectedAgentId && selectedAgentId !== e.source && selectedAgentId !== e.target ? 0.22 : 0.62) : 1;
+    const opacity = isCommunication ? (selectedAgentId && selectedAgentId !== e.source && selectedAgentId !== e.target ? 0.35 : 0.92) : 1;
     svgHtml += `<path id="${pathId}" d="${curve(s, t, e.type, sourceRadius, targetRadius, siblingOffset)}" fill="none" stroke="${stroke}" stroke-width="${width}" stroke-dasharray="${dash}" stroke-linecap="round" stroke-opacity="${opacity}" marker-end="${marker}"></path>`;
     if (isActive && !isCommunication) {
       svgHtml += `<circle r="2.5" fill="${activeStroke}"><animateMotion dur="1.2s" repeatCount="indefinite"><mpath href="#${pathId}"/></animateMotion></circle>`;
@@ -1264,6 +1265,7 @@ function updateChatAgentSelect() {
 }
 
 let lastRenderedChatKey = null;
+let chatPendingReply = false;
 let lastRenderedDeliverablesKey = null;
 
 function formatFileSize(bytes) {
@@ -1421,6 +1423,32 @@ function renderChat() {
   if (nearBottom) chatMessages.scrollTop = chatMessages.scrollHeight;
 }
 
+function showChatTyping() {
+  if (!chatTyping) return;
+  chatTyping.style.display = 'flex';
+  const nearBottom = chatMessages.scrollHeight - chatMessages.scrollTop - chatMessages.clientHeight < 80;
+  if (nearBottom) chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
+function hideChatTyping() {
+  if (!chatTyping) return;
+  chatTyping.style.display = 'none';
+}
+
+function checkChatReplyReceived() {
+  if (!chatPendingReply) return;
+  const comm = runState.communication || {};
+  const log = (comm.log || []).filter(e => e.type === 'message' && e.messageType === 'chat');
+  if (!log.length) return;
+  const lastUserIdx = log.map(e => e.from).lastIndexOf('user');
+  if (lastUserIdx === -1) return;
+  const lastEntry = log[log.length - 1];
+  if (lastEntry.from !== 'user') {
+    chatPendingReply = false;
+    hideChatTyping();
+  }
+}
+
 async function sendChatMessage(e) {
   e.preventDefault();
   if (!chatInput || !chatAgentSelect) return;
@@ -1430,11 +1458,15 @@ async function sendChatMessage(e) {
   chatInput.value = '';
   chatInput.disabled = true;
   if (chatForm) chatForm.classList.add('sending');
+  chatPendingReply = true;
+  showChatTyping();
   try {
     socket.emit('chat_send', { to, message: text });
   } catch (err) {
     console.error('Error sending chat:', err);
     showToast('Could not send the message', 3000);
+    chatPendingReply = false;
+    hideChatTyping();
   } finally {
     setTimeout(() => {
       chatInput.disabled = false;
@@ -1925,6 +1957,7 @@ socket.on('communication_update', (communication) => {
   renderMessaging();
   renderChat();
   updateChatAgentSelect();
+  checkChatReplyReceived();
 });
 
 socket.on('chat_message', (entry) => {

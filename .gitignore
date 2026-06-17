@@ -17,6 +17,14 @@ dashboard/run.log
 dashboard/dashboard.log
 dashboard/board.json
 dashboard/scripts/meta-ralph/state/
+dashboard/.meta-ralph/
+scripts/meta-ralph/state/
+.meta-ralph/
+
+# Generated project artifacts from factory runs
+GestionProductos/
+GestionProductos.Tests/
+src/
 
 # Backups
 dashboard-backup-*/

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
@@ -35,15 +36,26 @@ def default_build_review_prompt(
         f"DIFF:\n{diff or '(no diff provided)'}\n\n"
         f"BUILD OUTPUT:\n{build_output or '(no build output)'}\n\n"
         f"TEST OUTPUT:\n{test_output or '(no test output)'}\n\n"
-        "Respond EXACTLY in this format:\n"
-        "VERDICT: APPROVED|REJECTED\n"
+        "Respond EXACTLY in this format. Choose ONE verdict only. Do not include both options or the pipe character.\n\n"
+        "VERDICT: <APPROVED or REJECTED>\n"
         "REASON: <concise reason>\n"
         "SUGGESTION: <correction suggestion if applicable>"
     )
 
 
 def default_extract_review_result(output: Optional[str]) -> Dict[str, Any]:
-    """Extract the review verdict from runner output."""
+    """Extract the review verdict from runner output.
+
+    The QA prompt asks for a strict format:
+        VERDICT: <APPROVED or REJECTED>
+        REASON: <concise reason>
+        SUGGESTION: <correction suggestion if applicable>
+
+    This parser first looks for an explicit, unambiguous ``VERDICT`` line.
+    If the model repeated the placeholder ``APPROVED|REJECTED`` or omitted
+    the verdict entirely, the review is rejected with a clear formatting
+    error so the agent can recover on the next round.
+    """
     if not output:
         return {
             "approved": False,
@@ -52,18 +64,44 @@ def default_extract_review_result(output: Optional[str]) -> Dict[str, Any]:
         }
 
     text = output.strip()
-    approved = "APPROVED" in text and "REJECTED" not in text
+    lines = [line.strip() for line in text.splitlines()]
+
+    approved: Optional[bool] = None
+    # Look for an explicit, single-value verdict line first.
+    for line in lines:
+        upper = line.upper()
+        if not upper.startswith("VERDICT:"):
+            continue
+        verdict_value = line.split(":", 1)[1].strip().upper()
+        if verdict_value == "APPROVED":
+            approved = True
+            break
+        if verdict_value == "REJECTED":
+            approved = False
+            break
+
+    if approved is None:
+        return {
+            "approved": False,
+            "reason": "QA response did not contain a clear APPROVED or REJECTED verdict.",
+            "suggested_fix": (
+                "Respond EXACTLY with one of these lines and nothing else for VERDICT:\n"
+                "VERDICT: APPROVED\n"
+                "VERDICT: REJECTED"
+            ),
+        }
+
     reason = ""
     suggested_fix = ""
+    for line in lines:
+        upper = line.upper()
+        if upper.startswith("REASON:"):
+            reason = line.split(":", 1)[1].strip()
+        elif upper.startswith("SUGGESTION:"):
+            suggested_fix = line.split(":", 1)[1].strip()
 
-    for line in text.splitlines():
-        stripped = line.strip()
-        if stripped.startswith("REASON:"):
-            reason = stripped.split(":", 1)[1].strip()
-        elif stripped.startswith("SUGGESTION:"):
-            suggested_fix = stripped.split(":", 1)[1].strip()
-
-    if not reason:
+    # Ignore placeholder remnants; fall back to the first 300 characters.
+    if not reason or reason in ("<CONCISE REASON>", "<YOUR CONCISE REASON>"):
         reason = text[:300]
 
     return {
