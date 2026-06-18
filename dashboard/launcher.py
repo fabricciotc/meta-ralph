@@ -178,6 +178,17 @@ def engine_status() -> None:
 def _is_process_running(pid: int) -> bool:
     if pid <= 0:
         return False
+    if platform.system() == "Windows":
+        try:
+            result = subprocess.run(
+                ["tasklist", "/FI", f"PID eq {pid}"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            return str(pid) in result.stdout
+        except OSError:
+            return False
     try:
         os.kill(pid, 0)
         return True

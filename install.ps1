@@ -1,7 +1,10 @@
 #Requires -Version 5.1
 $ErrorActionPreference = "Stop"
 
-$SkillDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$SkillDir = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
+if (-not $SkillDir) {
+    throw "Run this script as a file: .\install.ps1 (do not paste it into the console)."
+}
 $ScriptDir = Join-Path $SkillDir "scripts"
 $Script = Join-Path $ScriptDir "meta-ralph.sh"
 $DashboardDir = Join-Path $SkillDir "dashboard"
@@ -63,11 +66,29 @@ if not defined BASH (
 Set-Content -Path (Join-Path $binDir "meta-ralph.cmd") -Value $launcher -Encoding ASCII
 Write-Host "Created Windows launcher: $(Join-Path $binDir 'meta-ralph.cmd')"
 
-$agenticflowCmd = Join-Path $ScriptDir "agenticflow.cmd"
-if (Test-Path $agenticflowCmd) {
-    Copy-Item -Path $agenticflowCmd -Destination (Join-Path $binDir "agenticflow.cmd") -Force
-    Write-Host "Created Windows launcher: $(Join-Path $binDir 'agenticflow.cmd')"
-}
+$agenticflowLauncher = @"
+@echo off
+setlocal EnableExtensions
+set "REPO_ROOT=$SkillDir"
+
+where python >nul 2>nul
+if %errorlevel% == 0 (
+    python "%REPO_ROOT%\dashboard\launcher.py" %*
+    exit /b %errorlevel%
+)
+
+where python3 >nul 2>nul
+if %errorlevel% == 0 (
+    python3 "%REPO_ROOT%\dashboard\launcher.py" %*
+    exit /b %errorlevel%
+)
+
+echo Error: python or python3 is not installed.
+exit /b 1
+"@
+
+Set-Content -Path (Join-Path $binDir "agenticflow.cmd") -Value $agenticflowLauncher -Encoding ASCII
+Write-Host "Created Windows launcher: $(Join-Path $binDir 'agenticflow.cmd')"
 
 $currentPath = [Environment]::GetEnvironmentVariable("Path", "User")
 if ($currentPath -notlike "*$binDir*") {
