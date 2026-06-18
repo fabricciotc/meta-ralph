@@ -47,7 +47,7 @@ def _stub_run(self):
 
 
 def test_restart_ticket_clears_state_and_artifacts():
-    tmpdir = Path(tempfile.mkdtemp(prefix="meta-ralph-restart-test-"))
+    tmpdir = Path(tempfile.mkdtemp(prefix="agenticflow-restart-test-"))
     try:
         board_path = tmpdir / "board.json"
         board = {

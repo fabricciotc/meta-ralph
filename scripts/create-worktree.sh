@@ -6,7 +6,7 @@ set -e
 
 TASK_ID="$1"
 BASE_BRANCH="${2:-main}"
-META_DIR="${META_DIR:-scripts/meta-ralph}"
+META_DIR="${META_DIR:-.agenticflow}"
 
 if [ -z "$TASK_ID" ]; then
   echo "Usage: create-worktree.sh <task_id> [base_branch]"
@@ -14,7 +14,7 @@ if [ -z "$TASK_ID" ]; then
 fi
 
 WORKTREE_DIR="$META_DIR/state/worktrees/$TASK_ID"
-BRANCH_NAME="meta-ralph/task-$TASK_ID"
+BRANCH_NAME="agenticflow/task-$TASK_ID"
 
 # Ensure the base branch exists locally.
 if ! git show-ref --verify --quiet "refs/heads/$BASE_BRANCH"; then

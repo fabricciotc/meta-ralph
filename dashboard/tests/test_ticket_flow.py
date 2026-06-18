@@ -98,7 +98,7 @@ def wait_for(condition, timeout=10, interval=0.2):
 
 
 def main():
-    tmpdir = Path(tempfile.mkdtemp(prefix="meta-ralph-test-"))
+    tmpdir = Path(tempfile.mkdtemp(prefix="agenticflow-test-"))
     print(f"Test directory: {tmpdir}")
     try:
         board_path = tmpdir / "board.json"

@@ -90,7 +90,7 @@ class TestImplementAction(unittest.TestCase):
             **self._default_kwargs(),
         ))
 
-        expected_note = self.repo_path / ".meta-ralph" / "engineer-notes" / "T1-feature-T1-login.md"
+        expected_note = self.repo_path / ".agenticflow" / "engineer-notes" / "T1-feature-T1-login.md"
         self.assertTrue(expected_note.exists())
         self.assertIn("Add login endpoint", expected_note.read_text(encoding="utf-8"))
 

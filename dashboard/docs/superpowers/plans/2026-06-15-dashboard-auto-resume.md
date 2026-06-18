@@ -13,7 +13,7 @@ Allow the dashboard to recover useful run context after a server restart or tick
 
 ## Implementation Notes
 
-- Store snapshots next to other Meta-Ralph state files.
+- Store snapshots next to other AgenticFlow state files.
 - Use ticket ID as the lookup key.
 - Treat snapshots as runtime metadata, not source of truth for code.
 - If a snapshot is corrupt, fail gracefully and show a clear message.

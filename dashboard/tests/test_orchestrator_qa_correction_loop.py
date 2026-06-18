@@ -21,7 +21,7 @@ class TestOrchestratorQACorrectionLoop(unittest.TestCase):
         self.original_cwd = Path.cwd()
         import os
         os.chdir(self.tmpdir)
-        (self.tmpdir / "scripts" / "meta-ralph" / "state").mkdir(parents=True)
+        (self.tmpdir / ".agenticflow" / "state").mkdir(parents=True)
 
     def tearDown(self):
         import os

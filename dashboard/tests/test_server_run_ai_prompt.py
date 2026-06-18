@@ -35,7 +35,7 @@ class TestServerRunAiPrompt(unittest.TestCase):
     def test_output_files_are_isolated_by_agent_id(self):
         import os
         os.chdir(self.tmpdir)
-        (Path(self.tmpdir) / "scripts" / "meta-ralph" / "state").mkdir(parents=True)
+        (Path(self.tmpdir) / ".agenticflow" / "state").mkdir(parents=True)
 
         ticket = {"id": "ISO-001", "title": "X", "description": "Y", "repoPath": str(self.tmpdir)}
         runner = server.AgentRunner(ticket)

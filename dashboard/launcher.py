@@ -18,7 +18,7 @@ import webbrowser
 from pathlib import Path
 
 
-DASHBOARD_PORT = int(os.environ.get("AGENTICFLOW_PORT") or os.environ.get("META_RALPH_DASHBOARD_PORT") or "5050")
+DASHBOARD_PORT = int(os.environ.get("AGENTICFLOW_PORT") or "5050")
 DEFAULT_HOST = os.environ.get("AGENTICFLOW_HOST", "127.0.0.1")
 
 

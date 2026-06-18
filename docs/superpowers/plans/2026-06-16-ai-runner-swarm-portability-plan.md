@@ -2,11 +2,11 @@
 
 ## Goal
 
-Make Meta-Ralph portable across Kimi, Claude, Cursor, Codex, OpenAI-compatible API runners, and custom CLI runners.
+Make AgenticFlow portable across Kimi, Claude, Cursor, Copilot, Codex, and OpenAI-compatible API runners.
 
 ## Strategy
 
-- Keep `SKILL.md` assistant-neutral.
+- Keep the app and backend configuration assistant-neutral.
 - Treat each assistant CLI as a backend adapter.
 - Prefer native child-agent primitives when the host provides them.
 - Fall back to CLI mode or sequential execution when child agents are unavailable.
@@ -17,26 +17,18 @@ Make Meta-Ralph portable across Kimi, Claude, Cursor, Codex, OpenAI-compatible A
 Default order:
 
 ```bash
-META_RALPH_BACKENDS="kimi claude cursor codex openai_api"
+AGENTICFLOW_BACKENDS="kimi claude cursor copilot codex openai_api"
 ```
 
 Explicit backend:
 
 ```bash
-META_RALPH_BACKEND=claude meta-ralph run
-```
-
-Custom backend:
-
-```bash
-META_RALPH_BACKEND=custom \
-META_RALPH_RUNNER_COMMAND='my-agent --prompt-file "$META_RALPH_PROMPT_FILE"' \
-meta-ralph run
+AGENTICFLOW_BACKEND=claude agenticflow start
 ```
 
 ## Acceptance Criteria
 
 - The CLI no longer hardcodes one AI provider.
-- Documentation explains native skill mode and CLI mode separately.
+- Documentation explains app and CLI mode consistently.
 - A missing backend produces a clear error and a configurable fallback path.
 - Host-specific commands are isolated behind backend adapter logic.

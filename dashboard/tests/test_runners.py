@@ -101,6 +101,24 @@ def test_codex_backend_uses_cli():
             assert mock_run.call_args[0][0][0] == "/usr/bin/codex"
 
 
+def test_copilot_backend_uses_programmatic_cli():
+    with patch("core.runners.copilot_cli.shutil.which", return_value="/usr/bin/copilot"):
+        from core.runners.copilot_cli import CopilotCliBackend
+        backend = CopilotCliBackend()
+        assert backend.is_available() is True
+        with patch("subprocess.run", return_value=type("R", (), {"stdout": "copilot out", "stderr": "", "returncode": 0})) as mock_run:
+            out = backend.run_prompt("hi", phase_name="p", timeout_seconds=5)
+            assert out == "copilot out"
+            assert mock_run.call_args[0][0] == [
+                "/usr/bin/copilot",
+                "-p",
+                "hi",
+                "-s",
+                "--no-ask-user",
+                "--allow-all-tools",
+            ]
+
+
 def test_openai_api_backend_requires_key():
     with patch.dict("os.environ", {}, clear=True):
         from core.runners.openai_api import OpenAIApiBackend

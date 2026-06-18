@@ -2,7 +2,7 @@
 
 ## Goal
 
-Improve Meta-Ralph's role separation, planning quality, execution safety, and dashboard observability before publication.
+Improve AgenticFlow's role separation, planning quality, execution safety, and dashboard observability before publication.
 
 ## Work Items
 

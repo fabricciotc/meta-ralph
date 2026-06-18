@@ -19,12 +19,12 @@ Research areas may include business domain, technologies, components, integratio
 
 ### Output
 
-- A research note at `scripts/meta-ralph/state/pm-research/<agent_id>.md`.
+- A research note at `.agenticflow/state/pm-research/<agent_id>.md`.
 
 ### SOP
 
 1. Read `prd.json` completely.
-2. Identify the assigned board ticket in `scripts/meta-ralph/state/board.json`.
+2. Identify the assigned board ticket in `.agenticflow/state/board.json`.
 3. Tell the Orchestrator to move that ticket to **In Design**.
 4. Investigate the assigned area or focus, such as authentication, data model, external APIs, compliance, or UI/UX.
 5. Read relevant project files, identify existing patterns, and surface assumptions and risks.
@@ -43,7 +43,7 @@ Transform a high-level PRD and PM research notes into granular technical tasks t
 ### Input
 
 - `prd.json` with user stories.
-- PM Research notes from `scripts/meta-ralph/state/pm-research/*.md`.
+- PM Research notes from `.agenticflow/state/pm-research/*.md`.
 
 ### Output
 
@@ -52,7 +52,7 @@ Transform a high-level PRD and PM research notes into granular technical tasks t
 ### SOP
 
 1. Read `prd.json` completely.
-2. Read `scripts/meta-ralph/state/board.json` to understand existing tickets.
+2. Read `.agenticflow/state/board.json` to understand existing tickets.
 3. Read and consolidate all PM Research notes.
 4. For each user story, decompose it into independent technical tasks where possible.
 5. Ensure each task fits in one Engineer iteration.
@@ -77,7 +77,7 @@ Transform a high-level PRD and PM research notes into granular technical tasks t
 ```json
 {
   "projectName": "string",
-  "branchName": "meta-ralph/feature-x",
+  "branchName": "agenticflow/feature-x",
   "tasks": [
     {
       "id": "T-001",
@@ -189,7 +189,7 @@ Implement exactly one task in isolation, following the Architect's patterns and 
 - `roleContext` and `featureFocus` from `prd-expanded.json`.
 - `architecture.md`.
 - `prd-expanded.json`.
-- An isolated worktree at `scripts/meta-ralph/state/worktrees/<task_id>/`.
+- An isolated worktree at `.agenticflow/state/worktrees/<task_id>/`.
 
 ### Output
 
@@ -199,7 +199,7 @@ Implement exactly one task in isolation, following the Architect's patterns and 
 ### SOP
 
 1. Read the assigned task, including `roleContext` and `featureFocus`.
-2. Identify the associated ticket in `scripts/meta-ralph/state/board.json`; the Orchestrator should have moved it to **In Progress**.
+2. Identify the associated ticket in `.agenticflow/state/board.json`; the Orchestrator should have moved it to **In Progress**.
 3. Read `architecture.md` and any relevant `AGENTS.md` files.
 4. Adopt the assigned role, such as backend API engineer, frontend forms engineer, or auth specialist.
 5. Keep `featureFocus` as the guiding constraint: every change must serve that exact feature.
@@ -209,7 +209,7 @@ Implement exactly one task in isolation, following the Architect's patterns and 
 9. Run the project's quality checks: tests, lint, typecheck, build, or equivalent.
 10. If relevant tests exist, make them pass. If no relevant tests exist, consider adding a focused test.
 11. Do not modify files outside the task scope without clear justification.
-12. Commit with `feat(meta-ralph/T-XXX): <task title>`.
+12. Commit with `feat(agenticflow/T-XXX): <task title>`.
 13. Report the latest commit hash to the Orchestrator.
 14. If blocked, emit `WORKER_BLOCKED <task_id> <reason>` so the Project Manager can replan.
 

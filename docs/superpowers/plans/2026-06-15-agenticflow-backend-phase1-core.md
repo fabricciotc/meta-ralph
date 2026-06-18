@@ -1,8 +1,8 @@
-# Meta-Ralph Backend Phase 1 Core Plan
+# AgenticFlow Backend Phase 1 Core Plan
 
 ## Goal
 
-Create the initial backend foundation for the dashboard-driven Meta-Ralph runner.
+Create the initial backend foundation for the dashboard-driven AgenticFlow runner.
 
 ## Scope
 

@@ -13,7 +13,7 @@ if [ -z "$TICKET_ID" ] || [ -z "$STATUS" ]; then
   exit 1
 fi
 
-META_DIR="${META_DIR:-scripts/meta-ralph}"
+META_DIR="${META_DIR:-.agenticflow}"
 BOARD_FILE="$META_DIR/state/board.json"
 
 if [ ! -f "$BOARD_FILE" ]; then

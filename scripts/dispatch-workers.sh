@@ -8,15 +8,15 @@ set -e
 BATCH_ID="$1"
 MAX_WORKERS="$2"
 shift 2
-META_DIR="${META_DIR:-scripts/meta-ralph}"
+META_DIR="${META_DIR:-.agenticflow}"
 BASE_BRANCH="${BASE_BRANCH:-$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin//' | sed 's|^/||' || echo "main")}"
 
-# Resolve SKILL_DIR.
+# Resolve app directory.
 SCRIPT_SOURCE="${BASH_SOURCE[0]}"
 if [ -L "$SCRIPT_SOURCE" ]; then
   SCRIPT_SOURCE="$(readlink -f "$SCRIPT_SOURCE" 2>/dev/null || readlink "$SCRIPT_SOURCE" 2>/dev/null || echo "$SCRIPT_SOURCE")"
 fi
-SKILL_DIR="$(cd "$(dirname "$SCRIPT_SOURCE")/.." && pwd)"
+APP_DIR="$(cd "$(dirname "$SCRIPT_SOURCE")/.." && pwd)"
 
 if [ -z "$BATCH_ID" ] || [ -z "$MAX_WORKERS" ] || [ $# -eq 0 ]; then
   echo "Usage: dispatch-workers.sh <batch_id> <max_workers> <task_id>..."
@@ -45,7 +45,7 @@ cat > "$BATCH_FILE" <<EOF
 EOF
 
 for TASK_ID in "$@"; do
-  WORKTREE_DIR=$("$SKILL_DIR/scripts/create-worktree.sh" "$TASK_ID" "$BASE_BRANCH" 2>/dev/null || echo "")
+  WORKTREE_DIR=$("$APP_DIR/scripts/create-worktree.sh" "$TASK_ID" "$BASE_BRANCH" 2>/dev/null || echo "")
   if [ -z "$WORKTREE_DIR" ]; then
     echo "Error: failed to create worktree for $TASK_ID"
     exit 1

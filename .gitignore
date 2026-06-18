@@ -17,12 +17,8 @@ dashboard/run.log
 dashboard/dashboard.log
 dashboard/board.json
 dashboard/.engine.pid
-dashboard/scripts/meta-ralph/config.json
-dashboard/scripts/meta-ralph/state/
-dashboard/.meta-ralph/
-scripts/meta-ralph/state/
-scripts/meta-ralph/config.json
-.meta-ralph/
+dashboard/.agenticflow/
+.agenticflow/
 
 # Generated project artifacts from factory runs
 GestionProductos/

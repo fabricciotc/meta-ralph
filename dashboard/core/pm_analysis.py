@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Product Management Analysis phase for meta-ralph.
+"""Product Management Analysis phase for AgenticFlow.
 
 Self-contained PM research/consolidation logic that can be used both by the
 legacy AgentRunner and by the new MetaGPT-style Orchestrator. It depends only
@@ -32,19 +32,19 @@ DEFAULT_SUBAGENTS: List[tuple[str, str, str]] = [
 
 
 def get_meta_dir(cwd: Optional[Path] = None) -> Path:
-    """Return the meta-ralph scripts directory relative to the project.
+    """Return the AgenticFlow state directory relative to the project.
 
     Prefer the requested/current working directory when it already contains
-    the meta-ralph scripts folder (used by tests). Otherwise fall back to the
+    the AgenticFlow state folder (used by tests). Otherwise fall back to the
     dashboard directory where this module is installed, so PM analysis writes
     its artifacts to the same location the dashboard reads them from.
     """
     base = cwd or Path.cwd()
-    cwd_candidate = base / "scripts" / "meta-ralph"
+    cwd_candidate = base / ".agenticflow"
     if cwd_candidate.exists():
         return cwd_candidate
     dashboard_dir = Path(__file__).resolve().parent.parent
-    return dashboard_dir / "scripts" / "meta-ralph"
+    return dashboard_dir / ".agenticflow"
 
 
 def strip_ansi(text: str) -> str:
@@ -404,7 +404,7 @@ if __name__ == "__main__":
     try:
         import os
         os.chdir(tmpdir)
-        (Path(tmpdir) / "scripts" / "meta-ralph" / "state").mkdir(parents=True)
+        (Path(tmpdir) / ".agenticflow" / "state").mkdir(parents=True)
 
         def mock_run_ai(prompt, phase_name, timeout_seconds, agent_id=None):
             if agent_id == "pm-research-agents":

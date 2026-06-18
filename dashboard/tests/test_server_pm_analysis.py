@@ -28,7 +28,7 @@ class TestServerPMAnalysisIntegration(unittest.TestCase):
     def test_run_pm_analysis_uses_role_engine_and_writes_prd(self):
         import os
         os.chdir(self.tmpdir)
-        (Path(self.tmpdir) / "scripts" / "meta-ralph" / "state").mkdir(parents=True)
+        (Path(self.tmpdir) / ".agenticflow" / "state").mkdir(parents=True)
 
         ticket = {
             "id": "INT-001",
@@ -49,7 +49,7 @@ class TestServerPMAnalysisIntegration(unittest.TestCase):
         with patch.object(runner, "_run_ai_prompt", side_effect=mock_run_ai):
             runner.run_pm_analysis()
 
-        prd_path = Path(self.tmpdir) / "scripts" / "meta-ralph" / "state" / "prd-INT-001.md"
+        prd_path = Path(self.tmpdir) / ".agenticflow" / "state" / "prd-INT-001.md"
         self.assertTrue(prd_path.exists())
         self.assertIn("Consolidated PRD content", prd_path.read_text(encoding="utf-8"))
 
@@ -63,7 +63,7 @@ class TestServerPMAnalysisIntegration(unittest.TestCase):
     def test_run_pm_analysis_propagates_subagent_status_updates(self):
         import os
         os.chdir(self.tmpdir)
-        (Path(self.tmpdir) / "scripts" / "meta-ralph" / "state").mkdir(parents=True)
+        (Path(self.tmpdir) / ".agenticflow" / "state").mkdir(parents=True)
 
         ticket = {
             "id": "INT-003",
@@ -99,7 +99,7 @@ class TestServerPMAnalysisIntegration(unittest.TestCase):
     def test_run_pm_analysis_reuses_existing_prd(self):
         import os
         os.chdir(self.tmpdir)
-        state_dir = Path(self.tmpdir) / "scripts" / "meta-ralph" / "state"
+        state_dir = Path(self.tmpdir) / ".agenticflow" / "state"
         state_dir.mkdir(parents=True)
         prd_path = state_dir / "prd-INT-002.md"
         prd_path.write_text("# Existing PRD\n\nAlready done. " + "x" * 200, encoding="utf-8")

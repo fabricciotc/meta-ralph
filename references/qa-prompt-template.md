@@ -77,4 +77,4 @@ Respond exactly in this JSON format:
 | `BATCH_ID` | `execution-plan.json` -> `batch.batchId` |
 | `TASK_LIST` | Formatted list of tasks in the batch |
 | `WORKER_RESULTS` | JSON state for completed workers |
-| `META_DIR` | `scripts/meta-ralph` |
+| `META_DIR` | `.agenticflow` |

@@ -1,4 +1,4 @@
-# Meta-Ralph Backend MetaGPT Design
+# AgenticFlow Backend MetaGPT Design
 
 ## Summary
 
@@ -15,7 +15,7 @@ The backend models a local software factory: a ticket moves through PM analysis,
 
 ## State Model
 
-The backend stores generated artifacts under `scripts/meta-ralph`:
+The backend stores generated artifacts under `.agenticflow`:
 
 - `prd.json`
 - `prd-expanded.json`

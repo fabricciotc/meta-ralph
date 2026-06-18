@@ -1,21 +1,20 @@
 #!/bin/bash
-# Install meta-ralph as an assistant skill and global CLI command.
+# Install AgenticFlow as a standalone local program.
 
 set -e
 
-SKILL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SCRIPT_DIR="$SKILL_DIR/scripts"
+APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$APP_DIR/scripts"
 # shellcheck source=scripts/lib/platform.sh
 source "$SCRIPT_DIR/lib/platform.sh"
-SKILL_NAME="meta-ralph"
-SCRIPT="$SCRIPT_DIR/meta-ralph.sh"
+AGENTICFLOW_SCRIPT="$SCRIPT_DIR/agenticflow"
 
-if [ ! -f "$SCRIPT" ]; then
-  echo "Error: $SCRIPT was not found."
+if [ ! -f "$AGENTICFLOW_SCRIPT" ]; then
+  echo "Error: $AGENTICFLOW_SCRIPT was not found."
   exit 1
 fi
 
-chmod +x "$SCRIPT"
+chmod +x "$AGENTICFLOW_SCRIPT"
 
 PY_BIN="$(python_cmd)" || {
   echo "Error: python3 or python is not installed. AgenticFlow requires Python 3.10+."
@@ -34,44 +33,7 @@ if ! command -v git >/dev/null 2>&1; then
   exit 1
 fi
 
-register_skill_dir() {
-  local label="$1"
-  local base_dir="$2"
-  local target="$base_dir/$SKILL_NAME"
-
-  if [ -z "$base_dir" ]; then
-    return
-  fi
-
-  mkdir -p "$base_dir"
-
-  if [ "$SKILL_DIR" = "$target" ]; then
-    echo "Skill already lives in the $label skill directory: $target"
-    return
-  fi
-
-  if [ -e "$target" ] || [ -L "$target" ]; then
-    local resolved
-    resolved="$(readlink -f "$target" 2>/dev/null || echo "")"
-    if [ "$resolved" = "$SKILL_DIR" ]; then
-      echo "$label skill already registered: $target"
-      return
-    fi
-    echo "Warning: $target already exists and points elsewhere. Skipping $label registration."
-    return
-  fi
-
-  ln -sf "$SKILL_DIR" "$target"
-  echo "Registered $label skill: $target -> $SKILL_DIR"
-}
-
-register_skill_dir "Kimi Code" "${KIMI_CODE_SKILLS_DIR:-$HOME/.kimi-code/skills}"
-register_skill_dir "Kimi" "${KIMI_SKILLS_DIR:-$HOME/.kimi/skills}"
-register_skill_dir "Claude" "${CLAUDE_SKILLS_DIR:-$HOME/.claude/skills}"
-register_skill_dir "Cursor" "${CURSOR_SKILLS_DIR:-$HOME/.cursor/skills-cursor}"
-register_skill_dir "Codex" "${CODEX_SKILLS_DIR:-$HOME/.codex/skills}"
-
-DASHBOARD_DIR="$SKILL_DIR/dashboard"
+DASHBOARD_DIR="$APP_DIR/dashboard"
 VENV_DIR="$DASHBOARD_DIR/.venv"
 if [ ! -d "$VENV_DIR" ]; then
   echo "Creating dashboard virtual environment..."
@@ -83,12 +45,12 @@ else
   echo "Dashboard virtual environment already exists."
 fi
 
-META_DIR="$SKILL_DIR/scripts/meta-ralph"
-mkdir -p "$META_DIR/state"
-if [ ! -f "$META_DIR/config.json" ]; then
-  cat > "$META_DIR/config.json" <<'EOF'
+STATE_DIR="$APP_DIR/.agenticflow"
+mkdir -p "$STATE_DIR/state"
+if [ ! -f "$STATE_DIR/config.json" ]; then
+  cat > "$STATE_DIR/config.json" <<'EOF'
 {
-  "preferred_backends": ["kimi", "claude", "cursor", "codex", "openai_api"],
+  "preferred_backends": ["kimi", "claude", "cursor", "copilot", "codex", "openai_api"],
   "model_overrides": {
     "openai_api": "gpt-4o-mini"
   },
@@ -99,14 +61,14 @@ if [ ! -f "$META_DIR/config.json" ]; then
     "engineer": 1800,
     "qa": 600
   },
-  "api_key_path": "~/.config/meta-ralph/openai_api_key"
+  "api_key_path": "~/.config/agenticflow/openai_api_key"
 }
 EOF
-  echo "Created default config at $META_DIR/config.json"
+  echo "Created default config at $STATE_DIR/config.json"
 fi
 
-if [ ! -f "$META_DIR/prd.json" ]; then
-  cat > "$META_DIR/prd.json" <<'EOF'
+if [ ! -f "$STATE_DIR/prd.json" ]; then
+  cat > "$STATE_DIR/prd.json" <<'EOF'
 {
   "projectName": "Example",
   "stories": [
@@ -118,7 +80,7 @@ if [ ! -f "$META_DIR/prd.json" ]; then
   ]
 }
 EOF
-  echo "Created example PRD at $META_DIR/prd.json"
+  echo "Created example PRD at $STATE_DIR/prd.json"
 fi
 
 SHELL_NAME="$(basename "$SHELL")"
@@ -148,30 +110,32 @@ else
   mkdir -p "$BIN_DIR"
 fi
 
-ln -sf "$SCRIPT" "$BIN_DIR/meta-ralph"
-echo "Created CLI symlink: $BIN_DIR/meta-ralph -> $SCRIPT"
-
-AGENTICFLOW_SCRIPT="$SCRIPT_DIR/agenticflow"
-if [ -f "$AGENTICFLOW_SCRIPT" ]; then
-  ln -sf "$AGENTICFLOW_SCRIPT" "$BIN_DIR/agenticflow"
-  echo "Created CLI symlink: $BIN_DIR/agenticflow -> $AGENTICFLOW_SCRIPT"
-fi
+ln -sf "$AGENTICFLOW_SCRIPT" "$BIN_DIR/agenticflow"
+echo "Created CLI symlink: $BIN_DIR/agenticflow -> $AGENTICFLOW_SCRIPT"
 
 if is_windows; then
-  GIT_BASH="$(git_bash_path)" || GIT_BASH="/c/Program Files/Git/bin/bash.exe"
-  GIT_BASH_CMD="$(to_windows_cmd_path "$GIT_BASH")"
-  SCRIPT_CMD="$(to_windows_cmd_path "$SCRIPT")"
-  cat >"$BIN_DIR/meta-ralph.cmd" <<EOF
+  APP_DIR_CMD="$(to_windows_cmd_path "$APP_DIR")"
+  cat >"$BIN_DIR/agenticflow.cmd" <<EOF
 @echo off
-"$GIT_BASH_CMD" "$SCRIPT_CMD" %*
-EOF
-  echo "Created Windows launcher: $BIN_DIR/meta-ralph.cmd"
+setlocal EnableExtensions
+set "REPO_ROOT=$APP_DIR_CMD"
 
-  AGENTICFLOW_CMD_SCRIPT="$SCRIPT_DIR/agenticflow.cmd"
-  if [ -f "$AGENTICFLOW_CMD_SCRIPT" ]; then
-    cp "$AGENTICFLOW_CMD_SCRIPT" "$BIN_DIR/agenticflow.cmd"
-    echo "Created Windows launcher: $BIN_DIR/agenticflow.cmd"
-  fi
+where python >nul 2>nul
+if %errorlevel% == 0 (
+    python "%REPO_ROOT%\\dashboard\\launcher.py" %*
+    exit /b %errorlevel%
+)
+
+where python3 >nul 2>nul
+if %errorlevel% == 0 (
+    python3 "%REPO_ROOT%\\dashboard\\launcher.py" %*
+    exit /b %errorlevel%
+)
+
+echo Error: python or python3 is not installed.
+exit /b 1
+EOF
+  echo "Created Windows launcher: $BIN_DIR/agenticflow.cmd"
 fi
 
 if [ "$SHELL_NAME" = "fish" ]; then
@@ -214,6 +178,7 @@ if command -v cursor-agent >/dev/null 2>&1 || command -v agent >/dev/null 2>&1; 
 else
   echo "  missing: cursor-agent"
 fi
+detect_backend copilot
 detect_backend codex
 if [ -n "$OPENAI_API_KEY" ]; then
   echo "  ok: openai_api (OPENAI_API_KEY is set)"
@@ -229,6 +194,7 @@ if [ "$BACKENDS_FOUND" -eq 0 ]; then
   echo "  - kimi (Kimi Code CLI)"
   echo "  - claude (Claude Code CLI)"
   echo "  - cursor-agent / agent (Cursor agent CLI)"
+  echo "  - copilot (GitHub Copilot CLI)"
   echo "  - codex (Codex CLI)"
   echo "  - OPENAI_API_KEY environment variable"
 fi
@@ -242,10 +208,6 @@ echo ""
 echo "Then install the PWA from Chrome/Edge:"
 echo "  1. Open http://localhost:5050"
 echo "  2. Click the install icon in the address bar (or menu > Install AgenticFlow)"
-echo ""
-echo "You can still use the legacy CLI:"
-echo "  meta-ralph init"
-echo "  meta-ralph run"
 echo ""
 echo "Restart your terminal or run:"
 echo "  source $RC_FILE"

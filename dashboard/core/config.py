@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -12,17 +13,17 @@ DEFAULT_CONFIG: Dict[str, Any] = {
 
 
 def get_meta_dir() -> Path:
-    """Return the scripts/meta-ralph directory relative to the project.
+    """Return the .agenticflow directory relative to the project.
 
     Prefer the current working directory when it already contains the
-    meta-ralph scripts folder (used when the dashboard runs inside a project).
-    Otherwise fall back to the skill repository root.
+    AgenticFlow state folder (used when the dashboard runs inside a project).
+    Otherwise fall back to the installed dashboard directory.
     """
-    cwd_candidate = Path.cwd() / "scripts" / "meta-ralph"
+    cwd_candidate = Path.cwd() / ".agenticflow"
     if cwd_candidate.exists():
         return cwd_candidate
     repo_root = Path(__file__).resolve().parent.parent
-    return repo_root / "scripts" / "meta-ralph"
+    return repo_root / ".agenticflow"
 
 
 def get_config_path() -> Path:
@@ -53,7 +54,7 @@ def save_config(config: Dict[str, Any]) -> None:
 
 
 def get_preferred_backend() -> Optional[str]:
-    return load_config().get("preferredBackend")
+    return os.environ.get("AGENTICFLOW_BACKEND") or load_config().get("preferredBackend")
 
 
 def set_preferred_backend(name: Optional[str]) -> None:

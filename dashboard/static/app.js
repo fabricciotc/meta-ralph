@@ -37,7 +37,7 @@ let systemInfo = { model: '—', preferredBackend: null, availableBackends: [], 
 let projectsRoot = null;
 let traces = [];
 let graphData = { nodes: [], edges: [] };
-let selectedTicketId = localStorage.getItem('meta-ralph-selected-ticket') || null;
+let selectedTicketId = localStorage.getItem('agenticflow-selected-ticket') || null;
 let deliverables = [];
 
 let isConnected = false;
@@ -169,7 +169,7 @@ const toast = document.getElementById('toast');
    ============================================================ */
 
 function initTheme() {
-  const saved = localStorage.getItem('meta-ralph-theme');
+  const saved = localStorage.getItem('agenticflow-theme');
   if (saved === 'dark') {
     document.body.classList.add('dark');
   } else {
@@ -187,7 +187,7 @@ function updateThemeIcon() {
 
 function toggleTheme() {
   const isDark = document.body.classList.toggle('dark');
-  localStorage.setItem('meta-ralph-theme', isDark ? 'dark' : 'light');
+  localStorage.setItem('agenticflow-theme', isDark ? 'dark' : 'light');
   updateThemeIcon();
   renderBehaviorsGraph();
 }
@@ -358,9 +358,9 @@ function getTicketById(ticketId) {
 function setSelectedTicket(ticketId) {
   selectedTicketId = ticketId || null;
   if (selectedTicketId) {
-    localStorage.setItem('meta-ralph-selected-ticket', selectedTicketId);
+    localStorage.setItem('agenticflow-selected-ticket', selectedTicketId);
   } else {
-    localStorage.removeItem('meta-ralph-selected-ticket');
+    localStorage.removeItem('agenticflow-selected-ticket');
   }
   lastRenderedDeliverablesKey = null;
   loadDeliverables();

@@ -5,7 +5,7 @@
 set -e
 
 TASK_ID="$1"
-META_DIR="${META_DIR:-scripts/meta-ralph}"
+META_DIR="${META_DIR:-.agenticflow}"
 
 if [ -z "$TASK_ID" ]; then
   echo "Usage: remove-worktree.sh <task_id>"

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""MetaGPT-style orchestrator for the meta-ralph software factory loop.
+"""MetaGPT-style orchestrator for the AgenticFlow software factory loop.
 
 The orchestrator drives the five phases of the loop using Environment +
 Role/Action classes:
@@ -304,7 +304,7 @@ class Orchestrator(threading.Thread):
         return self._request_user_clarification(question, timeout_seconds)
 
     def _meta_dir(self) -> Path:
-        return Path.cwd() / "scripts" / "meta-ralph"
+        return Path.cwd() / ".agenticflow"
 
     def _prd_path(self) -> Path:
         return self._meta_dir() / "state" / f"prd-{self.ticket_id}.md"

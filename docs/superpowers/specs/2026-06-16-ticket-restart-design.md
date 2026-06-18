@@ -21,5 +21,5 @@ Ticket restart resets orchestration artifacts for a single ticket while preservi
 ## Safety Rules
 
 - Never run `git reset`, `git clean`, or branch deletion from restart.
-- Never remove repository files outside `scripts/meta-ralph/state` and generated Meta-Ralph artifacts.
+- Never remove repository files outside `.agenticflow/state` and generated AgenticFlow artifacts.
 - If a runner cannot be stopped, fail safely and report the reason.

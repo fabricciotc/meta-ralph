@@ -7,14 +7,14 @@ set -e
 BATCH_ID="$1"
 VERDICT="$2"
 shift 2 || true
-META_DIR="${META_DIR:-scripts/meta-ralph}"
+META_DIR="${META_DIR:-.agenticflow}"
 
-# Resolve SKILL_DIR.
+# Resolve app directory.
 SCRIPT_SOURCE="${BASH_SOURCE[0]}"
 if [ -L "$SCRIPT_SOURCE" ]; then
   SCRIPT_SOURCE="$(readlink -f "$SCRIPT_SOURCE" 2>/dev/null || readlink "$SCRIPT_SOURCE" 2>/dev/null || echo "$SCRIPT_SOURCE")"
 fi
-SKILL_DIR="$(cd "$(dirname "$SCRIPT_SOURCE")/.." && pwd)"
+APP_DIR="$(cd "$(dirname "$SCRIPT_SOURCE")/.." && pwd)"
 
 if [ -z "$BATCH_ID" ] || [ -z "$VERDICT" ]; then
   echo "Usage: finalize-batch.sh <batch_id> <APPROVE|REJECT> [failed_task_id]..."
@@ -31,9 +31,9 @@ TASKS=$(jq -r '.tasks[]' "$BATCH_FILE" 2>/dev/null || echo "")
 
 if [ "$VERDICT" = "APPROVE" ]; then
   # Merge the whole batch.
-  if "$SKILL_DIR/scripts/merge-batch.sh" "$BATCH_ID" $TASKS; then
+  if "$APP_DIR/scripts/merge-batch.sh" "$BATCH_ID" $TASKS; then
     for TASK_ID in $TASKS; do
-      "$SKILL_DIR/scripts/remove-worktree.sh" "$TASK_ID" 2>/dev/null || true
+      "$APP_DIR/scripts/remove-worktree.sh" "$TASK_ID" 2>/dev/null || true
     done
     jq '.status = "completed" | .mergedAt = "'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'"' "$BATCH_FILE" > "$BATCH_FILE.tmp"
     mv "$BATCH_FILE.tmp" "$BATCH_FILE"
@@ -49,7 +49,7 @@ else
   jq '.status = "rejected" | .rejectedAt = "'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'"' "$BATCH_FILE" > "$BATCH_FILE.tmp"
   mv "$BATCH_FILE.tmp" "$BATCH_FILE"
   for TASK_ID in "$@"; do
-    "$SKILL_DIR/scripts/update-worker-state.sh" "$TASK_ID" "failed" "" 2>/dev/null || true
+    "$APP_DIR/scripts/update-worker-state.sh" "$TASK_ID" "failed" "" 2>/dev/null || true
   done
   echo "Batch $BATCH_ID rejected. Worktrees preserved for retry."
 fi

@@ -2,13 +2,13 @@
 
 ## Problem
 
-Meta-Ralph originally assumed one assistant CLI and one child-agent API. Publication requires a neutral design that works across multiple AI coding assistants.
+AgenticFlow originally assumed one assistant CLI and one child-agent API. Publication requires a neutral design that works across multiple AI coding assistants.
 
 ## Design
 
 ### Native Skill Mode
 
-The host assistant reads `SKILL.md` and acts as the Orchestrator. It should use its own child-agent primitive when available:
+The host assistant can run the AgenticFlow backend and use its own child-agent primitive when available:
 
 - Cursor: `Subagent` or equivalent background worker support.
 - Kimi: `Agent` and task output polling.
@@ -19,24 +19,12 @@ If no child-agent primitive exists, the host should run phases sequentially whil
 
 ### CLI Mode
 
-The `meta-ralph` command builds the Orchestrator prompt, starts the dashboard, and sends the prompt to a configured backend.
+The AgenticFlow command builds the Orchestrator prompt, starts the dashboard, and sends the prompt to a configured backend.
 
 Backend selection is controlled by:
 
-- `META_RALPH_BACKEND`
-- `META_RALPH_BACKENDS`
-- `META_RALPH_RUNNER_COMMAND`
-- `META_RALPH_PROMPT`
-- `META_RALPH_PROMPT_FILE`
-
-### Custom Runner Contract
-
-Custom runners receive the full prompt through:
-
-- `META_RALPH_PROMPT`
-- `META_RALPH_PROMPT_FILE`
-
-The command should exit `0` on success and non-zero on failure.
+- `AGENTICFLOW_BACKEND`
+- `AGENTICFLOW_BACKENDS`
 
 ## Safety
 

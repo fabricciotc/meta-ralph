@@ -284,7 +284,7 @@ class ImplementAction(Action):
         dependencies_context: str,
     ) -> str:
         """Generate a minimal local implementation note when no runner is available."""
-        work_dir = repo_path / ".meta-ralph" / "engineer-notes"
+        work_dir = repo_path / ".agenticflow" / "engineer-notes"
         work_dir.mkdir(parents=True, exist_ok=True)
         task_id = str(task.get("id", "unknown"))
         safe_branch = str(branch).replace("/", "-")

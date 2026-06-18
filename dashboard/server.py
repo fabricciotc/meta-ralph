@@ -41,8 +41,8 @@ from flask import Flask, jsonify, request, send_from_directory
 from flask_socketio import SocketIO, emit
 
 app = Flask(__name__)
-app.config["SECRET_KEY"] = os.environ.get("META_RALPH_SECRET_KEY") or os.urandom(32)
-_cors_origins = os.environ.get("META_RALPH_CORS_ORIGINS", "*")
+app.config["SECRET_KEY"] = os.environ.get("AGENTICFLOW_SECRET_KEY") or os.urandom(32)
+_cors_origins = os.environ.get("AGENTICFLOW_CORS_ORIGINS", "*")
 socketio = SocketIO(app, cors_allowed_origins=_cors_origins.split(","))
 
 DEFAULT_COLUMNS = [
@@ -85,19 +85,19 @@ paused_run_threads = {}
 
 
 def get_meta_dir():
-    """Return the scripts/meta-ralph directory relative to the project.
+    """Return the .agenticflow directory relative to the project.
 
     Prefer the current working directory when it already contains the
-    meta-ralph scripts folder (used by tests and project-specific runs).
+    AgenticFlow state folder (used by tests and project-specific runs).
     Otherwise fall back to the directory where this server file lives, so
     the dashboard still finds state/artifacts regardless of the cwd used to
     start the process.
     """
-    cwd_candidate = Path.cwd() / "scripts" / "meta-ralph"
+    cwd_candidate = Path.cwd() / ".agenticflow"
     if cwd_candidate.exists():
         return cwd_candidate
     server_dir = Path(__file__).resolve().parent
-    return server_dir / "scripts" / "meta-ralph"
+    return server_dir / ".agenticflow"
 
 
 def get_board_path():
@@ -4182,7 +4182,7 @@ def collect_deliverables(ticket_id):
     ticket = _ticket_by_id(ticket_id)
     repo_path = ticket.get("repoPath") if ticket else ""
     if repo_path:
-        notes_dir = Path(repo_path) / ".meta-ralph" / "engineer-notes"
+        notes_dir = Path(repo_path) / ".agenticflow" / "engineer-notes"
         if notes_dir.exists():
             for path in sorted(notes_dir.glob(f"*{ticket_id}*.md")):
                 _add_deliverable(entries, seen, path, "agent-output", path.name, "engineer-notes")

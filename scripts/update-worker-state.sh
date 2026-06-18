@@ -8,7 +8,7 @@ TASK_ID="$1"
 STATUS="$2"
 LAST_COMMIT="${3:-}"
 RESULT_JSON="${4:-}"
-META_DIR="${META_DIR:-scripts/meta-ralph}"
+META_DIR="${META_DIR:-.agenticflow}"
 
 if [ -z "$TASK_ID" ] || [ -z "$STATUS" ]; then
   echo "Usage: update-worker-state.sh <task_id> <status> [last_commit] [result_json]"

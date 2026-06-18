@@ -6,7 +6,7 @@ set -e
 
 BATCH_ID="$1"
 shift
-META_DIR="${META_DIR:-scripts/meta-ralph}"
+META_DIR="${META_DIR:-.agenticflow}"
 
 if [ -z "$BATCH_ID" ] || [ $# -eq 0 ]; then
   echo "Usage: merge-batch.sh <batch_id> <task_id>..."
@@ -50,7 +50,7 @@ for TASK_ID in "$@"; do
   fi
 
   if git cherry-pick --no-commit "$LAST_COMMIT" >/dev/null 2>&1; then
-    git commit -m "feat(meta-ralph): $TASK_ID batch $BATCH_ID" >/dev/null 2>&1
+    git commit -m "feat(agenticflow): $TASK_ID batch $BATCH_ID" >/dev/null 2>&1
     MERGED+=("$TASK_ID")
   else
     git cherry-pick --abort 2>/dev/null || true

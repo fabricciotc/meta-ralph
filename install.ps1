@@ -1,14 +1,14 @@
 #Requires -Version 5.1
 $ErrorActionPreference = "Stop"
 
-$SkillDir = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
-if (-not $SkillDir) {
+$AppDir = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
+if (-not $AppDir) {
     throw "Run this script as a file: .\install.ps1 (do not paste it into the console)."
 }
-$ScriptDir = Join-Path $SkillDir "scripts"
-$Script = Join-Path $ScriptDir "meta-ralph.sh"
-$DashboardDir = Join-Path $SkillDir "dashboard"
+$ScriptDir = Join-Path $AppDir "scripts"
+$DashboardDir = Join-Path $AppDir "dashboard"
 $VenvDir = Join-Path $DashboardDir ".venv"
+$StateDir = Join-Path $AppDir ".agenticflow"
 
 function Find-Python {
     foreach ($candidate in @("python", "python3")) {
@@ -30,8 +30,8 @@ function Get-VenvPip {
     Join-Path $Venv "Scripts\pip.exe"
 }
 
-if (-not (Test-Path $Script)) {
-    throw "Missing script: $Script"
+if (-not (Test-Path (Join-Path $DashboardDir "launcher.py"))) {
+    throw "Missing dashboard launcher: $(Join-Path $DashboardDir 'launcher.py')"
 }
 
 $python = Find-Python
@@ -47,29 +47,55 @@ if (-not (Test-Path $VenvDir)) {
     & (Get-VenvPip $VenvDir) install -q -r (Join-Path $DashboardDir "requirements.txt")
 }
 
+New-Item -ItemType Directory -Force -Path (Join-Path $StateDir "state") | Out-Null
+
+$configPath = Join-Path $StateDir "config.json"
+if (-not (Test-Path $configPath)) {
+    $config = @"
+{
+  "preferred_backends": ["kimi", "claude", "cursor", "copilot", "codex", "openai_api"],
+  "model_overrides": {
+    "openai_api": "gpt-4o-mini"
+  },
+  "timeout_defaults": {
+    "pm_research": 600,
+    "architect": 600,
+    "planning": 600,
+    "engineer": 1800,
+    "qa": 600
+  },
+  "api_key_path": "~/.config/agenticflow/openai_api_key"
+}
+"@
+    Set-Content -Path $configPath -Value $config -Encoding ASCII
+    Write-Host "Created default config: $configPath"
+}
+
+$prdPath = Join-Path $StateDir "prd.json"
+if (-not (Test-Path $prdPath)) {
+    $prd = @"
+{
+  "projectName": "Example",
+  "stories": [
+    {
+      "id": "US-001",
+      "title": "Example story",
+      "description": "Describe the user story here."
+    }
+  ]
+}
+"@
+    Set-Content -Path $prdPath -Value $prd -Encoding ASCII
+    Write-Host "Created example PRD: $prdPath"
+}
+
 $binDir = Join-Path $env:USERPROFILE ".local\bin"
 New-Item -ItemType Directory -Force -Path $binDir | Out-Null
-
-$launcher = @"
-@echo off
-setlocal EnableExtensions
-set "SCRIPT_DIR=$($ScriptDir -replace '\\', '/')"
-for /f "delims=" %%B in ('where bash ^| findstr /i "\\Git\\bin\\bash.exe"') do set "BASH=%%B"
-if not defined BASH for /f "delims=" %%B in ('where bash') do set "BASH=%%B"
-if not defined BASH (
-  echo Error: Git Bash is required.
-  exit /b 1
-)
-"%%BASH%%" "$($Script -replace '\\', '/')" %*
-"@
-
-Set-Content -Path (Join-Path $binDir "meta-ralph.cmd") -Value $launcher -Encoding ASCII
-Write-Host "Created Windows launcher: $(Join-Path $binDir 'meta-ralph.cmd')"
 
 $agenticflowLauncher = @"
 @echo off
 setlocal EnableExtensions
-set "REPO_ROOT=$SkillDir"
+set "REPO_ROOT=$AppDir"
 
 where python >nul 2>nul
 if %errorlevel% == 0 (
@@ -105,7 +131,3 @@ Write-Host ""
 Write-Host "Then install the PWA from Chrome/Edge:"
 Write-Host "  1. Open http://localhost:5050"
 Write-Host "  2. Click the install icon in the address bar (or menu > Install AgenticFlow)"
-Write-Host ""
-Write-Host "You can still use the legacy CLI:"
-Write-Host "  meta-ralph init"
-Write-Host "  meta-ralph dashboard"

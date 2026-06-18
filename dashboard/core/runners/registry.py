@@ -16,6 +16,7 @@ _CLI_CANDIDATES: Dict[str, List[str]] = {
     "kimi": ["kimi"],
     "claude": ["claude"],
     "cursor": ["cursor-agent", "agent", "cursor"],
+    "copilot": ["copilot"],
     "codex": ["codex"],
 }
 
@@ -23,9 +24,12 @@ _BACKEND_DISPLAY_NAMES: Dict[str, str] = {
     "kimi": "Kimi Code",
     "claude": "Claude Code",
     "cursor": "Cursor Agent",
+    "copilot": "GitHub Copilot CLI",
     "codex": "Codex CLI",
     "openai_api": "OpenAI API",
 }
+
+_DEFAULT_BACKEND_ORDER = ["kimi", "cursor", "claude", "copilot", "codex", "openai_api"]
 
 
 def _find_executable(name: str) -> Optional[str]:
@@ -113,21 +117,27 @@ class BackendRegistry:
         from core.runners.kimi_cli import KimiCliBackend
         from core.runners.cursor_cli import CursorCliBackend
         from core.runners.claude_code import ClaudeCodeBackend
+        from core.runners.copilot_cli import CopilotCliBackend
         from core.runners.codex_cli import CodexCliBackend
         from core.runners.openai_api import OpenAIApiBackend
+
+        backend_classes = {
+            "kimi": KimiCliBackend,
+            "claude": ClaudeCodeBackend,
+            "cursor": CursorCliBackend,
+            "copilot": CopilotCliBackend,
+            "codex": CodexCliBackend,
+            "openai_api": OpenAIApiBackend,
+        }
 
         # If a preferred backend is configured and available, use only that one.
         if preferred:
             executable = _resolve_preferred_backend(preferred)
             if executable:
-                backend_map = {
-                    "kimi": KimiCliBackend(executable=executable),
-                    "claude": ClaudeCodeBackend(executable=executable),
-                    "cursor": CursorCliBackend(executable=executable),
-                    "codex": CodexCliBackend(executable=executable),
-                    "openai_api": OpenAIApiBackend(),
-                }
-                backend = backend_map.get(preferred)
+                backend_class = backend_classes.get(preferred)
+                backend = backend_class() if preferred == "openai_api" and backend_class else (
+                    backend_class(executable=executable) if backend_class else None
+                )
                 if backend and backend.is_available():
                     logger.info("Using preferred backend: %s", preferred)
                     return cls([backend])
@@ -136,13 +146,9 @@ class BackendRegistry:
                 preferred,
             )
 
-        return cls([
-            KimiCliBackend(),
-            CursorCliBackend(),
-            ClaudeCodeBackend(),
-            CodexCliBackend(),
-            OpenAIApiBackend(),
-        ])
+        requested_order = os.environ.get("AGENTICFLOW_BACKENDS", "")
+        ordered_names = requested_order.split() if requested_order else _DEFAULT_BACKEND_ORDER
+        return cls([backend_classes[name]() for name in ordered_names if name in backend_classes])
 
     @classmethod
     def from_config(cls) -> "BackendRegistry":

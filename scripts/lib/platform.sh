@@ -92,9 +92,22 @@ run_cursor_agent() {
   return 127
 }
 
+run_copilot_cli() {
+  local prompt_file="$1"
+  local prompt
+  prompt="$(cat "$prompt_file")"
+
+  if command_exists copilot; then
+    copilot -p "$prompt" -s --no-ask-user --allow-all-tools
+    return $?
+  fi
+
+  return 127
+}
+
 git_bash_path() {
-  if [ -n "${META_RALPH_GIT_BASH:-}" ] && [ -x "$META_RALPH_GIT_BASH" ]; then
-    echo "$META_RALPH_GIT_BASH"
+  if [ -n "${AGENTICFLOW_GIT_BASH:-}" ] && [ -x "$AGENTICFLOW_GIT_BASH" ]; then
+    echo "$AGENTICFLOW_GIT_BASH"
     return 0
   fi
 
