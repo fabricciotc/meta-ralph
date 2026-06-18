@@ -89,10 +89,19 @@ def get_meta_dir():
 
     Prefer the current working directory when it already contains the
     meta-ralph scripts folder (used by tests and project-specific runs).
-    Otherwise fall back to the directory where this server file lives, so
-    the dashboard still finds state/artifacts regardless of the cwd used to
-    start the process.
+    When running as a PyInstaller bundle, use the user's home directory so
+    state survives app restarts. Otherwise fall back to the directory where
+    this server file lives, so the dashboard still finds state/artifacts
+    regardless of the cwd used to start the process.
     """
+    env_dir = os.environ.get("AGENTICFLOW_META_DIR")
+    if env_dir:
+        return Path(env_dir)
+    if getattr(sys, "frozen", False):
+        # Running inside the Tauri sidecar; keep state in the user's home.
+        meta = Path.home() / ".agenticflow" / "data" / "scripts" / "meta-ralph"
+        meta.mkdir(parents=True, exist_ok=True)
+        return meta
     cwd_candidate = Path.cwd() / "scripts" / "meta-ralph"
     if cwd_candidate.exists():
         return cwd_candidate
