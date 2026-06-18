@@ -1,0 +1,35 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "AgenticFlow",
+  "version": "0.5.0",
+  "identifier": "com.agenticflow.app",
+  "build": {
+    "beforeBuildCommand": "",
+    "beforeDevCommand": "",
+    "devUrl": "http://127.0.0.1:5050",
+    "frontendDist": "http://127.0.0.1:5050"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "AgenticFlow",
+        "width": 1400,
+        "height": 900,
+        "resizable": true,
+        "url": "http://127.0.0.1:5050"
+      }
+    ]
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["dmg", "app", "nsis", "deb", "appimage"],
+    "externalBin": ["binaries/dashboard-server"],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
+  }
+}
