@@ -440,6 +440,33 @@
   <!-- Toast -->
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-  <script src="/static/app.js?v=12"></script>
+  <script>
+    (function(){
+      var beaconUrl = 'http://127.0.0.1:5051/api/client-beacon';
+      function send(msg) {
+        try { navigator.sendBeacon(beaconUrl, msg); } catch(e) {}
+      }
+      send('html-inline: start href=' + location.href + ' ua=' + navigator.userAgent);
+      window.addEventListener('error', function(e) {
+        send('ERROR: ' + (e.message || '') + ' at ' + (e.filename || '') + ':' + (e.lineno || 0) + ':' + (e.colno || 0));
+      });
+      window.addEventListener('unhandledrejection', function(e) {
+        send('UNHANDLED: ' + (e.reason && e.reason.stack ? e.reason.stack : String(e.reason)));
+      });
+      setTimeout(function() {
+        var shell = document.querySelector('.app-shell');
+        var overlay = document.querySelector('.engine-overlay');
+        var info = {
+          styleSheets: document.styleSheets.length,
+          linkTags: document.querySelectorAll('link[rel="stylesheet"]').length,
+          bodyFont: window.getComputedStyle(document.body).fontFamily,
+          shellDisplay: shell ? window.getComputedStyle(shell).display : 'missing',
+          overlayDisplay: overlay ? window.getComputedStyle(overlay).display : 'missing'
+        };
+        send('styles-check: ' + JSON.stringify(info));
+      }, 1200);
+    })();
+  </script>
+  <script src="/static/app.js?v=13"></script>
 </body>
 </html>

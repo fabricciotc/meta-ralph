@@ -22,8 +22,14 @@ const STATUS_COLORS = {
 
 const ACTIVE_STATUSES = ['ready-for-work', 'in-design', 'in-progress', 'in-review'];
 
-const socket = io({
-  transports: ['websocket', 'polling'],
+function detectTauri() {
+  return typeof window.__TAURI_INTERNALS__ !== 'undefined'
+      || typeof window.__TAURI__ !== 'undefined'
+      || window.__AGENTICFLOW_TAURI__ === true;
+}
+
+const socket = io(detectTauri() ? 'http://127.0.0.1:5051' : undefined, {
+  transports: detectTauri() ? ['websocket'] : ['websocket', 'polling'],
   reconnection: true,
   reconnectionAttempts: Infinity,
   reconnectionDelay: 1000,
@@ -1963,9 +1969,44 @@ function hideEngineOverlay() {
   engineOverlay.classList.add('hidden');
 }
 
-function isTauri() {
-  return typeof window.__TAURI_INTERNALS__ !== 'undefined' || typeof window.__TAURI__ !== 'undefined';
-}
+// Tauri's WKWebView on macOS can block plain http fetches to the sidecar.
+// Route relative/localhost requests through Rust commands instead.
+(function setupTauriFetch() {
+  const invoke = window.__agenticflow_invoke;
+  if (typeof invoke !== 'function') return;
+
+  const originalFetch = window.fetch;
+  window.fetch = async function tauriFetch(input, init) {
+    let url = typeof input === 'string' ? input : input.url;
+    const method = (init && init.method ? init.method : 'GET').toUpperCase();
+    const body = init && init.body ? init.body : undefined;
+
+    const isLocal = url.startsWith('/') || url.startsWith('http://127.0.0.1:5051') || url.startsWith('http://localhost:5051');
+    if (!isLocal) {
+      return originalFetch(input, init);
+    }
+
+    const path = url.replace('http://127.0.0.1:5051', '').replace('http://localhost:5051', '');
+    const bodyString = typeof body === 'string' ? body : undefined;
+
+    try {
+      const result = await invoke('api_call', {
+        method,
+        path,
+        body: bodyString,
+      });
+      return new Response(result.body, {
+        status: result.status,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    } catch (err) {
+      return new Response(JSON.stringify({ error: err.message || String(err) }), {
+        status: 503,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+  };
+})();
 
 function isPwaInstalled() {
   if (navigator.standalone === true) return true;
@@ -1980,13 +2021,13 @@ function supportsFolderPicker() {
 
 function showPwaInstallOverlay() {
   if (!pwaInstallOverlay) return;
-  if (isPwaInstalled() || isTauri()) {
+  if (isPwaInstalled() || detectTauri()) {
     hidePwaInstallOverlay();
     return;
   }
   pwaInstallOverlay.style.display = 'flex';
   const canInstall = Boolean(installPromptEvent);
-  const canContinue = supportsFolderPicker() || isTauri();
+  const canContinue = supportsFolderPicker() || detectTauri();
   if (btnInstallPwaOverlay) btnInstallPwaOverlay.style.display = canInstall ? 'inline-flex' : 'none';
   if (btnContinueBrowser) btnContinueBrowser.style.display = canContinue ? 'inline-flex' : 'none';
   if (pwaInstallInstructions) pwaInstallInstructions.style.display = canContinue ? 'none' : 'block';
@@ -2104,7 +2145,7 @@ function updateRepoFolderBadge(name) {
 }
 
 async function pickRepoFolder() {
-  if (isTauri()) {
+  if (detectTauri()) {
     return pickRepoFolderNative();
   }
   if (!('showDirectoryPicker' in window)) {
@@ -2495,7 +2536,7 @@ async function bootAppCore() {
 }
 
 function bootApp() {
-  if (isPwaInstalled() || pwaOverlayDismissed || isTauri()) {
+  if (isPwaInstalled() || pwaOverlayDismissed || detectTauri()) {
     hidePwaInstallOverlay();
     bootAppCore();
     return;
@@ -2506,7 +2547,7 @@ function bootApp() {
 bootApp();
 
 setInterval(async () => {
-  if (!isPwaInstalled() && !pwaOverlayDismissed && !isTauri()) {
+  if (!isPwaInstalled() && !pwaOverlayDismissed && !detectTauri()) {
     showPwaInstallOverlay();
     return;
   }

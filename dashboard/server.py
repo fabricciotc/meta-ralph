@@ -48,9 +48,11 @@ except Exception:
     pass
 
 from flask import Flask, jsonify, request, send_from_directory
+from flask_cors import CORS
 from flask_socketio import SocketIO, emit
 
 app = Flask(__name__)
+CORS(app, resources={r"/api/*": {"origins": "*"}})
 app.config["SECRET_KEY"] = (
     os.environ.get("AGENTICFLOW_SECRET_KEY")
     or os.environ.get("META_RALPH_SECRET_KEY")
@@ -3756,6 +3758,36 @@ def api_health():
         "preferredBackend": load_config().get("preferredBackend"),
         "availableBackends": discover_backends(),
     })
+
+
+@app.route("/api/client-log", methods=["POST"])
+def api_client_log():
+    data = request.get_json(silent=True) or {}
+    message = data.get("message", "").strip()
+    level = data.get("level", "info").strip()
+    if not message:
+        return jsonify({"error": "message required"}), 400
+    try:
+        log_path = get_app_data_dir() / "client.log"
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(f"{datetime.now(timezone.utc).isoformat()} [{level}] {message}\n")
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+    return jsonify({"ok": True})
+
+
+@app.route("/api/client-beacon", methods=["POST"])
+def api_client_beacon():
+    message = request.get_data(as_text=True).strip()
+    if not message:
+        return jsonify({"error": "message required"}), 400
+    try:
+        log_path = get_app_data_dir() / "client.log"
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(f"{datetime.now(timezone.utc).isoformat()} [beacon] {message}\n")
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+    return jsonify({"ok": True})
 
 
 @app.route("/api/run-state/logs", methods=["POST"])
