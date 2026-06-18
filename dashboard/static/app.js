@@ -1963,6 +1963,10 @@ function hideEngineOverlay() {
   engineOverlay.classList.add('hidden');
 }
 
+function isTauri() {
+  return typeof window.__TAURI_INTERNALS__ !== 'undefined' || typeof window.__TAURI__ !== 'undefined';
+}
+
 function isPwaInstalled() {
   if (navigator.standalone === true) return true;
   if (!window.matchMedia) return false;
@@ -1976,13 +1980,13 @@ function supportsFolderPicker() {
 
 function showPwaInstallOverlay() {
   if (!pwaInstallOverlay) return;
-  if (isPwaInstalled()) {
+  if (isPwaInstalled() || isTauri()) {
     hidePwaInstallOverlay();
     return;
   }
   pwaInstallOverlay.style.display = 'flex';
   const canInstall = Boolean(installPromptEvent);
-  const canContinue = supportsFolderPicker();
+  const canContinue = supportsFolderPicker() || isTauri();
   if (btnInstallPwaOverlay) btnInstallPwaOverlay.style.display = canInstall ? 'inline-flex' : 'none';
   if (btnContinueBrowser) btnContinueBrowser.style.display = canContinue ? 'inline-flex' : 'none';
   if (pwaInstallInstructions) pwaInstallInstructions.style.display = canContinue ? 'none' : 'block';
@@ -2100,6 +2104,9 @@ function updateRepoFolderBadge(name) {
 }
 
 async function pickRepoFolder() {
+  if (isTauri()) {
+    return pickRepoFolderNative();
+  }
   if (!('showDirectoryPicker' in window)) {
     showToast('Folder picker is only available in Chrome/Edge');
     return;
@@ -2488,7 +2495,7 @@ async function bootAppCore() {
 }
 
 function bootApp() {
-  if (isPwaInstalled() || pwaOverlayDismissed) {
+  if (isPwaInstalled() || pwaOverlayDismissed || isTauri()) {
     hidePwaInstallOverlay();
     bootAppCore();
     return;
@@ -2499,7 +2506,7 @@ function bootApp() {
 bootApp();
 
 setInterval(async () => {
-  if (!isPwaInstalled() && !pwaOverlayDismissed) {
+  if (!isPwaInstalled() && !pwaOverlayDismissed && !isTauri()) {
     showPwaInstallOverlay();
     return;
   }
