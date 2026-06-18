@@ -6,6 +6,10 @@ from pathlib import Path
 from typing import Optional
 
 
+# Cursor exposes its agent CLI as `cursor-agent` on macOS/Linux and `agent` on Windows/Git Bash.
+_CURSOR_CANDIDATES = ["cursor-agent", "agent", "cursor"]
+
+
 class CursorCliBackend:
     name = "cursor"
     supports_skill_activation = False
@@ -16,8 +20,11 @@ class CursorCliBackend:
     def is_available(self) -> bool:
         if self.executable:
             return True
-        self.executable = shutil.which("cursor")
-        return self.executable is not None
+        for candidate in _CURSOR_CANDIDATES:
+            self.executable = shutil.which(candidate)
+            if self.executable:
+                return True
+        return False
 
     def run_prompt(
         self,

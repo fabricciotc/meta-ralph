@@ -1,5 +1,5 @@
 #!/bin/bash
-# Cross-platform helpers for Meta-Ralph (macOS, Linux, Git Bash on Windows).
+# Cross-platform helpers for AgenticFlow (macOS, Linux, Git Bash on Windows).
 
 is_windows() {
   case "$(uname -s 2>/dev/null)" in

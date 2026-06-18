@@ -1,5 +1,5 @@
 #!/bin/bash
-# meta-ralph: MetaGPT multi-agent orchestrator launcher.
+# meta-ralph: AgenticFlow multi-agent orchestrator launcher.
 
 set -e
 
@@ -18,7 +18,7 @@ MAX_WORKERS=20
 
 show_help() {
   cat <<EOF
-Meta-Ralph: MetaGPT multi-agent orchestrator
+AgenticFlow: MetaGPT multi-agent orchestrator
 
 Usage:
   meta-ralph init                       Initialize meta-ralph in the current project
@@ -69,22 +69,22 @@ JSON
   fi
 
   if [ ! -f "$META_DIR/progress.txt" ]; then
-    echo "# Meta-Ralph Progress Log" > "$META_DIR/progress.txt"
+    echo "# AgenticFlow Progress Log" > "$META_DIR/progress.txt"
     echo "Started: $(date)" >> "$META_DIR/progress.txt"
     echo "---" >> "$META_DIR/progress.txt"
   fi
 
-  echo "Meta-Ralph initialized in $META_DIR/"
+  echo "AgenticFlow initialized in $META_DIR/"
   echo "Edit $META_DIR/prd.json, then run: meta-ralph run"
 }
 
 cmd_status() {
   if [ ! -d "$META_DIR/state/workers" ]; then
-    echo "Meta-Ralph is not initialized. Run: meta-ralph init"
+    echo "AgenticFlow is not initialized. Run: meta-ralph init"
     exit 1
   fi
 
-  echo "Meta-Ralph Status"
+  echo "AgenticFlow Status"
   echo "-----------------"
 
   local active=0
@@ -113,11 +113,11 @@ cmd_status() {
 
 cmd_stop() {
   if [ ! -d "$META_DIR/state" ]; then
-    echo "Meta-Ralph is not initialized."
+    echo "AgenticFlow is not initialized."
     exit 1
   fi
 
-  echo "Stopping Meta-Ralph workers..."
+  echo "Stopping AgenticFlow workers..."
   for f in "$META_DIR/state/workers"/*.json; do
     [ -e "$f" ] || continue
     local status
@@ -150,7 +150,7 @@ dashboard_venv() {
   local pip
 
   py="$(python_cmd)" || {
-    echo "Error: Python 3.10+ is required for the Meta-Ralph dashboard." >&2
+    echo "Error: Python 3.10+ is required for the AgenticFlow dashboard." >&2
     exit 1
   }
 
@@ -214,7 +214,7 @@ cmd_dashboard() {
     exit 1
   fi
 
-  echo "Starting Meta-Ralph Dashboard at http://localhost:$port"
+  echo "Starting AgenticFlow Dashboard at http://localhost:$port"
   "$python_bin" "$SKILL_DIR/dashboard/server.py" --port "$port" --board "$board_file" $no_browser
 }
 
@@ -330,7 +330,7 @@ run_ai_prompt() {
 
 cmd_run() {
   if [ ! -d "$META_DIR" ]; then
-    echo "Error: Meta-Ralph is not initialized. Run first: meta-ralph init"
+    echo "Error: AgenticFlow is not initialized. Run first: meta-ralph init"
     exit 1
   fi
 
@@ -429,7 +429,7 @@ cmd_run() {
       -e "s|{{SKILL_DIR}}|$SKILL_DIR|g" \
       "$orch_template" > "$prompt_file"
 
-  echo "Starting Meta-Ralph Orchestrator..."
+  echo "Starting AgenticFlow Orchestrator..."
   echo "  Max workers: $MAX_WORKERS"
   echo "  PRD: $META_DIR/prd.json"
   echo "  Base branch: $BASE_BRANCH"

@@ -1,6 +1,6 @@
-# Meta-Ralph Role SOPs
+# AgenticFlow Role SOPs
 
-This document defines the Standard Operating Procedures for each role in the Meta-Ralph team.
+This document defines the Standard Operating Procedures for each role in the AgenticFlow team.
 
 ---
 

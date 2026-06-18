@@ -1,4 +1,4 @@
-"""Communication bus for Meta-Ralph agent collaboration.
+"""Communication bus for AgenticFlow agent collaboration.
 
 Provides participant profiles, environment events and typed direct messages.
 All state is persisted inside run-state["communication"].

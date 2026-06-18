@@ -16,9 +16,12 @@ dashboard/run-state.*.json
 dashboard/run.log
 dashboard/dashboard.log
 dashboard/board.json
+dashboard/.engine.pid
+dashboard/scripts/meta-ralph/config.json
 dashboard/scripts/meta-ralph/state/
 dashboard/.meta-ralph/
 scripts/meta-ralph/state/
+scripts/meta-ralph/config.json
 .meta-ralph/
 
 # Generated project artifacts from factory runs

@@ -159,7 +159,7 @@ def build_pm_subagent_prompt(
         )
 
     return (
-        f"You are the {role_name} for AgentFlow, a MetaGPT-style multi-agent software factory. "
+        f"You are the {role_name} for AgenticFlow, a MetaGPT-style multi-agent software factory. "
         f"Your exclusive focus is: {focus}. "
         "Research the current project codebase ONLY from your assigned angle. "
         "Do NOT implement code; only research, analyze, and document findings. "
@@ -193,7 +193,7 @@ def build_pm_consolidator_prompt(
             research_content += f"\n\n--- {sid} ---\n\nError reading findings: {exc}"
 
     return (
-        "You are the Lead Product Manager for AgentFlow. Five PM Research Agents investigated a ticket. "
+        "You are the Lead Product Manager for AgenticFlow. Five PM Research Agents investigated a ticket. "
         "Consolidate THEIR FINDINGS into a concise, actionable Product Requirements Document (PRD). "
         "Do NOT invent requirements that are not supported by the findings; synthesize what was researched.\n\n"
         "If findings conflict or leave an important gap, ask the specific research agent for more information "

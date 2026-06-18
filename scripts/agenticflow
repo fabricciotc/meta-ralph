@@ -1,0 +1,20 @@
+#!/bin/bash
+# AgenticFlow local engine launcher.
+# Starts the Python backend and opens the dashboard/PWA in the default browser.
+
+set -e
+
+SCRIPT_SOURCE="${BASH_SOURCE[0]}"
+if [ -L "$SCRIPT_SOURCE" ]; then
+  SCRIPT_SOURCE="$(readlink -f "$SCRIPT_SOURCE" 2>/dev/null || readlink "$SCRIPT_SOURCE" 2>/dev/null || echo "$SCRIPT_SOURCE")"
+fi
+SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_SOURCE")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+PYTHON="$(command -v python3 || command -v python || echo "")"
+if [ -z "$PYTHON" ]; then
+  echo "Error: python3 or python is not installed." >&2
+  exit 1
+fi
+
+exec "$PYTHON" "$REPO_ROOT/dashboard/launcher.py" "$@"
