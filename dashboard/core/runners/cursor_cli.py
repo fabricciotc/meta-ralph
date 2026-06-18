@@ -42,7 +42,7 @@ class CursorCliBackend:
             full_prompt = f"{system_instructions}\n\n{full_prompt}"
         try:
             proc = subprocess.run(
-                [self.executable, "-p", full_prompt],
+                [self.executable, "-p", "--trust", "--force", "--", full_prompt],
                 cwd=str(Path.cwd()),
                 capture_output=True,
                 text=True,

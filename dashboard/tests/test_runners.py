@@ -69,7 +69,14 @@ def test_cursor_backend_uses_cli():
         with patch("subprocess.run", return_value=type("R", (), {"stdout": "cursor out", "stderr": "", "returncode": 0})) as mock_run:
             out = backend.run_prompt("hi", phase_name="p", timeout_seconds=5)
             assert out == "cursor out"
-            assert mock_run.call_args[0][0][0] == "/usr/bin/cursor"
+            assert mock_run.call_args[0][0] == [
+                "/usr/bin/cursor",
+                "-p",
+                "--trust",
+                "--force",
+                "--",
+                "hi",
+            ]
 
 
 def test_claude_backend_uses_cli():
