@@ -27,7 +27,7 @@ scripts/meta-ralph/config.json
 # Generated project artifacts from factory runs
 GestionProductos/
 GestionProductos.Tests/
-src/
+/src/
 
 # Backups
 dashboard-backup-*/
@@ -43,3 +43,19 @@ Thumbs.db
 *.swo
 *~
 .worktrees/
+
+# Node / Tauri
+node_modules/
+package-lock.json
+src-tauri/target/
+src-tauri/gen/
+
+# PyInstaller sidecar build artifacts
+dashboard/build/
+dashboard/dist/
+dashboard/*.spec
+dashboard/test_flask_min.py
+testbin/
+src-tauri/binaries/
+*.app
+

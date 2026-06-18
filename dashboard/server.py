@@ -6,6 +6,8 @@ with automatic multi-agent loop orchestration when a ticket moves to
 "ready-for-work".
 """
 
+import sys
+
 import argparse
 import concurrent.futures
 import faulthandler
@@ -15,7 +17,6 @@ import re
 import shutil
 import signal
 import subprocess
-import sys
 import threading
 import time
 import uuid
@@ -43,7 +44,8 @@ from flask_socketio import SocketIO, emit
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.environ.get("META_RALPH_SECRET_KEY") or os.urandom(32)
 _cors_origins = os.environ.get("META_RALPH_CORS_ORIGINS", "*")
-socketio = SocketIO(app, cors_allowed_origins=_cors_origins.split(","))
+_async_mode = "threading"
+socketio = SocketIO(app, cors_allowed_origins=_cors_origins.split(","), async_mode=_async_mode)
 
 DEFAULT_COLUMNS = [
     "backlog",
@@ -116,6 +118,10 @@ def get_board_path():
         return BOARD_FILE
     candidate = get_meta_dir() / "state" / "board.json"
     if candidate.exists():
+        return candidate
+    if getattr(sys, "frozen", False):
+        # First run inside the bundled app; create the persistent state dir.
+        candidate.parent.mkdir(parents=True, exist_ok=True)
         return candidate
     return Path(__file__).parent / "board.json"
 
