@@ -202,7 +202,7 @@ Steps:
 3. Read any AGENTS.md in directories you modify.
 4. Adopt the Role Context and keep the Feature Focus as your north star.
 5. Implement ONLY this task. Run quality checks.
-6. Commit with: feat(meta-ralph/{{TASK_ID}}): {{TASK_TITLE}}
+6. Commit with: feat(agenticflow/{{TASK_ID}}): {{TASK_TITLE}}
 7. Update {{META_DIR}}/state/workers/{{TASK_ID}}.json: status=completed, last_commit=<hash>, summary.
 8. Append progress to {{META_DIR}}/progress.txt.
 

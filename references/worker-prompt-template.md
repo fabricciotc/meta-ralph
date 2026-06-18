@@ -41,7 +41,7 @@ Affected Areas: {{AFFECTED_AREAS}}
 3. Implement ONLY the task described. Do not expand scope.
 4. Run the project's quality checks, such as tests, lint, typecheck, and build.
 5. If checks fail, fix them before committing.
-6. Commit with message: `feat(meta-ralph/{{TASK_ID}}): {{TASK_TITLE}}`.
+6. Commit with message: `feat(agenticflow/{{TASK_ID}}): {{TASK_TITLE}}`.
 7. Update `{{META_DIR}}/state/workers/{{TASK_ID}}.json`:
    - Set `status` to `completed`.
    - Set `last_commit` to the commit hash.
@@ -82,7 +82,7 @@ Affected Areas: {{AFFECTED_AREAS}}
 | `ROLE_CONTEXT` | `prd-expanded.json` -> `task.roleContext` |
 | `FEATURE_FOCUS` | `prd-expanded.json` -> `task.featureFocus` |
 | `PROJECT_ROOT` | Project root directory |
-| `META_DIR` | `scripts/meta-ralph` |
-| `WORKTREE_DIR` | `scripts/meta-ralph/state/worktrees/<TASK_ID>/` |
-| `BRANCH_NAME` | `meta-ralph/task-<TASK_ID>` |
+| `META_DIR` | AgenticFlow app data dir, e.g. `~/Library/Application Support/AgenticFlow/state` on macOS, `%LOCALAPPDATA%/AgenticFlow/state` on Windows, or `~/.local/share/AgenticFlow/state` on Linux. Overridable via `AGENTICFLOW_DATA_DIR`. |
+| `WORKTREE_DIR` | `<META_DIR>/worktrees/<TASK_ID>/` |
+| `BRANCH_NAME` | `agenticflow/task-<TASK_ID>` |
 | `BASE_BRANCH` | Default branch, such as `main` or `master` |

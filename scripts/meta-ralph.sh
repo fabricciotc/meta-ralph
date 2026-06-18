@@ -13,8 +13,10 @@ SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_SOURCE")" && pwd)"
 SKILL_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 # shellcheck source=lib/platform.sh
 source "$SCRIPT_DIR/lib/platform.sh"
-META_DIR="scripts/meta-ralph"
-MAX_WORKERS=20
+DATA_DIR="$(agenticflow_data_dir)"
+STATE_DIR="$DATA_DIR/state"
+META_DIR="$STATE_DIR"
+MAX_WORKERS=10
 
 show_help() {
   cat <<EOF
@@ -29,7 +31,7 @@ Usage:
   meta-ralph --help                     Show this help
 
 Run options:
-  --max-workers N       Maximum parallel workers (default: 20)
+  --max-workers N       Maximum parallel workers (default: 10)
   --skip-pm             Skip phase 1 and use an existing prd-expanded.json
   --skip-architect      Skip phase 2 and use an existing architecture.md
   --skip-planner        Skip phase 3 and use an existing execution-plan.json
@@ -49,37 +51,37 @@ cmd_init() {
     exit 1
   fi
 
-  mkdir -p "$META_DIR/state/workers" "$META_DIR/state/batches" "$META_DIR/state/pm-research" "$META_DIR/archive"
+  mkdir -p "$STATE_DIR/workers" "$STATE_DIR/batches" "$STATE_DIR/pm-research" "$STATE_DIR/archive" "$STATE_DIR/prds"
 
-  if [ ! -f "$META_DIR/state/board.json" ]; then
-    cat > "$META_DIR/state/board.json" <<'JSON'
+  if [ ! -f "$STATE_DIR/board.json" ]; then
+    cat > "$STATE_DIR/board.json" <<'JSON'
 {
-  "columns": ["backlog", "in-design", "in-progress", "in-review", "done"],
+  "columns": ["backlog", "ready-for-work", "in-design", "in-progress", "in-review", "done"],
   "tickets": [],
   "stats": {"total": 0, "done": 0, "inProgress": 0, "blocked": 0},
   "lastUpdated": ""
 }
 JSON
-    echo "Created board at $META_DIR/state/board.json"
+    echo "Created board at $STATE_DIR/board.json"
   fi
 
-  if [ ! -f "$META_DIR/prd.json" ]; then
-    cp "$SKILL_DIR/assets/prd-template.json" "$META_DIR/prd.json"
-    echo "Created PRD template at $META_DIR/prd.json"
+  if [ ! -f "$STATE_DIR/prd.json" ]; then
+    cp "$SKILL_DIR/assets/prd-template.json" "$STATE_DIR/prd.json"
+    echo "Created PRD template at $STATE_DIR/prd.json"
   fi
 
-  if [ ! -f "$META_DIR/progress.txt" ]; then
-    echo "# AgenticFlow Progress Log" > "$META_DIR/progress.txt"
-    echo "Started: $(date)" >> "$META_DIR/progress.txt"
-    echo "---" >> "$META_DIR/progress.txt"
+  if [ ! -f "$STATE_DIR/progress.txt" ]; then
+    echo "# AgenticFlow Progress Log" > "$STATE_DIR/progress.txt"
+    echo "Started: $(date)" >> "$STATE_DIR/progress.txt"
+    echo "---" >> "$STATE_DIR/progress.txt"
   fi
 
-  echo "AgenticFlow initialized in $META_DIR/"
-  echo "Edit $META_DIR/prd.json, then run: meta-ralph run"
+  echo "AgenticFlow initialized in $STATE_DIR/"
+  echo "Edit $STATE_DIR/prd.json, then run: meta-ralph run"
 }
 
 cmd_status() {
-  if [ ! -d "$META_DIR/state/workers" ]; then
+  if [ ! -d "$STATE_DIR/workers" ]; then
     echo "AgenticFlow is not initialized. Run: meta-ralph init"
     exit 1
   fi
@@ -88,7 +90,7 @@ cmd_status() {
   echo "-----------------"
 
   local active=0
-  for f in "$META_DIR/state/workers"/*.json; do
+  for f in "$STATE_DIR/workers"/*.json; do
     [ -e "$f" ] || continue
     local status
     status=$(jq -r '.status // "unknown"' "$f" 2>/dev/null || echo "unknown")
@@ -112,13 +114,13 @@ cmd_status() {
 }
 
 cmd_stop() {
-  if [ ! -d "$META_DIR/state" ]; then
+  if [ ! -d "$STATE_DIR" ]; then
     echo "AgenticFlow is not initialized."
     exit 1
   fi
 
   echo "Stopping AgenticFlow workers..."
-  for f in "$META_DIR/state/workers"/*.json; do
+  for f in "$STATE_DIR/workers"/*.json; do
     [ -e "$f" ] || continue
     local status
     status=$(jq -r '.status // ""' "$f" 2>/dev/null || echo "")
@@ -130,7 +132,7 @@ cmd_stop() {
     fi
   done
 
-  local dashboard_pid_file="$META_DIR/state/dashboard.pid"
+  local dashboard_pid_file="$STATE_DIR/dashboard.pid"
   if [ -f "$dashboard_pid_file" ]; then
     local pid
     pid=$(cat "$dashboard_pid_file")
@@ -207,7 +209,7 @@ cmd_dashboard() {
   python_bin=$(resolve_dashboard_python)
 
   local board_file
-  board_file="$(pwd)/$META_DIR/state/board.json"
+  board_file="$STATE_DIR/board.json"
 
   if [ ! -f "$board_file" ]; then
     echo "Could not find $board_file. Run first: meta-ralph init"
@@ -329,13 +331,13 @@ run_ai_prompt() {
 }
 
 cmd_run() {
-  if [ ! -d "$META_DIR" ]; then
+  if [ ! -d "$STATE_DIR" ]; then
     echo "Error: AgenticFlow is not initialized. Run first: meta-ralph init"
     exit 1
   fi
 
-  if [ ! -f "$META_DIR/prd.json" ]; then
-    echo "Error: could not find $META_DIR/prd.json. Edit it with your user stories."
+  if [ ! -f "$STATE_DIR/prd.json" ]; then
+    echo "Error: could not find $STATE_DIR/prd.json. Edit it with your user stories."
     exit 1
   fi
 
@@ -395,7 +397,7 @@ cmd_run() {
   fi
 
   if [ "$no_dashboard" != "true" ]; then
-    local dashboard_pid_file="$META_DIR/state/dashboard.pid"
+    local dashboard_pid_file="$STATE_DIR/dashboard.pid"
     if [ -f "$dashboard_pid_file" ] && is_process_running "$(cat "$dashboard_pid_file")"; then
       echo "Dashboard is already running at http://localhost:$DASHBOARD_PORT"
     else
@@ -403,14 +405,14 @@ cmd_run() {
       local board_file
       local dashboard_pid
       python_bin=$(resolve_dashboard_python)
-      board_file="$(pwd)/$META_DIR/state/board.json"
-      mkdir -p "$META_DIR/state"
+      board_file="$STATE_DIR/board.json"
+      mkdir -p "$STATE_DIR"
       dashboard_pid=$(start_dashboard_background \
         "$python_bin" \
         "$SKILL_DIR/dashboard/server.py" \
         "$DASHBOARD_PORT" \
         "$board_file" \
-        "$META_DIR/state/dashboard.log")
+        "$STATE_DIR/dashboard.log")
       echo "$dashboard_pid" >"$dashboard_pid_file"
       echo "Dashboard started at http://localhost:$DASHBOARD_PORT"
     fi
@@ -431,7 +433,7 @@ cmd_run() {
 
   echo "Starting AgenticFlow Orchestrator..."
   echo "  Max workers: $MAX_WORKERS"
-  echo "  PRD: $META_DIR/prd.json"
+  echo "  PRD: $STATE_DIR/prd.json"
   echo "  Base branch: $BASE_BRANCH"
   echo "  Backend: ${META_RALPH_BACKEND:-auto}"
 

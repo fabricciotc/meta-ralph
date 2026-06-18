@@ -28,7 +28,16 @@ import communication_bus as bus
 
 from core import pm_analysis
 from core.orchestrator import Orchestrator
-from core.config import load_config, set_preferred_backend, get_projects_root, set_projects_root
+from core.config import load_config, set_preferred_backend, get_projects_root, set_projects_root, get_max_workers
+from core.paths import (
+    get_app_data_dir,
+    get_state_dir,
+    get_board_path as paths_get_board_path,
+    get_run_state_path as paths_get_run_state_path,
+    get_log_path as paths_get_log_path,
+    get_ticket_snapshot_path as paths_get_ticket_snapshot_path,
+    migrate_legacy_state,
+)
 from core.runners.registry import BackendRegistry, discover_backends
 
 # Allow dumping stack traces for all threads with SIGUSR1 during debugging.
@@ -42,8 +51,14 @@ from flask import Flask, jsonify, request, send_from_directory
 from flask_socketio import SocketIO, emit
 
 app = Flask(__name__)
-app.config["SECRET_KEY"] = os.environ.get("META_RALPH_SECRET_KEY") or os.urandom(32)
-_cors_origins = os.environ.get("META_RALPH_CORS_ORIGINS", "*")
+app.config["SECRET_KEY"] = (
+    os.environ.get("AGENTICFLOW_SECRET_KEY")
+    or os.environ.get("META_RALPH_SECRET_KEY")
+    or os.urandom(32)
+)
+_cors_origins = os.environ.get(
+    "AGENTICFLOW_CORS_ORIGINS", os.environ.get("META_RALPH_CORS_ORIGINS", "*")
+)
 _async_mode = "threading"
 socketio = SocketIO(app, cors_allowed_origins=_cors_origins.split(","), async_mode=_async_mode)
 
@@ -86,44 +101,12 @@ _active_run_thread = None
 paused_run_threads = {}
 
 
-def get_meta_dir():
-    """Return the scripts/meta-ralph directory relative to the project.
-
-    Prefer the current working directory when it already contains the
-    meta-ralph scripts folder (used by tests and project-specific runs).
-    When running as a PyInstaller bundle, use the user's home directory so
-    state survives app restarts. Otherwise fall back to the directory where
-    this server file lives, so the dashboard still finds state/artifacts
-    regardless of the cwd used to start the process.
-    """
-    env_dir = os.environ.get("AGENTICFLOW_META_DIR")
-    if env_dir:
-        return Path(env_dir)
-    if getattr(sys, "frozen", False):
-        # Running inside the Tauri sidecar; keep state in the user's home.
-        meta = Path.home() / ".agenticflow" / "data" / "scripts" / "meta-ralph"
-        meta.mkdir(parents=True, exist_ok=True)
-        return meta
-    cwd_candidate = Path.cwd() / "scripts" / "meta-ralph"
-    if cwd_candidate.exists():
-        return cwd_candidate
-    server_dir = Path(__file__).resolve().parent
-    return server_dir / "scripts" / "meta-ralph"
-
-
 def get_board_path():
-    """Resolve the board.json path relative to the current project."""
+    """Resolve the board.json path for the application state."""
     global BOARD_FILE
     if BOARD_FILE:
         return BOARD_FILE
-    candidate = get_meta_dir() / "state" / "board.json"
-    if candidate.exists():
-        return candidate
-    if getattr(sys, "frozen", False):
-        # First run inside the bundled app; create the persistent state dir.
-        candidate.parent.mkdir(parents=True, exist_ok=True)
-        return candidate
-    return Path(__file__).parent / "board.json"
+    return paths_get_board_path()
 
 
 def set_board_path(path):
@@ -136,19 +119,19 @@ def get_run_state_path():
     global RUN_STATE_FILE
     if RUN_STATE_FILE:
         return RUN_STATE_FILE
-    return get_board_path().parent / "run-state.json"
+    return paths_get_run_state_path()
 
 
 def get_log_path():
     global LOG_FILE
     if LOG_FILE:
         return LOG_FILE
-    return get_board_path().parent / "run.log"
+    return paths_get_log_path()
 
 
 def get_ticket_snapshot_path(ticket_id):
     """Path for a paused ticket run-state snapshot."""
-    return get_run_state_path().parent / f"run-state.{ticket_id}.json"
+    return paths_get_ticket_snapshot_path(ticket_id)
 
 
 def save_ticket_snapshot(ticket_id, state):
@@ -427,7 +410,7 @@ def _question_id(ticket_id, phase_name, agent_id=None):
 def _question_answer_path(question):
     """Return the answer file path for a question."""
     safe_phase = question.get("phase", "").lower().replace(' ', '-')
-    return get_meta_dir() / "state" / f"answer-{question['ticketId']}-{safe_phase}.txt"
+    return get_state_dir() / f"answer-{question['ticketId']}-{safe_phase}.txt"
 
 
 def _write_answer_file(question, answer_text):
@@ -1184,7 +1167,7 @@ Respond concisely and technically. If you truly do not have enough information, 
         description = self.ticket.get("description", "")
         parts.append(f"Ticket: {title}\nDescription: {description}")
 
-        prd_path = get_meta_dir() / "state" / f"prd-{self.ticket_id}.md"
+        prd_path = get_state_dir() / f"prd-{self.ticket_id}.md"
         if prd_path.exists():
             try:
                 prd_text = prd_path.read_text(encoding="utf-8")[:2000]
@@ -1192,7 +1175,7 @@ Respond concisely and technically. If you truly do not have enough information, 
             except Exception as exc:
                 parts.append(f"Could not read PRD: {exc}")
 
-        tasks_path = get_meta_dir() / "state" / f"tasks-{self.ticket_id}.json"
+        tasks_path = get_state_dir() / f"tasks-{self.ticket_id}.json"
         if tasks_path.exists():
             try:
                 tasks = json.loads(tasks_path.read_text(encoding="utf-8"))
@@ -1314,7 +1297,7 @@ Respond concisely and practically. Assume reasonable decisions for a .NET MVP wi
 
     def _get_task_context(self, task_id):
         """Load a task definition from the task plan."""
-        tasks_path = get_meta_dir() / "state" / f"tasks-{self.ticket_id}.json"
+        tasks_path = get_state_dir() / f"tasks-{self.ticket_id}.json"
         if not tasks_path.exists():
             return None
         try:
@@ -1604,7 +1587,7 @@ Respond concisely and practically. Assume reasonable decisions for a .NET MVP wi
             self.run_architect()
             if self._should_stop_or_pause():
                 return
-            prd_path = get_meta_dir() / "state" / f"prd-{self.ticket_id}.md"
+            prd_path = get_state_dir() / f"prd-{self.ticket_id}.md"
             questions = self._generate_design_questions(prd_path)
             answers = self._wait_for_design_answers(questions, timeout_seconds=60)
             if self._should_stop_or_pause():
@@ -1661,7 +1644,7 @@ Respond concisely and practically. Assume reasonable decisions for a .NET MVP wi
 
         title = self.ticket.get("title", "")
         description = self.ticket.get("description", "")
-        prd_path = get_meta_dir() / "state" / f"prd-{self.ticket_id}.md"
+        prd_path = get_state_dir() / f"prd-{self.ticket_id}.md"
 
         # If a pre-generated PRD exists, skip analysis and use it directly.
         if prd_path.exists() and prd_path.stat().st_size > 100:
@@ -2166,8 +2149,8 @@ Do not include explanations outside the JSON."""
         self._update_agent("project-manager", progress=70, log="Building DAG and work batches.")
         self.log("Project Manager builds DAG and work batches.")
 
-        prd_path = get_meta_dir() / "state" / f"prd-{self.ticket_id}.md"
-        tasks_path = get_meta_dir() / "state" / f"tasks-{self.ticket_id}.json"
+        prd_path = get_state_dir() / f"prd-{self.ticket_id}.md"
+        tasks_path = get_state_dir() / f"tasks-{self.ticket_id}.json"
 
         # If a pre-generated task plan exists, reuse it.
         if tasks_path.exists() and tasks_path.stat().st_size > 50:
@@ -2409,7 +2392,7 @@ Expected format example:
         self._update_agent("engineer-squad", progress=80, log="Implementing tasks in the repository in parallel.")
         self.log("Engineers are implementing tasks in the repository in parallel.")
 
-        tasks_path = get_meta_dir() / "state" / f"tasks-{self.ticket_id}.json"
+        tasks_path = get_state_dir() / f"tasks-{self.ticket_id}.json"
         repo_path = self.ticket.get("repoPath", "")
         branch = self.ticket.get("branch", "")
 
@@ -2676,7 +2659,7 @@ Expected format example:
         tid = agent_id.split("-", 1)[1] if "-" in agent_id else None
         if not tid:
             return
-        tasks_path = get_meta_dir() / "state" / f"tasks-{self.ticket_id}.json"
+        tasks_path = get_state_dir() / f"tasks-{self.ticket_id}.json"
         if not tasks_path.exists():
             return
         try:
@@ -2894,7 +2877,7 @@ APPROVED"""
 
                 self._agent_log(engineer_id, f"Correcting {task_id}: {reason[:120]}", "warning")
 
-                tasks_path = get_meta_dir() / "state" / f"tasks-{self.ticket_id}.json"
+                tasks_path = get_state_dir() / f"tasks-{self.ticket_id}.json"
                 task = {}
                 if tasks_path.exists():
                     try:
@@ -2982,8 +2965,8 @@ Reply rules (strict):
         """Run a prompt through the configured AI backend registry."""
         safe_phase = phase_name.lower().replace(' ', '-')
         safe_agent = re.sub(r'[^a-z0-9_-]+', '-', (agent_id or '').lower()).strip('-') or 'no-agent'
-        output_path = get_meta_dir() / "state" / f"output-{self.ticket_id}-{safe_phase}-{safe_agent}.txt"
-        prompt_path = get_meta_dir() / "state" / f"prompt-{self.ticket_id}-{safe_phase}-{safe_agent}.txt"
+        output_path = get_state_dir() / f"output-{self.ticket_id}-{safe_phase}-{safe_agent}.txt"
+        prompt_path = get_state_dir() / f"prompt-{self.ticket_id}-{safe_phase}-{safe_agent}.txt"
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
         # Clear previous output.
@@ -3179,7 +3162,7 @@ def restart_ticket(ticket_id):
     delete_ticket_snapshot(ticket_id)
 
     # Delete generated artifacts.
-    state_dir = get_meta_dir() / "state"
+    state_dir = get_state_dir()
     if state_dir.exists():
         for pattern in [
             f"prd-{ticket_id}.md",
@@ -4155,7 +4138,7 @@ def collect_deliverables(ticket_id):
     """Collect generated files and agent outputs for a ticket."""
     entries = []
     seen = set()
-    state_dir = get_meta_dir() / "state"
+    state_dir = get_state_dir()
 
     standard_artifacts = [
         (state_dir / f"prd-{ticket_id}.md", "prd", "Product Requirements Document"),
@@ -4197,7 +4180,7 @@ def collect_deliverables(ticket_id):
     ticket = _ticket_by_id(ticket_id)
     repo_path = ticket.get("repoPath") if ticket else ""
     if repo_path:
-        notes_dir = Path(repo_path) / ".meta-ralph" / "engineer-notes"
+        notes_dir = Path(repo_path) / ".agenticflow" / "engineer-notes"
         if notes_dir.exists():
             for path in sorted(notes_dir.glob(f"*{ticket_id}*.md")):
                 _add_deliverable(entries, seen, path, "agent-output", path.name, "engineer-notes")
@@ -4349,6 +4332,9 @@ def main():
         global RUN_STATE_FILE, LOG_FILE
         RUN_STATE_FILE = board_path.parent / "run-state.json"
         LOG_FILE = board_path.parent / "run.log"
+
+    # Migrate any state left by the old PyInstaller/Tauri layout.
+    migrate_legacy_state()
 
     # Ensure board.json exists and has the new structure.
     board = load_board()

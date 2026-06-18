@@ -7,7 +7,12 @@ set -e
 BATCH_ID="$1"
 VERDICT="$2"
 shift 2 || true
-META_DIR="${META_DIR:-scripts/meta-ralph}"
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/platform.sh
+source "$SCRIPT_DIR/lib/platform.sh"
+
+DATA_DIR="$(agenticflow_data_dir)"
 
 # Resolve SKILL_DIR.
 SCRIPT_SOURCE="${BASH_SOURCE[0]}"
@@ -21,7 +26,7 @@ if [ -z "$BATCH_ID" ] || [ -z "$VERDICT" ]; then
   exit 1
 fi
 
-BATCH_FILE="$META_DIR/state/batches/$BATCH_ID.json"
+BATCH_FILE="$DATA_DIR/state/batches/$BATCH_ID.json"
 if [ ! -f "$BATCH_FILE" ]; then
   echo "Error: batch $BATCH_ID does not exist."
   exit 1

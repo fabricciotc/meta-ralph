@@ -17,6 +17,8 @@ import time
 import webbrowser
 from pathlib import Path
 
+from core.paths import get_app_data_dir, get_logs_dir
+
 
 DASHBOARD_PORT = int(os.environ.get("AGENTICFLOW_PORT") or os.environ.get("META_RALPH_DASHBOARD_PORT") or "5050")
 DEFAULT_HOST = os.environ.get("AGENTICFLOW_HOST", "127.0.0.1")
@@ -36,7 +38,7 @@ def get_venv_dir() -> Path:
 
 
 def get_pid_file() -> Path:
-    return get_dashboard_dir() / ".engine.pid"
+    return get_logs_dir() / "engine.pid"
 
 
 def get_python_cmd() -> str:

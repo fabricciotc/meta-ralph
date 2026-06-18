@@ -24,8 +24,10 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Set
 
 from core import pm_analysis
+from core.config import get_max_workers
 from core.environment import Environment
 from core.models import Message
+from core.paths import get_state_dir
 from core.roles.architect_role import ArchitectRole
 from core.roles.planner_role import PlannerRole
 from core.roles.engineer_role import EngineerRole
@@ -304,7 +306,7 @@ class Orchestrator(threading.Thread):
         return self._request_user_clarification(question, timeout_seconds)
 
     def _meta_dir(self) -> Path:
-        return Path.cwd() / "scripts" / "meta-ralph"
+        return get_state_dir()
 
     def _prd_path(self) -> Path:
         return self._meta_dir() / "state" / f"prd-{self.ticket_id}.md"
@@ -617,7 +619,7 @@ class Orchestrator(threading.Thread):
         status: Dict[str, str] = {t["id"]: "queued" for t in tasks}
         completed: Set[str] = set()
         failed: Set[str] = set()
-        max_workers = 10
+        max_workers = get_max_workers()
         running_threads: Dict[str, threading.Thread] = {}
         lock = threading.Lock()
         stop_event = threading.Event()

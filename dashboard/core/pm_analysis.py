@@ -31,20 +31,12 @@ DEFAULT_SUBAGENTS: List[tuple[str, str, str]] = [
 ]
 
 
-def get_meta_dir(cwd: Optional[Path] = None) -> Path:
-    """Return the meta-ralph scripts directory relative to the project.
+from core.paths import get_state_dir
 
-    Prefer the requested/current working directory when it already contains
-    the meta-ralph scripts folder (used by tests). Otherwise fall back to the
-    dashboard directory where this module is installed, so PM analysis writes
-    its artifacts to the same location the dashboard reads them from.
-    """
-    base = cwd or Path.cwd()
-    cwd_candidate = base / "scripts" / "meta-ralph"
-    if cwd_candidate.exists():
-        return cwd_candidate
-    dashboard_dir = Path(__file__).resolve().parent.parent
-    return dashboard_dir / "scripts" / "meta-ralph"
+
+def get_meta_dir(cwd: Optional[Path] = None) -> Path:
+    """Return the application state directory for PM analysis artifacts."""
+    return get_state_dir()
 
 
 def strip_ansi(text: str) -> str:

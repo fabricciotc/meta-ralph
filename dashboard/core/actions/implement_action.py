@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from core.actions.base import Action
 from core.ai_execution import invoke_ai
 from core.models import Message
+from core.paths import get_engineer_notes_dir
 
 
 class ImplementAction(Action):
@@ -284,7 +285,7 @@ class ImplementAction(Action):
         dependencies_context: str,
     ) -> str:
         """Generate a minimal local implementation note when no runner is available."""
-        work_dir = repo_path / ".meta-ralph" / "engineer-notes"
+        work_dir = get_engineer_notes_dir(repo_path)
         work_dir.mkdir(parents=True, exist_ok=True)
         task_id = str(task.get("id", "unknown"))
         safe_branch = str(branch).replace("/", "-")

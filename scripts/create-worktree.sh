@@ -6,15 +6,19 @@ set -e
 
 TASK_ID="$1"
 BASE_BRANCH="${2:-main}"
-META_DIR="${META_DIR:-scripts/meta-ralph}"
 
 if [ -z "$TASK_ID" ]; then
   echo "Usage: create-worktree.sh <task_id> [base_branch]"
   exit 1
 fi
 
-WORKTREE_DIR="$META_DIR/state/worktrees/$TASK_ID"
-BRANCH_NAME="meta-ralph/task-$TASK_ID"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/platform.sh
+source "$SCRIPT_DIR/lib/platform.sh"
+
+DATA_DIR="$(agenticflow_data_dir)"
+WORKTREE_DIR="$DATA_DIR/worktrees/$TASK_ID"
+BRANCH_NAME="agenticflow/task-$TASK_ID"
 
 # Ensure the base branch exists locally.
 if ! git show-ref --verify --quiet "refs/heads/$BASE_BRANCH"; then
@@ -22,7 +26,7 @@ if ! git show-ref --verify --quiet "refs/heads/$BASE_BRANCH"; then
 fi
 
 # Create worktree.
-mkdir -p "$META_DIR/state/worktrees"
+mkdir -p "$DATA_DIR/worktrees"
 if [ -d "$WORKTREE_DIR" ]; then
   rm -rf "$WORKTREE_DIR"
 fi
@@ -34,8 +38,8 @@ git worktree add -b "$BRANCH_NAME" "$WORKTREE_DIR" "$BASE_BRANCH" >/dev/null 2>&
 }
 
 # Register worker state.
-mkdir -p "$META_DIR/state/workers"
-cat > "$META_DIR/state/workers/$TASK_ID.json" <<EOF
+mkdir -p "$DATA_DIR/state/workers"
+cat > "$DATA_DIR/state/workers/$TASK_ID.json" <<EOF
 {
   "task_id": "$TASK_ID",
   "branch": "$BRANCH_NAME",

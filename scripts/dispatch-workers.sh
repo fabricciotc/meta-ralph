@@ -8,8 +8,13 @@ set -e
 BATCH_ID="$1"
 MAX_WORKERS="$2"
 shift 2
-META_DIR="${META_DIR:-scripts/meta-ralph}"
 BASE_BRANCH="${BASE_BRANCH:-$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin//' | sed 's|^/||' || echo "main")}"
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/platform.sh
+source "$SCRIPT_DIR/lib/platform.sh"
+
+DATA_DIR="$(agenticflow_data_dir)"
 
 # Resolve SKILL_DIR.
 SCRIPT_SOURCE="${BASH_SOURCE[0]}"
@@ -28,9 +33,9 @@ if [ $# -gt "$MAX_WORKERS" ]; then
   exit 1
 fi
 
-mkdir -p "$META_DIR/state/batches"
+mkdir -p "$DATA_DIR/state/batches"
 
-BATCH_FILE="$META_DIR/state/batches/$BATCH_ID.json"
+BATCH_FILE="$DATA_DIR/state/batches/$BATCH_ID.json"
 TASKS_JSON=$(printf '%s\n' "$@" | jq -R . | jq -s .)
 
 cat > "$BATCH_FILE" <<EOF

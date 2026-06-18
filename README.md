@@ -1,6 +1,10 @@
 # AgenticFlow
 
-AgenticFlow is a MetaGPT-style multi-agent orchestration skill for AI coding assistants. It coordinates PM Research, Architecture, Planning, parallel Engineers, and QA with a local dashboard for ticket management and live progress.
+<p align="center">
+  <img src="assets/logo.png" alt="AgenticFlow logo" width="128" height="128">
+</p>
+
+AgenticFlow is a MetaGPT-style multi-agent orchestration app for autonomous software development. It coordinates PM Research, Architecture, Planning, parallel Engineers, and QA with a local dashboard for ticket management and live progress.
 
 ## What It Does
 
@@ -20,6 +24,7 @@ AgenticFlow is a MetaGPT-style multi-agent orchestration skill for AI coding ass
   - `claude`
   - `cursor-agent` (or `agent` on Windows)
   - `codex`
+  - `copilot` or `gh` (GitHub Copilot CLI)
   - `OPENAI_API_KEY` for OpenAI-compatible API mode
 - Chrome or Edge (required for the File System Access API used by the PWA)
 
@@ -38,16 +43,16 @@ The desktop app bundles the Python engine as a sidecar, so no Python or browser 
 ### Option 2: Use The Installer
 
 ```bash
-git clone https://github.com/fabricciotc/meta-ralph.git
-cd meta-ralph
+git clone https://github.com/fabricciotc/agenticflow.git
+cd agenticflow
 ./install.sh
 ```
 
 On Windows, use PowerShell:
 
 ```powershell
-git clone https://github.com/fabricciotc/meta-ralph.git
-cd meta-ralph
+git clone https://github.com/fabricciotc/agenticflow.git
+cd agenticflow
 .\install.ps1
 ```
 
@@ -66,7 +71,7 @@ You can still install AgenticFlow as a skill for Kimi, Claude, Cursor, or Codex:
 
 ```bash
 # Kimi
-git clone https://github.com/fabricciotc/meta-ralph.git ~/.kimi-code/skills/meta-ralph
+git clone https://github.com/fabricciotc/agenticflow.git ~/.kimi-code/skills/meta-ralph
 ```
 
 ## Usage
@@ -85,7 +90,7 @@ Open `http://localhost:5050` in Chrome/Edge and click the install icon in the ad
 
 ### 3. Link an AI assistant
 
-The first time the dashboard connects to the local engine it detects which AI CLIs are installed and asks you to pick one. The choice is saved in `scripts/meta-ralph/config.json`.
+The first time the dashboard connects to the local engine it detects which AI CLIs are installed and asks you to pick one. The choice is saved in the application data directory (`config.json`).
 
 Supported options:
 
@@ -93,6 +98,7 @@ Supported options:
 - `claude` — Claude Code CLI
 - `cursor-agent` / `agent` — Cursor agent CLI
 - `codex` — Codex CLI
+- `copilot` / `gh` — GitHub Copilot CLI
 - `OPENAI_API_KEY` — OpenAI-compatible API backend
 
 ### 4. Create a ticket and pick a folder
@@ -105,10 +111,10 @@ Move the ticket to **Ready for Work** and the five-phase loop starts.
 
 ## Legacy CLI
 
-The original `meta-ralph` CLI is still available:
+The original `meta-ralph` CLI is still available as a legacy alias:
 
 ```bash
-meta-ralph init      # create scripts/meta-ralph/ in the current project
+meta-ralph init      # create the app state directory
 meta-ralph run       # start the multi-agent loop and dashboard
 meta-ralph dashboard # start only the web dashboard
 meta-ralph status    # show active worker state
@@ -120,16 +126,17 @@ meta-ralph stop      # stop active workers and the dashboard
 By default, the backend tries available backends in this order:
 
 ```bash
-META_RALPH_BACKENDS="kimi claude cursor codex openai_api"
+AGENTICFLOW_BACKENDS="kimi claude cursor codex copilot openai_api"
 ```
 
 Force a backend:
 
 ```bash
-META_RALPH_BACKEND=claude agenticflow start
-META_RALPH_BACKEND=codex agenticflow start
-META_RALPH_BACKEND=cursor agenticflow start
-META_RALPH_BACKEND=kimi agenticflow start
+AGENTICFLOW_BACKEND=claude agenticflow start
+AGENTICFLOW_BACKEND=codex agenticflow start
+AGENTICFLOW_BACKEND=cursor agenticflow start
+AGENTICFLOW_BACKEND=kimi agenticflow start
+AGENTICFLOW_BACKEND=copilot agenticflow start
 ```
 
 Use a custom runner:
@@ -138,6 +145,27 @@ Use a custom runner:
 META_RALPH_BACKEND=custom \
 META_RALPH_RUNNER_COMMAND='my-agent --prompt-file "$META_RALPH_PROMPT_FILE"' \
 agenticflow start
+```
+
+## Application Data Directory
+
+AgenticFlow stores config, board, run-state, snapshots, worktrees, and logs in the OS-native application data directory:
+
+- **macOS**: `~/Library/Application Support/AgenticFlow`
+- **Linux**: `~/.local/share/AgenticFlow` (or `$XDG_DATA_HOME/AgenticFlow`)
+- **Windows**: `%LOCALAPPDATA%/AgenticFlow`
+
+Override this location with the `AGENTICFLOW_DATA_DIR` environment variable.
+
+## Parallel Agents
+
+The default maximum number of parallel agents is **10**. You can change it via:
+
+- The `maxWorkers` field in `config.json`.
+- The `AGENTICFLOW_MAX_WORKERS` environment variable.
+
+```bash
+AGENTICFLOW_MAX_WORKERS=5 agenticflow start
 ```
 
 ## Skill Recognition
@@ -154,7 +182,7 @@ If the assistant does not support native skill discovery, use CLI mode.
 
 ## Desktop Development
 
-The desktop app is a [Tauri v2](https://v2.tauri.app/) wrapper around the existing Python dashboard. It spawns the Python engine as a sidecar and loads `http://127.0.0.1:5050` in a native window.
+The desktop app is a [Tauri v2](https://v2.tauri.app/) wrapper around the existing Python dashboard. It spawns the Python engine as a sidecar on port `5051` and loads `http://127.0.0.1:5051` in a native window.
 
 ### Build locally
 
@@ -191,16 +219,17 @@ git push origin v0.6.0
 ## Project Layout
 
 ```text
-meta-ralph/
+agenticflow/
 ├── SKILL.md                    # Assistant-facing skill definition
 ├── README.md                   # This file
-├── install.sh                  # Skill and CLI installer
+├── install.sh                  # Desktop/CLI installer
 ├── .github/workflows/          # CI/CD
 │   └── release.yml             # Tauri release workflow
 ├── frontend/                   # Minimal Tauri frontend placeholder
 │   └── index.html
 ├── scripts/
-│   ├── meta-ralph.sh           # Main CLI
+│   ├── agenticflow             # Main CLI launcher
+│   ├── meta-ralph              # Legacy CLI launcher
 │   ├── build-sidecar.sh        # PyInstaller sidecar builder
 │   ├── build-sidecar.ps1
 │   ├── create-worktree.sh

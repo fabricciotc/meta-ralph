@@ -29,10 +29,11 @@ else
 fi
 
 echo "Building sidecar with PyInstaller..."
-pyinstaller -y --onefile --name dashboard-server \
+pyinstaller -y --clean --onefile --name dashboard-server \
   --add-data "static:static" \
   --add-data "core/role_skills_registry.yaml:core" \
   --hidden-import engineio.async_drivers.threading \
+  --hidden-import core.runners.copilot_cli \
   server.py
 
 cd "$REPO_ROOT"

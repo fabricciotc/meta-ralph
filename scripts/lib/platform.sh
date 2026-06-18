@@ -9,6 +9,38 @@ is_windows() {
   return 1
 }
 
+agenticflow_data_dir() {
+  if [ -n "${AGENTICFLOW_DATA_DIR:-}" ]; then
+    printf '%s' "$AGENTICFLOW_DATA_DIR"
+    return 0
+  fi
+
+  if is_windows; then
+    if [ -n "${LOCALAPPDATA:-}" ]; then
+      printf '%s\\AgenticFlow' "$LOCALAPPDATA"
+    else
+      printf '%s\\AppData\\Local\\AgenticFlow' "$USERPROFILE"
+    fi
+    return 0
+  fi
+
+  case "$(uname -s)" in
+    Darwin)
+      printf '%s/Library/Application Support/AgenticFlow' "$HOME"
+      ;;
+    Linux)
+      if [ -n "${XDG_DATA_HOME:-}" ]; then
+        printf '%s/AgenticFlow' "$XDG_DATA_HOME"
+      else
+        printf '%s/.local/share/AgenticFlow' "$HOME"
+      fi
+      ;;
+    *)
+      printf '%s/.agenticflow/data' "$HOME"
+      ;;
+  esac
+}
+
 command_exists() {
   command -v "$1" >/dev/null 2>&1
 }

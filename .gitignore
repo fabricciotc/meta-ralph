@@ -10,7 +10,7 @@ __pycache__/
 *.pyd
 .Python
 
-# Runtime / local state
+# Runtime / local state (legacy: state now lives in the OS app data dir)
 dashboard/run-state.json
 dashboard/run-state.*.json
 dashboard/run.log
@@ -20,9 +20,11 @@ dashboard/.engine.pid
 dashboard/scripts/meta-ralph/config.json
 dashboard/scripts/meta-ralph/state/
 dashboard/.meta-ralph/
+dashboard/.agenticflow/
 scripts/meta-ralph/state/
 scripts/meta-ralph/config.json
 .meta-ralph/
+.agenticflow/
 
 # Generated project artifacts from factory runs
 GestionProductos/

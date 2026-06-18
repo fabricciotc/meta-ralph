@@ -17,6 +17,7 @@ _CLI_CANDIDATES: Dict[str, List[str]] = {
     "claude": ["claude"],
     "cursor": ["cursor-agent", "agent", "cursor"],
     "codex": ["codex"],
+    "copilot": ["copilot", "gh"],
 }
 
 _BACKEND_DISPLAY_NAMES: Dict[str, str] = {
@@ -24,6 +25,7 @@ _BACKEND_DISPLAY_NAMES: Dict[str, str] = {
     "claude": "Claude Code",
     "cursor": "Cursor Agent",
     "codex": "Codex CLI",
+    "copilot": "GitHub Copilot CLI",
     "openai_api": "OpenAI API",
 }
 
@@ -114,6 +116,7 @@ class BackendRegistry:
         from core.runners.cursor_cli import CursorCliBackend
         from core.runners.claude_code import ClaudeCodeBackend
         from core.runners.codex_cli import CodexCliBackend
+        from core.runners.copilot_cli import CopilotCliBackend
         from core.runners.openai_api import OpenAIApiBackend
 
         # If a preferred backend is configured and available, use only that one.
@@ -125,6 +128,7 @@ class BackendRegistry:
                     "claude": ClaudeCodeBackend(executable=executable),
                     "cursor": CursorCliBackend(executable=executable),
                     "codex": CodexCliBackend(executable=executable),
+                    "copilot": CopilotCliBackend(executable=executable),
                     "openai_api": OpenAIApiBackend(),
                 }
                 backend = backend_map.get(preferred)
@@ -141,6 +145,7 @@ class BackendRegistry:
             CursorCliBackend(),
             ClaudeCodeBackend(),
             CodexCliBackend(),
+            CopilotCliBackend(),
             OpenAIApiBackend(),
         ])
 

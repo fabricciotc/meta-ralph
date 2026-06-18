@@ -8,14 +8,19 @@ TASK_ID="$1"
 STATUS="$2"
 LAST_COMMIT="${3:-}"
 RESULT_JSON="${4:-}"
-META_DIR="${META_DIR:-scripts/meta-ralph}"
 
 if [ -z "$TASK_ID" ] || [ -z "$STATUS" ]; then
   echo "Usage: update-worker-state.sh <task_id> <status> [last_commit] [result_json]"
   exit 1
 fi
 
-WORKER_FILE="$META_DIR/state/workers/$TASK_ID.json"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/platform.sh
+source "$SCRIPT_DIR/lib/platform.sh"
+
+DATA_DIR="$(agenticflow_data_dir)"
+WORKER_FILE="$DATA_DIR/state/workers/$TASK_ID.json"
+
 if [ ! -f "$WORKER_FILE" ]; then
   echo "Error: worker $TASK_ID does not exist."
   exit 1

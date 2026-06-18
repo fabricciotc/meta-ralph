@@ -13,8 +13,12 @@ if [ -z "$TICKET_ID" ] || [ -z "$STATUS" ]; then
   exit 1
 fi
 
-META_DIR="${META_DIR:-scripts/meta-ralph}"
-BOARD_FILE="$META_DIR/state/board.json"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/platform.sh
+source "$SCRIPT_DIR/lib/platform.sh"
+
+DATA_DIR="$(agenticflow_data_dir)"
+BOARD_FILE="$DATA_DIR/state/board.json"
 
 if [ ! -f "$BOARD_FILE" ]; then
   echo "Error: could not find $BOARD_FILE"
@@ -28,8 +32,8 @@ JQ_FILTER="
     if .id == \"$TICKET_ID\" then
       .status = \"$STATUS\" |
       .updatedAt = \"$NOW\" |
-      if \"$BLOCKED\" == "true" then .blocked = true
-      elif \"$BLOCKED\" == "false" then .blocked = false
+      if \"$BLOCKED\" == \"true\" then .blocked = true
+      elif \"$BLOCKED\" == \"false\" then .blocked = false
       else . end
     else . end
   )
