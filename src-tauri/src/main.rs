@@ -6,7 +6,7 @@ use tauri::RunEvent;
 use tauri_plugin_shell::process::CommandEvent;
 use tauri_plugin_shell::ShellExt;
 
-const BACKEND_PORT: u16 = 5050;
+const BACKEND_PORT: u16 = 5051;
 
 struct AppState {
     sidecar_child: Mutex<Option<tauri_plugin_shell::process::CommandChild>>,

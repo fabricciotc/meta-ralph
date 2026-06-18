@@ -3365,12 +3365,12 @@ def add_no_cache_headers(response):
 
 @app.route("/")
 def index():
-    return send_from_directory("static", "index.html")
+    return send_from_directory(DASHBOARD_DIR / "static", "index.html")
 
 
 @app.route("/static/<path:path>")
 def static_files(path):
-    return send_from_directory("static", path)
+    return send_from_directory(DASHBOARD_DIR / "static", path)
 
 
 @app.route("/api/board", methods=["GET"])

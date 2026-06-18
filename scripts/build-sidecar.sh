@@ -13,7 +13,7 @@ cd dashboard
 if command -v uv >/dev/null 2>&1; then
   echo "Using uv to build the sidecar..."
   uv python install 3.12
-  uv venv --python 3.12 .venv-uv
+  uv venv --python 3.12 --clear .venv-uv
   # shellcheck source=/dev/null
   source .venv-uv/bin/activate
   uv pip install -r requirements.txt pyinstaller
