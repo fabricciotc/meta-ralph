@@ -271,25 +271,15 @@
           <div class="form-group">
             <label for="ticket-repo-path">Repo folder</label>
             <div class="repo-input-row">
-              <input type="text" id="ticket-repo-path" placeholder="Select a folder, then confirm its absolute path">
+              <input type="text" id="ticket-repo-path" placeholder="Paste the full folder path or pick it with Finder/Explorer">
               <button type="button" class="btn-secondary btn-small" id="btn-pick-folder" title="Pick folder">Pick folder</button>
-              <button type="button" class="btn-secondary btn-small" id="btn-pick-folder-native" title="Pick folder using the system dialog">System dialog</button>
             </div>
             <div class="repo-folder-badge" id="repo-folder-badge" style="display:none;">
               <i data-lucide="folder-check"></i>
               <span id="repo-folder-name">—</span>
             </div>
-            <span class="field-hint">Pick the project folder. <strong>System dialog</strong> uses your native Finder/Explorer and fills the absolute path automatically. <strong>Pick folder</strong> uses the browser picker and requires Chrome/Edge.</span>
+            <span class="field-hint">Pick the project folder with the native file dialog, or paste the absolute path directly.</span>
             <span id="repo-picker-message" class="field-message" style="display:none"></span>
-          </div>
-          <div class="form-group" style="margin-top:0.75rem;">
-            <label for="projects-root">Default projects folder</label>
-            <div class="repo-input-row">
-              <input type="text" id="projects-root" placeholder="/Users/you/projects">
-              <button type="button" class="btn-secondary btn-small" id="btn-save-projects-root">Save</button>
-            </div>
-            <span class="field-hint">When set, Pick folder will auto-fill the path as {folder}/{selected-name}.</span>
-            <span id="projects-root-message" class="field-message" style="display:none"></span>
           </div>
         </div>
 
@@ -467,6 +457,6 @@
       }, 1200);
     })();
   </script>
-  <script src="/static/app.js?v=13"></script>
+  <script src="/static/app.js?v=14"></script>
 </body>
 </html>

@@ -40,7 +40,6 @@ const socket = io(detectTauri() ? 'http://127.0.0.1:5051' : undefined, {
 let boardData = { columns: [], tickets: [], stats: {} };
 let runState = { active: false, ticketId: null, status: 'idle', currentAgent: null, progress: 0, logs: [], queue: [], agents: [], pendingQuestions: [], messages: [] };
 let systemInfo = { model: '—', preferredBackend: null, availableBackends: [], projectsRoot: null };
-let projectsRoot = null;
 let traces = [];
 let graphData = { nodes: [], edges: [] };
 let selectedTicketId = localStorage.getItem('meta-ralph-selected-ticket') || null;
@@ -118,9 +117,6 @@ const btnCancel = document.getElementById('btn-cancel');
 const btnDelete = document.getElementById('btn-delete');
 const repoPathInput = document.getElementById('ticket-repo-path');
 const repoPickerMessage = document.getElementById('repo-picker-message');
-const projectsRootInput = document.getElementById('projects-root');
-const btnSaveProjectsRoot = document.getElementById('btn-save-projects-root');
-const projectsRootMessage = document.getElementById('projects-root-message');
 const pwaInstallOverlay = document.getElementById('pwa-install-overlay');
 const btnInstallPwaOverlay = document.getElementById('btn-install-pwa');
 const btnContinueBrowser = document.getElementById('btn-continue-browser');
@@ -1052,8 +1048,7 @@ function openTicketModal(ticket = null) {
   document.getElementById('ticket-focus').value = ticket ? ticket.featureFocus || '' : '';
   document.getElementById('ticket-labels').value = ticket ? (ticket.labels || []).join(', ') : '';
   repoPathInput.value = ticket ? ticket.repoPath || '' : '';
-  if (projectsRootInput) projectsRootInput.value = projectsRoot || '';
-  if (projectsRootMessage) projectsRootMessage.style.display = 'none';
+  hideRepoMessage();
   updateRepoFolderBadge(repoFolderHandle ? repoFolderHandle.name : null);
   if (btnDelete) btnDelete.style.display = isEdit ? 'inline-block' : 'none';
   if (ticketModal) ticketModal.classList.add('open');
@@ -1146,37 +1141,6 @@ function hideRepoMessage() {
   if (!repoPickerMessage) return;
   repoPickerMessage.style.display = 'none';
   repoPickerMessage.textContent = '';
-}
-
-function showProjectsRootMessage(text, isError = false) {
-  if (!projectsRootMessage) return;
-  projectsRootMessage.textContent = text;
-  projectsRootMessage.style.display = 'block';
-  projectsRootMessage.style.color = isError ? 'var(--danger)' : 'var(--success)';
-}
-
-function hideProjectsRootMessage() {
-  if (!projectsRootMessage) return;
-  projectsRootMessage.style.display = 'none';
-}
-
-async function saveProjectsRoot() {
-  if (!projectsRootInput) return;
-  const value = projectsRootInput.value.trim() || null;
-  try {
-    const res = await fetch('/api/config', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ projectsRoot: value })
-    });
-    const data = await res.json();
-    if (!res.ok || !data.ok) throw new Error(data.error || 'Error saving settings');
-    projectsRoot = data.projectsRoot || null;
-    systemInfo.projectsRoot = projectsRoot;
-    showProjectsRootMessage('Default projects folder saved');
-  } catch (err) {
-    showProjectsRootMessage(err.message, true);
-  }
 }
 
 /* ============================================================
@@ -1969,45 +1933,6 @@ function hideEngineOverlay() {
   engineOverlay.classList.add('hidden');
 }
 
-// Tauri's WKWebView on macOS can block plain http fetches to the sidecar.
-// Route relative/localhost requests through Rust commands instead.
-(function setupTauriFetch() {
-  const invoke = window.__agenticflow_invoke;
-  if (typeof invoke !== 'function') return;
-
-  const originalFetch = window.fetch;
-  window.fetch = async function tauriFetch(input, init) {
-    let url = typeof input === 'string' ? input : input.url;
-    const method = (init && init.method ? init.method : 'GET').toUpperCase();
-    const body = init && init.body ? init.body : undefined;
-
-    const isLocal = url.startsWith('/') || url.startsWith('http://127.0.0.1:5051') || url.startsWith('http://localhost:5051');
-    if (!isLocal) {
-      return originalFetch(input, init);
-    }
-
-    const path = url.replace('http://127.0.0.1:5051', '').replace('http://localhost:5051', '');
-    const bodyString = typeof body === 'string' ? body : undefined;
-
-    try {
-      const result = await invoke('api_call', {
-        method,
-        path,
-        body: bodyString,
-      });
-      return new Response(result.body, {
-        status: result.status,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    } catch (err) {
-      return new Response(JSON.stringify({ error: err.message || String(err) }), {
-        status: 503,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
-  };
-})();
-
 function isPwaInstalled() {
   if (navigator.standalone === true) return true;
   if (!window.matchMedia) return false;
@@ -2146,10 +2071,11 @@ function updateRepoFolderBadge(name) {
 
 async function pickRepoFolder() {
   if (detectTauri()) {
-    return pickRepoFolderNative();
+    return pickRepoFolderTauri();
   }
   if (!('showDirectoryPicker' in window)) {
-    showToast('Folder picker is only available in Chrome/Edge');
+    if (repoPathInput) repoPathInput.focus();
+    showToast('Paste the full folder path above, or open this dashboard in the AgenticFlow app.');
     return;
   }
   try {
@@ -2158,7 +2084,6 @@ async function pickRepoFolder() {
     updateRepoFolderBadge(handle.name);
     await saveRepoHandle(handle);
 
-    // Verify that it looks like a Git repo by trying to access .git
     let isGitRepo = false;
     try {
       await handle.getDirectoryHandle('.git');
@@ -2167,27 +2092,18 @@ async function pickRepoFolder() {
       isGitRepo = false;
     }
 
-    // The File System Access API does not expose absolute paths. If the user
-    // configured a default projects root, auto-fill {root}/{folder-name}; otherwise
-    // ask them to paste the absolute path manually.
+    // Browsers do not expose absolute paths. Let the user paste the full path manually.
     if (repoPathInput) {
-      if (projectsRoot) {
-        const separator = projectsRoot.endsWith('/') ? '' : '/';
-        repoPathInput.value = `${projectsRoot}${separator}${handle.name}`;
-      } else {
-        repoPathInput.value = '';
-        repoPathInput.placeholder = `Paste absolute path to "${handle.name}"`;
-        repoPathInput.focus();
-      }
+      repoPathInput.value = '';
+      repoPathInput.placeholder = `Paste absolute path to "${handle.name}"`;
+      repoPathInput.focus();
     }
 
-    const message = document.getElementById('repo-picker-message');
-    if (message) {
-      message.textContent = isGitRepo
+    showRepoMessage(
+      isGitRepo
         ? `Folder "${handle.name}" selected. Paste its absolute path above, then save the ticket.`
-        : `Folder "${handle.name}" selected (no .git folder found). Paste its absolute path above, then save the ticket.`;
-      message.style.display = 'block';
-    }
+        : `Folder "${handle.name}" selected (no .git folder found). Paste its absolute path above, then save the ticket.`
+    );
 
     showToast(isGitRepo ? `Linked folder: ${handle.name}` : `Folder selected (not a git repo): ${handle.name}`);
   } catch (err) {
@@ -2198,27 +2114,22 @@ async function pickRepoFolder() {
   }
 }
 
-async function pickRepoFolderNative() {
+async function pickRepoFolderTauri() {
   try {
-    const res = await fetch('/api/pick-folder', { method: 'POST' });
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      showRepoMessage(data.error || 'Could not open system folder picker');
+    const invoke = window.__agenticflow_invoke;
+    if (typeof invoke !== 'function') {
+      showRepoMessage('Native folder picker is not available.');
       return;
     }
-    const data = await res.json();
-    if (data.canceled) return;
-    if (!data.ok || !data.path) {
-      showRepoMessage(data.error || 'No folder selected');
-      return;
-    }
-    if (repoPathInput) repoPathInput.value = data.path;
-    updateRepoFolderBadge(data.path.split('/').pop() || data.path);
-    showRepoMessage(`Selected: ${data.path}`);
-    showToast(`Selected folder: ${data.path}`);
+    const path = await invoke('pick_folder');
+    if (!path) return;
+    if (repoPathInput) repoPathInput.value = path;
+    updateRepoFolderBadge(path.split(/[/\\]/).pop() || path);
+    showRepoMessage(`Selected: ${path}`);
+    showToast(`Selected folder: ${path}`);
   } catch (err) {
     console.error('Error opening native folder picker:', err);
-    showRepoMessage('Could not open system folder picker. Make sure the local engine is running.');
+    showRepoMessage('Could not open system folder picker: ' + (err.message || err));
   }
 }
 
@@ -2241,7 +2152,6 @@ async function loadSystemInfo() {
     const res = await fetch('/api/system-info');
     if (!res.ok) return;
     systemInfo = await res.json();
-    projectsRoot = systemInfo.projectsRoot || null;
     renderHeader();
     if (aiLinkModalOpen) renderAiLinkModal();
   } catch (err) {
@@ -2353,6 +2263,11 @@ async function pollRunState() {
 if (btnThemeToggle) btnThemeToggle.addEventListener('click', toggleTheme);
 if (btnTickets) btnTickets.addEventListener('click', openTicketsModal);
 if (btnInstall) btnInstall.addEventListener('click', installPwa);
+if (navModel) {
+  navModel.style.cursor = 'pointer';
+  navModel.title = 'Click to change AI backend';
+  navModel.addEventListener('click', openAiLinkModal);
+}
 if (btnNewTicket) btnNewTicket.addEventListener('click', () => openTicketModal());
 
 window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
@@ -2366,12 +2281,7 @@ if (ticketForm) ticketForm.addEventListener('submit', saveTicket);
 if (repoPathInput) repoPathInput.addEventListener('input', hideRepoMessage);
 
 const btnPickFolder = document.getElementById('btn-pick-folder');
-const btnPickFolderNative = document.getElementById('btn-pick-folder-native');
 if (btnPickFolder) btnPickFolder.addEventListener('click', pickRepoFolder);
-if (btnPickFolderNative) btnPickFolderNative.addEventListener('click', pickRepoFolderNative);
-
-if (btnSaveProjectsRoot) btnSaveProjectsRoot.addEventListener('click', saveProjectsRoot);
-if (projectsRootInput) projectsRootInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') saveProjectsRoot(); });
 
 if (btnInstallPwaOverlay) btnInstallPwaOverlay.addEventListener('click', installPwaFromOverlay);
 if (btnContinueBrowser) btnContinueBrowser.addEventListener('click', () => {
