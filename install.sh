@@ -18,7 +18,7 @@ fi
 chmod +x "$SCRIPT"
 
 PY_BIN="$(python_cmd)" || {
-  echo "Error: python3 or python is not installed. Meta-Ralph requires Python 3.10+."
+  echo "Error: python3 or python is not installed. AgenticFlow requires Python 3.10+."
   exit 1
 }
 
@@ -30,7 +30,7 @@ if [ "$PY_MAJOR" -lt 3 ] || { [ "$PY_MAJOR" -eq 3 ] && [ "$PY_MINOR" -lt 10 ]; }
 fi
 
 if ! command -v git >/dev/null 2>&1; then
-  echo "Error: git is not installed. Meta-Ralph requires git."
+  echo "Error: git is not installed. AgenticFlow requires git."
   exit 1
 fi
 
@@ -151,6 +151,12 @@ fi
 ln -sf "$SCRIPT" "$BIN_DIR/meta-ralph"
 echo "Created CLI symlink: $BIN_DIR/meta-ralph -> $SCRIPT"
 
+AGENTICFLOW_SCRIPT="$SCRIPT_DIR/agenticflow"
+if [ -f "$AGENTICFLOW_SCRIPT" ]; then
+  ln -sf "$AGENTICFLOW_SCRIPT" "$BIN_DIR/agenticflow"
+  echo "Created CLI symlink: $BIN_DIR/agenticflow -> $AGENTICFLOW_SCRIPT"
+fi
+
 if is_windows; then
   GIT_BASH="$(git_bash_path)" || GIT_BASH="/c/Program Files/Git/bin/bash.exe"
   GIT_BASH_CMD="$(to_windows_cmd_path "$GIT_BASH")"
@@ -160,12 +166,18 @@ if is_windows; then
 "$GIT_BASH_CMD" "$SCRIPT_CMD" %*
 EOF
   echo "Created Windows launcher: $BIN_DIR/meta-ralph.cmd"
+
+  AGENTICFLOW_CMD_SCRIPT="$SCRIPT_DIR/agenticflow.cmd"
+  if [ -f "$AGENTICFLOW_CMD_SCRIPT" ]; then
+    cp "$AGENTICFLOW_CMD_SCRIPT" "$BIN_DIR/agenticflow.cmd"
+    echo "Created Windows launcher: $BIN_DIR/agenticflow.cmd"
+  fi
 fi
 
 if [ "$SHELL_NAME" = "fish" ]; then
   if ! grep -q "$BIN_DIR" "$RC_FILE" 2>/dev/null; then
     echo "" >> "$RC_FILE"
-    echo "# Meta-Ralph CLI" >> "$RC_FILE"
+    echo "# AgenticFlow CLI" >> "$RC_FILE"
     echo "fish_add_path $BIN_DIR" >> "$RC_FILE"
     echo "Added $BIN_DIR to PATH in $RC_FILE"
   else
@@ -174,7 +186,7 @@ if [ "$SHELL_NAME" = "fish" ]; then
 else
   if ! grep -q "$BIN_DIR" "$RC_FILE" 2>/dev/null; then
     echo "" >> "$RC_FILE"
-    echo "# Meta-Ralph CLI" >> "$RC_FILE"
+    echo "# AgenticFlow CLI" >> "$RC_FILE"
     echo "export PATH=\"$BIN_DIR:\$PATH\"" >> "$RC_FILE"
     echo "Added $BIN_DIR to PATH in $RC_FILE"
   else
@@ -212,17 +224,28 @@ fi
 
 if [ "$BACKENDS_FOUND" -eq 0 ]; then
   echo ""
-  echo "Warning: no AI backend was detected. Meta-Ralph will not be able to run prompts yet."
-  echo "Install at least one backend or set META_RALPH_RUNNER_COMMAND for a custom runner."
+  echo "No AI backend was detected yet. The dashboard will ask you to link one when it starts."
+  echo "Supported options:"
+  echo "  - kimi (Kimi Code CLI)"
+  echo "  - claude (Claude Code CLI)"
+  echo "  - cursor-agent / agent (Cursor agent CLI)"
+  echo "  - codex (Codex CLI)"
+  echo "  - OPENAI_API_KEY environment variable"
 fi
 
 echo ""
-echo "Meta-Ralph installed."
-echo "CLI command: $BIN_DIR/meta-ralph"
+echo "AgenticFlow installed."
+echo ""
+echo "To start the local engine and open the dashboard:"
+echo "  agenticflow start"
+echo ""
+echo "Then install the PWA from Chrome/Edge:"
+echo "  1. Open http://localhost:5050"
+echo "  2. Click the install icon in the address bar (or menu > Install AgenticFlow)"
+echo ""
+echo "You can still use the legacy CLI:"
+echo "  meta-ralph init"
+echo "  meta-ralph run"
 echo ""
 echo "Restart your terminal or run:"
 echo "  source $RC_FILE"
-echo ""
-echo "Then, in a git project:"
-echo "  meta-ralph init"
-echo "  meta-ralph run"

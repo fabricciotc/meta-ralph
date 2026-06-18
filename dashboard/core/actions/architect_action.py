@@ -127,7 +127,7 @@ class ArchitectAction(Action):
             )
 
         return (
-            "You are the AgentFlow Architect in a MetaGPT-style software factory. "
+            "You are the AgenticFlow Architect in a MetaGPT-style software factory. "
             "Design the global technical architecture for the following ticket. "
             "Do NOT implement code; define patterns, APIs, directory structure, "
             "conventions, and technical decisions that Engineers must follow.\n\n"

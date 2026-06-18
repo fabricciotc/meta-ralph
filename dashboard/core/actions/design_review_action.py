@@ -120,7 +120,7 @@ class DesignReviewAction(Action):
         architecture_content: str,
     ) -> str:
         return (
-            "You are the AgentFlow Architect. Review the architecture document "
+            "You are the AgenticFlow Architect. Review the architecture document "
             "generated for the following ticket and extract ONLY the design decisions "
             "that still need confirmation from the user or another stakeholder.\n\n"
             f"TICKET:\nTITLE: {title}\nDESCRIPTION: {description}\n\n"

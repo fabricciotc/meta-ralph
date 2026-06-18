@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-AgentFlow Dashboard Server
+AgenticFlow Dashboard Server
 Local Kanban/Jira-style web server for viewing and managing tickets,
 with automatic multi-agent loop orchestration when a ticket moves to
 "ready-for-work".
@@ -27,6 +27,8 @@ import communication_bus as bus
 
 from core import pm_analysis
 from core.orchestrator import Orchestrator
+from core.config import load_config, set_preferred_backend, get_projects_root, set_projects_root
+from core.runners.registry import BackendRegistry, discover_backends
 
 # Allow dumping stack traces for all threads with SIGUSR1 during debugging.
 faulthandler.enable()
@@ -62,6 +64,8 @@ DEFAULT_BOARD = {
 BOARD_FILE = None
 RUN_STATE_FILE = None
 LOG_FILE = None
+
+DASHBOARD_DIR = Path(__file__).resolve().parent
 
 
 _ANSI_ESCAPE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
@@ -767,19 +771,44 @@ def resolve_repo_path(repo_path):
     return str((Path.cwd() / repo).resolve())
 
 
-def validate_git_repo(repo_path):
-    """Validate that repo_path is an existing folder.
-
-    Git is optional: if the folder has .git, a branch will be created, but git
-    is not required for a ticket to run.
-    """
+def is_repo_path_inside_engine(repo_path):
+    """Return (error_code, error_message) if repo_path is inside the engine dir."""
     if not repo_path:
         return "REPO_MISSING", "The ticket does not have a repository configured."
     repo = Path(resolve_repo_path(repo_path))
-    if not repo.exists() or not repo.is_dir():
+    try:
+        repo.relative_to(DASHBOARD_DIR)
         return (
-            "REPO_NOT_FOUND",
-            f"Folder '{repo_path}' does not exist.",
+            "REPO_INSIDE_ENGINE",
+            f"The folder '{repo_path}' is inside the AgenticFlow engine directory. Choose a folder outside the engine installation.",
+        )
+    except ValueError:
+        return None, None
+
+
+def validate_git_repo(repo_path):
+    """Validate that repo_path points to a usable folder.
+
+    If the path does not exist, it is created (including parents). This lets a
+    ticket start from an empty project folder chosen via the PWA folder picker.
+    Git is optional: if the folder has .git, a branch will be created, but git
+    is not required for a ticket to run.
+    """
+    err_code, err_msg = is_repo_path_inside_engine(repo_path)
+    if err_code:
+        return err_code, err_msg
+    repo = Path(resolve_repo_path(repo_path))
+    if repo.exists() and not repo.is_dir():
+        return (
+            "REPO_NOT_FOLDER",
+            f"Path '{repo_path}' exists but is not a folder.",
+        )
+    try:
+        repo.mkdir(parents=True, exist_ok=True)
+    except Exception as exc:
+        return (
+            "REPO_CREATE_FAILED",
+            f"Could not create folder '{repo_path}': {exc}",
         )
     return None, None
 
@@ -836,12 +865,15 @@ class AgentRunner(threading.Thread):
         self._stop_event = threading.Event()
         self._pause_event = threading.Event()
         self._resume_event = threading.Event()
-        from core.runners.registry import BackendRegistry
         from core.skills_registry import SkillsRegistry
-        self.backend_registry = BackendRegistry.default()
+        self.backend_registry = BackendRegistry.from_config()
         self.skills_registry = SkillsRegistry()
         available = [b.name for b in self.backend_registry.available_backends()]
-        self.log(f"Available backends: {available}", "info")
+        preferred = load_config().get("preferredBackend")
+        if preferred:
+            self.log(f"Preferred backend: {preferred}. Available: {available}", "info")
+        else:
+            self.log(f"Available backends: {available}", "info")
         self.orchestrator = Orchestrator(
             ticket,
             resume=resume,
@@ -1714,7 +1746,7 @@ Respond concisely and practically. Assume reasonable decisions for a .NET MVP wi
                 "Answer the PM Lead request directly while keeping the same output format."
             )
         return (
-            f"You are the {role_name} for AgentFlow, a MetaGPT-style multi-agent software factory. "
+            f"You are the {role_name} for AgenticFlow, a MetaGPT-style multi-agent software factory. "
             f"Your exclusive focus is: {focus}. "
             "Research the current project codebase ONLY from your assigned angle. "
             "Do NOT implement code; only research, analyze, and document findings. "
@@ -1741,7 +1773,7 @@ Respond concisely and practically. Assume reasonable decisions for a .NET MVP wi
             except Exception as exc:
                 research_content += f"\n\n--- {sub_id} ---\n\nError reading findings: {exc}"
         return (
-            "You are the Lead Product Manager for AgentFlow. Five PM Research Agents investigated a ticket. "
+            "You are the Lead Product Manager for AgenticFlow. Five PM Research Agents investigated a ticket. "
             "Consolidate THEIR FINDINGS into a concise, actionable Product Requirements Document (PRD). "
             "Do NOT invent requirements that are not supported by the findings; synthesize what was researched.\n\n"
             f"TICKET:\nTITLE: {title}\nDESCRIPTION: {description}\n\n"
@@ -1782,7 +1814,7 @@ Respond concisely and practically. Assume reasonable decisions for a .NET MVP wi
 
     def _build_pm_prompt(self, title, description, prd_path):
         return (
-            "You are the Lead Product Manager for Meta-Ralph, a MetaGPT-style multi-agent software factory. "
+            "You are the Lead Product Manager for AgenticFlow, a MetaGPT-style multi-agent software factory. "
             "A ticket just moved to In Design and you must produce a detailed Product Requirements Document (PRD).\n\n"
             "Act as if you coordinated 5 PM Research Agents (Domain/UX, Technical, Integrations, Risks, Task Breakdown) "
             "and consolidated their findings into one PRD.\n\n"
@@ -2682,16 +2714,18 @@ Expected format example:
         branch_clause = f" on branch {branch}" if branch else ""
         project_section = f"\n\n--- PROJECT CONTEXT ---\n{project_context}" if project_context else ""
         dependency_section = f"\n\n--- DEPENDENCY CONTEXT ---\n{dependency_context}" if dependency_context else ""
-        return f"""You are a senior .NET Engineer. Work in repo {repo_path}{branch_clause}.
+        return f"""You are a senior .NET Engineer. Work ONLY inside the repository directory {repo_path}{branch_clause}. Your current working directory is already set to that directory.
 
 GENERAL GOAL:
-You are part of a team executing the ticket below. You already have the work order, PRD, task plan, and dependency context. Your job is to implement YOUR task autonomously, assuming .NET best practices and without stopping for routine questions. Stop only if there is a real blocker that cannot be resolved from the provided context.
+You are part of a team executing the ticket below. You already have the work order, PRD, task plan, and dependency context. Your job is to implement YOUR task autonomously, assuming .NET best practices and without stopping for routine questions. Stop only if you hit a real blocker that cannot be resolved from the provided context.
 
 REQUIRED RULES:
-- If the repo does not have a .csproj or .sln file, first create a valid .NET 8 project with `dotnet new webapi -n CrudProducts` or an appropriate name.
-- Create/modify files directly on disk using shell commands or file writes.
+- Stay inside the repository directory {repo_path}. Do NOT create, modify, or delete files outside that directory. Do NOT use relative paths that leave the repository (e.g., `../`).
+- If the repo does not have a .csproj or .sln file, first create a valid .NET project with `dotnet new webapi -n <project-name>` or an appropriate template, and keep all generated files inside {repo_path}.
+- Create/modify files directly on disk using shell commands or file writes, all within {repo_path}.
 - After creating/editing files, run `dotnet build` in {repo_path} to verify compilation.
-- If tests exist, run `dotnet test`.
+- If tests exist, run `dotnet test` in {repo_path}.
+- Only use `git` commands if the directory {repo_path} contains its own `.git` folder. If it does not, do NOT initialize git and do NOT run git commands; they would accidentally affect the parent project.
 - Do NOT respond only with explanations; create the real files on disk.
 
 YOUR TASK:
@@ -2968,10 +3002,13 @@ Reply rules (strict):
             # The working directory must be the ticket repo so tools operate on code.
             repo_path = self.ticket.get("repoPath") or ""
             cwd = resolve_repo_path(repo_path) or str(Path.cwd())
+            Path(cwd).mkdir(parents=True, exist_ok=True)
 
             previous_cwd = os.getcwd()
+            previous_git_ceiling = os.environ.get("GIT_CEILING_DIRECTORIES")
             try:
                 os.chdir(cwd)
+                os.environ["GIT_CEILING_DIRECTORIES"] = cwd
                 output = self.backend_registry.run_prompt(
                     full_prompt,
                     phase_name=phase_name,
@@ -2980,6 +3017,10 @@ Reply rules (strict):
                 ) or ""
             finally:
                 os.chdir(previous_cwd)
+                if previous_git_ceiling is None:
+                    os.environ.pop("GIT_CEILING_DIRECTORIES", None)
+                else:
+                    os.environ["GIT_CEILING_DIRECTORIES"] = previous_git_ceiling
 
             output_path.write_text(output, encoding="utf-8")
 
@@ -3381,14 +3422,16 @@ def api_communication():
 
 
 def get_model_name():
-    """Return a concise description of the configured AI backend set."""
+    """Return a concise description of the configured AI backend."""
     try:
-        from core.runners.registry import BackendRegistry
-
+        config = load_config()
+        preferred = config.get("preferredBackend")
+        if preferred:
+            return preferred
         registry = BackendRegistry.default()
         available = [backend.name for backend in registry.available_backends()]
         if available:
-            return "Available AI backends: " + ", ".join(available)
+            return "auto (" + ", ".join(available) + ")"
     except Exception:
         pass
     return "No AI backend available"
@@ -3396,7 +3439,136 @@ def get_model_name():
 
 @app.route("/api/system-info", methods=["GET"])
 def api_system_info():
-    return jsonify({"model": get_model_name()})
+    return jsonify({
+        "model": get_model_name(),
+        "preferredBackend": load_config().get("preferredBackend"),
+        "availableBackends": discover_backends(),
+        "projectsRoot": load_config().get("projectsRoot"),
+    })
+
+
+@app.route("/api/backends", methods=["GET"])
+def api_backends():
+    """Return the list of detected AI backends."""
+    return jsonify({"backends": discover_backends()})
+
+
+@app.route("/api/backends/select", methods=["POST"])
+def api_select_backend():
+    """Persist the user's preferred backend."""
+    data = request.get_json(silent=True) or {}
+    name = (data.get("backend") or "").strip().lower()
+    if not name:
+        return jsonify({"ok": False, "error": "Missing backend name"}), 400
+
+    available_names = {b["name"] for b in discover_backends() if b["available"]}
+    if name not in available_names:
+        return jsonify({"ok": False, "error": f"Backend '{name}' is not available"}), 400
+
+    set_preferred_backend(name)
+    return jsonify({"ok": True, "backend": name})
+
+
+@app.route("/api/config", methods=["GET"])
+def api_get_config():
+    """Return public configuration values."""
+    config = load_config()
+    return jsonify({
+        "projectsRoot": config.get("projectsRoot"),
+        "preferredBackend": config.get("preferredBackend"),
+    })
+
+
+@app.route("/api/config", methods=["PATCH"])
+def api_patch_config():
+    """Update public configuration values."""
+    data = request.get_json(silent=True) or {}
+    if "projectsRoot" in data:
+        path = (data["projectsRoot"] or "").strip() or None
+        if path:
+            resolved = Path(path).expanduser().resolve()
+            try:
+                resolved.relative_to(DASHBOARD_DIR)
+                return jsonify({"ok": False, "error": "projectsRoot cannot be inside the engine directory"}), 400
+            except ValueError:
+                pass
+            path = str(resolved)
+        set_projects_root(path)
+    return jsonify({"ok": True, "projectsRoot": get_projects_root(), "preferredBackend": load_config().get("preferredBackend")})
+
+
+def _pick_folder_native() -> tuple[str | None, bool]:
+    """Open a native folder picker and return the absolute path.
+
+    Returns (path, canceled).  This only works when the engine runs on the
+    user's local machine with a graphical session.
+    """
+    system = platform.system()
+    try:
+        if system == "Darwin":
+            script = 'POSIX path of (choose folder with prompt "Select a project folder for AgenticFlow")'
+            result = subprocess.run(
+                ["osascript", "-e", script],
+                capture_output=True,
+                text=True,
+                timeout=60,
+                check=False,
+            )
+            if result.returncode != 0:
+                return None, True
+            path = result.stdout.strip().rstrip("/")
+            return path, not path
+        if system == "Windows":
+            ps = (
+                'Add-Type -AssemblyName System.Windows.Forms; '
+                '$d = New-Object System.Windows.Forms.FolderBrowserDialog; '
+                '$d.Description = "Select a project folder for AgenticFlow"; '
+                'if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output $d.SelectedPath }'
+            )
+            result = subprocess.run(
+                ["powershell", "-Command", ps],
+                capture_output=True,
+                text=True,
+                timeout=60,
+                check=False,
+            )
+            path = result.stdout.strip()
+            return path, not path
+        # Linux / other: try zenity, then kdialog
+        for cmd in [
+            ["zenity", "--file-selection", "--directory", "--title=Select a project folder for AgenticFlow"],
+            ["kdialog", "--getexistingdirectory", "."],
+        ]:
+            if shutil.which(cmd[0]):
+                result = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=60,
+                    check=False,
+                )
+                path = result.stdout.strip()
+                if result.returncode == 0 and path:
+                    return path, False
+        return None, True
+    except Exception as exc:
+        print(f"Native folder picker error: {exc}")
+        return None, True
+
+
+@app.route("/api/pick-folder", methods=["POST"])
+def api_pick_folder():
+    """Open a native folder picker and return the selected absolute path."""
+    path, canceled = _pick_folder_native()
+    if canceled or not path:
+        return jsonify({"canceled": True})
+    try:
+        resolved = Path(path).expanduser().resolve()
+        resolved.relative_to(DASHBOARD_DIR)
+        return jsonify({"ok": False, "error": "The selected folder is inside the AgenticFlow engine directory."}), 400
+    except ValueError:
+        pass
+    return jsonify({"ok": True, "path": str(Path(path).expanduser().resolve()), "canceled": False})
 
 
 def _estimate_tokens(text):
@@ -3579,7 +3751,13 @@ def api_graph():
 
 @app.route("/api/health", methods=["GET"])
 def api_health():
-    return jsonify({"status": "ok", "timestamp": datetime.now(timezone.utc).isoformat()})
+    return jsonify({
+        "status": "ok",
+        "app": "AgenticFlow",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "preferredBackend": load_config().get("preferredBackend"),
+        "availableBackends": discover_backends(),
+    })
 
 
 @app.route("/api/run-state/logs", methods=["POST"])
@@ -3726,6 +3904,10 @@ def api_create_ticket():
         save_board(board)
         socketio.emit("board_update", board)
 
+    err_code, err_msg = is_repo_path_inside_engine(ticket.get("repoPath"))
+    if err_code:
+        return jsonify({"error": err_code, "message": err_msg}), 400
+
     if ticket["status"] == "ready-for-work":
         err_code, err_msg = validate_git_repo(ticket.get("repoPath"))
         if err_code:
@@ -3764,6 +3946,10 @@ def api_create_ticket():
 @app.route("/api/tickets/<ticket_id>", methods=["PATCH", "PUT"])
 def api_update_ticket(ticket_id):
     data = request.get_json(silent=True) or {}
+    if "repoPath" in data:
+        err_code, err_msg = is_repo_path_inside_engine(data["repoPath"])
+        if err_code:
+            return jsonify({"error": err_code, "message": err_msg}), 400
     with board_lock:
         board = load_board()
         ticket = next((t for t in board["tickets"] if t["id"] == ticket_id), None)
@@ -4134,8 +4320,9 @@ def handle_chat_send(data):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="AgentFlow Dashboard Server")
+    parser = argparse.ArgumentParser(description="AgenticFlow Dashboard Server")
     parser.add_argument("--port", type=int, default=5050, help="Server port")
+    parser.add_argument("--host", type=str, default="0.0.0.0", help="Server host")
     parser.add_argument("--board", type=str, default=None, help="Path to board.json")
     parser.add_argument("--no-browser", action="store_true", help="Do not open browser")
     args = parser.parse_args()
@@ -4198,17 +4385,19 @@ def main():
             save_run_state(state)
             start_automatic_run(ticket, resume=True)
 
+    display_host = "localhost" if args.host in ("0.0.0.0", "127.0.0.1") else args.host
+
     if not args.no_browser:
         def open_browser():
             time.sleep(1.5)
-            webbrowser.open(f"http://localhost:{args.port}")
+            webbrowser.open(f"http://{display_host}:{args.port}")
 
         threading.Thread(target=open_browser, daemon=True).start()
 
-    print(f"AgentFlow Dashboard running at http://localhost:{args.port}")
+    print(f"AgenticFlow Dashboard running at http://{display_host}:{args.port}")
     print(f"Board: {get_board_path()}")
     print(f"Run state: {get_run_state_path()}")
-    socketio.run(app, host="0.0.0.0", port=args.port, debug=False, use_reloader=False, allow_unsafe_werkzeug=True)
+    socketio.run(app, host=args.host, port=args.port, debug=False, use_reloader=False, allow_unsafe_werkzeug=True)
 
 
 if __name__ == "__main__":

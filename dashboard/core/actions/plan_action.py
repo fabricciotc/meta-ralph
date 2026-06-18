@@ -261,7 +261,7 @@ class PlanAction(Action):
         if architecture_content:
             architecture_section = f"\n\nARCHITECTURE:\n{architecture_content}"
         return (
-            "You are the Planner for AgentFlow, a MetaGPT-style software factory. "
+            "You are the Planner for AgenticFlow, a MetaGPT-style software factory. "
             "Your job is to generate a technical task plan from the provided PRD and architecture.\n\n"
             f"TICKET:\nID: {ticket_id}\nTITLE: {title}\nDESCRIPTION: {description}\n\n"
             f"PRD:\n{prd_content}"

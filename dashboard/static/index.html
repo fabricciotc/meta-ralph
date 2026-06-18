@@ -3,7 +3,14 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AgentFlow Dashboard</title>
+  <meta name="theme-color" content="#0f0f11">
+  <meta name="description" content="AgenticFlow — MetaGPT-style multi-agent software factory dashboard.">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="AgenticFlow">
+  <title>AgenticFlow Dashboard</title>
+  <link rel="manifest" href="/static/manifest.json">
+  <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+  <link rel="apple-touch-icon" href="/static/icon-192.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -12,13 +19,47 @@
   <script src="https://unpkg.com/lucide@latest"></script>
 </head>
 <body>
+  <div class="engine-overlay" id="engine-overlay">
+    <div class="engine-overlay-content">
+      <div class="engine-overlay-brand">
+        <span class="brand-name-lg">AgenticFlow</span>
+        <span class="brand-tagline-lg">Local AI software factory</span>
+      </div>
+      <div class="engine-overlay-status" id="engine-overlay-status">Connecting to local engine...</div>
+      <div class="engine-overlay-help" id="engine-overlay-help" style="display:none;">
+        <p>The local engine is not running. Open a terminal and run:</p>
+        <code>agenticflow start</code>
+        <p>Then return here. The dashboard will connect automatically.</p>
+      </div>
+      <button type="button" class="btn-primary" id="btn-retry-engine" style="display:none;">Retry connection</button>
+    </div>
+  </div>
+
+  <div class="engine-overlay" id="pwa-install-overlay" style="display:none;">
+    <div class="engine-overlay-content">
+      <div class="engine-overlay-brand">
+        <span class="brand-name-lg">AgenticFlow</span>
+        <span class="brand-tagline-lg">Local AI software factory</span>
+      </div>
+      <div class="engine-overlay-status">Install AgenticFlow for the best experience</div>
+      <div class="engine-overlay-help">
+        <p>The installed app opens in its own window. You can also continue in Chrome/Edge — folder picking works in the browser too.</p>
+        <p id="pwa-install-instructions" style="display:none;">Open Chrome or Edge, click the install icon in the address bar, then launch AgenticFlow from your apps.</p>
+      </div>
+      <div class="engine-overlay-actions">
+        <button type="button" class="btn-primary" id="btn-install-pwa" style="display:none;">Install AgenticFlow</button>
+        <button type="button" class="btn-secondary" id="btn-continue-browser" style="display:none;">Continue in browser</button>
+      </div>
+    </div>
+  </div>
+
   <div class="app-shell">
     <header class="global-header">
       <div class="global-header-left">
         <div class="brand">
           <img src="/static/wtw-logo.svg" alt="WTW" class="brand-logo-svg">
           <div class="brand-text">
-            <span class="brand-name">AgentFlow</span>
+            <span class="brand-name">AgenticFlow</span>
             <span class="brand-tagline">Software Factory</span>
           </div>
         </div>
@@ -37,6 +78,7 @@
         <div class="header-pill"><span class="pill-label">Ticket</span><span class="pill-value" id="nav-ticket">—</span></div>
         <div class="header-pill connection" id="nav-connection" title="Connection"><i data-lucide="wifi-off" class="status-icon"></i></div>
         <button type="button" class="btn-ghost btn-small" id="btn-tickets" title="View tickets"><i data-lucide="layers"></i> Tickets</button>
+        <button type="button" class="btn-ghost btn-small" id="btn-install" title="Install AgenticFlow" style="display:none;"><i data-lucide="download"></i> Install</button>
         <button type="button" class="btn-primary btn-small" id="btn-new-ticket"><i data-lucide="plus"></i> New</button>
         <button type="button" id="btn-theme-toggle" class="btn-icon" title="Toggle theme" aria-label="Toggle theme"><i data-lucide="moon"></i></button>
       </div>
@@ -229,12 +271,25 @@
           <div class="form-group">
             <label for="ticket-repo-path">Repo folder</label>
             <div class="repo-input-row">
-              <input type="text" id="ticket-repo-path" placeholder="/Users/.../AppWeb.Scord.NetCore">
-              <button type="button" class="btn-secondary btn-small" id="btn-pick-repo">Select</button>
+              <input type="text" id="ticket-repo-path" placeholder="Select a folder, then confirm its absolute path">
+              <button type="button" class="btn-secondary btn-small" id="btn-pick-folder" title="Pick folder">Pick folder</button>
+              <button type="button" class="btn-secondary btn-small" id="btn-pick-folder-native" title="Pick folder using the system dialog">System dialog</button>
             </div>
-            <input type="file" id="ticket-repo-picker" webkitdirectory directory style="display:none">
-            <span class="field-hint">Absolute path to the Git repository. In regular browsers, type or paste the path; in native apps such as Electron or Tauri, use Select.</span>
+            <div class="repo-folder-badge" id="repo-folder-badge" style="display:none;">
+              <i data-lucide="folder-check"></i>
+              <span id="repo-folder-name">—</span>
+            </div>
+            <span class="field-hint">Pick the project folder. <strong>System dialog</strong> uses your native Finder/Explorer and fills the absolute path automatically. <strong>Pick folder</strong> uses the browser picker and requires Chrome/Edge.</span>
             <span id="repo-picker-message" class="field-message" style="display:none"></span>
+          </div>
+          <div class="form-group" style="margin-top:0.75rem;">
+            <label for="projects-root">Default projects folder</label>
+            <div class="repo-input-row">
+              <input type="text" id="projects-root" placeholder="/Users/you/projects">
+              <button type="button" class="btn-secondary btn-small" id="btn-save-projects-root">Save</button>
+            </div>
+            <span class="field-hint">When set, Pick folder will auto-fill the path as {folder}/{selected-name}.</span>
+            <span id="projects-root-message" class="field-message" style="display:none"></span>
           </div>
         </div>
 
@@ -350,9 +405,41 @@
     </div>
   </div>
 
+  <!-- AI link modal -->
+  <div class="modal" id="ai-link-modal">
+    <div class="modal-content ai-link-modal-content">
+      <div class="modal-header">
+        <div class="modal-header-left">
+          <span class="modal-header-icon"><i data-lucide="bot"></i></span>
+          <div>
+            <h2>Link AI assistant</h2>
+            <span class="modal-header-subtitle">Choose which CLI or API AgenticFlow will use</span>
+          </div>
+        </div>
+      </div>
+      <div class="modal-body ai-link-body">
+        <p class="ai-link-intro">Select the AI assistant you have installed. You can change this later from the same dialog.</p>
+        <div class="ai-link-list" id="ai-link-list"></div>
+        <div class="ai-link-none" id="ai-link-none" style="display:none;">
+          <p><strong>No AI assistant detected.</strong></p>
+          <p>Install one of the supported CLIs or set <code>OPENAI_API_KEY</code> to use the OpenAI API backend.</p>
+          <ul>
+            <li><code>kimi</code> — Kimi Code CLI</li>
+            <li><code>claude</code> — Claude Code CLI</li>
+            <li><code>cursor-agent</code> / <code>agent</code> — Cursor agent CLI</li>
+            <li><code>codex</code> — Codex CLI</li>
+          </ul>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn-ghost" id="btn-ai-link-later">Later</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Toast -->
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-  <script src="/static/app.js?v=11"></script>
+  <script src="/static/app.js?v=12"></script>
 </body>
 </html>

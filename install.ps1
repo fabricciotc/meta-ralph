@@ -63,6 +63,12 @@ if not defined BASH (
 Set-Content -Path (Join-Path $binDir "meta-ralph.cmd") -Value $launcher -Encoding ASCII
 Write-Host "Created Windows launcher: $(Join-Path $binDir 'meta-ralph.cmd')"
 
+$agenticflowCmd = Join-Path $ScriptDir "agenticflow.cmd"
+if (Test-Path $agenticflowCmd) {
+    Copy-Item -Path $agenticflowCmd -Destination (Join-Path $binDir "agenticflow.cmd") -Force
+    Write-Host "Created Windows launcher: $(Join-Path $binDir 'agenticflow.cmd')"
+}
+
 $currentPath = [Environment]::GetEnvironmentVariable("Path", "User")
 if ($currentPath -notlike "*$binDir*") {
     [Environment]::SetEnvironmentVariable("Path", "$binDir;$currentPath", "User")
@@ -70,7 +76,15 @@ if ($currentPath -notlike "*$binDir*") {
 }
 
 Write-Host ""
-Write-Host "Meta-Ralph installed for Windows."
-Write-Host "Restart your terminal, then run:"
+Write-Host "AgenticFlow installed for Windows."
+Write-Host ""
+Write-Host "To start the local engine and open the dashboard:"
+Write-Host "  agenticflow start"
+Write-Host ""
+Write-Host "Then install the PWA from Chrome/Edge:"
+Write-Host "  1. Open http://localhost:5050"
+Write-Host "  2. Click the install icon in the address bar (or menu > Install AgenticFlow)"
+Write-Host ""
+Write-Host "You can still use the legacy CLI:"
 Write-Host "  meta-ralph init"
 Write-Host "  meta-ralph dashboard"

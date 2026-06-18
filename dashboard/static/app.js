@@ -1,5 +1,5 @@
 /* ============================================================
-   AgentFlow Dashboard — Adaline-inspired frontend
+   AgenticFlow Dashboard — Adaline-inspired frontend
    ============================================================ */
 
 const COLUMN_LABELS = {
@@ -33,7 +33,8 @@ const socket = io({
 
 let boardData = { columns: [], tickets: [], stats: {} };
 let runState = { active: false, ticketId: null, status: 'idle', currentAgent: null, progress: 0, logs: [], queue: [], agents: [], pendingQuestions: [], messages: [] };
-let systemInfo = { model: '—' };
+let systemInfo = { model: '—', preferredBackend: null, availableBackends: [], projectsRoot: null };
+let projectsRoot = null;
 let traces = [];
 let graphData = { nodes: [], edges: [] };
 let selectedTicketId = localStorage.getItem('meta-ralph-selected-ticket') || null;
@@ -49,6 +50,10 @@ let designReviewExpiresAt = null;
 let designReviewDismissedId = null;
 let selectedAgentId = null;
 let confirmModalResolve = null;
+let aiLinkModalOpen = false;
+let installPromptEvent = null;
+let repoFolderHandle = null;
+let engineReady = false;
 
 let lastRenderedTracesKey = null;
 let lastRenderedGraphKey = null;
@@ -58,6 +63,7 @@ let lastRenderedRunKey = null;
 // DOM refs
 const btnThemeToggle = document.getElementById('btn-theme-toggle');
 const btnTickets = document.getElementById('btn-tickets');
+const btnInstall = document.getElementById('btn-install');
 const btnNewTicket = document.getElementById('btn-new-ticket');
 const btnNewTicketModal = document.getElementById('btn-new-ticket-modal');
 const navModel = document.getElementById('nav-model');
@@ -105,9 +111,14 @@ const btnCloseModal = document.getElementById('btn-close-modal');
 const btnCancel = document.getElementById('btn-cancel');
 const btnDelete = document.getElementById('btn-delete');
 const repoPathInput = document.getElementById('ticket-repo-path');
-const repoPicker = document.getElementById('ticket-repo-picker');
-const btnPickRepo = document.getElementById('btn-pick-repo');
 const repoPickerMessage = document.getElementById('repo-picker-message');
+const projectsRootInput = document.getElementById('projects-root');
+const btnSaveProjectsRoot = document.getElementById('btn-save-projects-root');
+const projectsRootMessage = document.getElementById('projects-root-message');
+const pwaInstallOverlay = document.getElementById('pwa-install-overlay');
+const btnInstallPwaOverlay = document.getElementById('btn-install-pwa');
+const btnContinueBrowser = document.getElementById('btn-continue-browser');
+const pwaInstallInstructions = document.getElementById('pwa-install-instructions');
 
 const questionModal = document.getElementById('question-modal');
 const questionAgent = document.getElementById('question-agent');
@@ -140,6 +151,16 @@ const confirmModalMessage = document.getElementById('confirm-modal-message');
 const btnConfirmOk = document.getElementById('btn-confirm-ok');
 const btnConfirmCancel = document.getElementById('btn-confirm-cancel');
 const btnCloseConfirm = document.getElementById('btn-close-confirm');
+
+const aiLinkModal = document.getElementById('ai-link-modal');
+const aiLinkList = document.getElementById('ai-link-list');
+const aiLinkNone = document.getElementById('ai-link-none');
+const btnAiLinkLater = document.getElementById('btn-ai-link-later');
+
+const engineOverlay = document.getElementById('engine-overlay');
+const engineOverlayStatus = document.getElementById('engine-overlay-status');
+const engineOverlayHelp = document.getElementById('engine-overlay-help');
+const btnRetryEngine = document.getElementById('btn-retry-engine');
 
 const toast = document.getElementById('toast');
 
@@ -374,7 +395,13 @@ function getDisplayStatus(displayTicket) {
 }
 
 function renderHeader() {
-  if (navModel) navModel.textContent = systemInfo.model || '—';
+  if (navModel) {
+    const model = systemInfo.preferredBackend || systemInfo.model || '—';
+    navModel.textContent = model;
+    navModel.title = systemInfo.preferredBackend
+      ? `Linked backend: ${systemInfo.preferredBackend}`
+      : (systemInfo.model || 'No backend linked');
+  }
   const displayTicket = getDisplayTicket();
   const statusKey = getDisplayStatus(displayTicket);
   if (navTicket) {
@@ -1019,6 +1046,9 @@ function openTicketModal(ticket = null) {
   document.getElementById('ticket-focus').value = ticket ? ticket.featureFocus || '' : '';
   document.getElementById('ticket-labels').value = ticket ? (ticket.labels || []).join(', ') : '';
   repoPathInput.value = ticket ? ticket.repoPath || '' : '';
+  if (projectsRootInput) projectsRootInput.value = projectsRoot || '';
+  if (projectsRootMessage) projectsRootMessage.style.display = 'none';
+  updateRepoFolderBadge(repoFolderHandle ? repoFolderHandle.name : null);
   if (btnDelete) btnDelete.style.display = isEdit ? 'inline-block' : 'none';
   if (ticketModal) ticketModal.classList.add('open');
   closeTicketsModal();
@@ -1029,14 +1059,30 @@ function closeTicketModal() {
   if (ticketForm) ticketForm.reset();
 }
 
+function isAbsolutePath(path) {
+  if (!path) return false;
+  if (path.startsWith('/')) return true;
+  if (/^[a-zA-Z]:[\\/]/.test(path)) return true;
+  return false;
+}
+
 async function saveTicket(e) {
   e.preventDefault();
   const id = document.getElementById('ticket-id').value;
+  const repoPath = repoPathInput.value.trim();
+  if (!repoPath) {
+    showRepoMessage('Repo folder is required.');
+    return;
+  }
+  if (!isAbsolutePath(repoPath)) {
+    showRepoMessage('Please provide an absolute path (e.g., /Users/you/project or C:\\\\Users\\\\you\\\\project).');
+    return;
+  }
   const payload = {
     title: document.getElementById('ticket-title').value,
     description: document.getElementById('ticket-description').value,
     status: document.getElementById('ticket-status').value,
-    repoPath: repoPathInput.value.trim(),
+    repoPath,
     assigneeRole: document.getElementById('ticket-role').value,
     featureFocus: document.getElementById('ticket-focus').value,
     labels: document.getElementById('ticket-labels').value.split(',').map(s => s.trim()).filter(Boolean)
@@ -1050,7 +1096,11 @@ async function saveTicket(e) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     });
-    if (!res.ok) throw new Error('Error saving ticket');
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      const msg = errData.message || errData.error || 'Error saving ticket';
+      throw new Error(msg);
+    }
     closeTicketModal();
     showToast(id ? 'Ticket updated' : 'Ticket created');
   } catch (err) {
@@ -1090,6 +1140,37 @@ function hideRepoMessage() {
   if (!repoPickerMessage) return;
   repoPickerMessage.style.display = 'none';
   repoPickerMessage.textContent = '';
+}
+
+function showProjectsRootMessage(text, isError = false) {
+  if (!projectsRootMessage) return;
+  projectsRootMessage.textContent = text;
+  projectsRootMessage.style.display = 'block';
+  projectsRootMessage.style.color = isError ? 'var(--danger)' : 'var(--success)';
+}
+
+function hideProjectsRootMessage() {
+  if (!projectsRootMessage) return;
+  projectsRootMessage.style.display = 'none';
+}
+
+async function saveProjectsRoot() {
+  if (!projectsRootInput) return;
+  const value = projectsRootInput.value.trim() || null;
+  try {
+    const res = await fetch('/api/config', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ projectsRoot: value })
+    });
+    const data = await res.json();
+    if (!res.ok || !data.ok) throw new Error(data.error || 'Error saving settings');
+    projectsRoot = data.projectsRoot || null;
+    systemInfo.projectsRoot = projectsRoot;
+    showProjectsRootMessage('Default projects folder saved');
+  } catch (err) {
+    showProjectsRootMessage(err.message, true);
+  }
 }
 
 /* ============================================================
@@ -1239,32 +1320,45 @@ const DEFAULT_CHAT_AGENTS = [
   { id: 'recovery', name: 'Recovery' },
 ];
 
+let currentChatAgent = chatAgentSelect ? chatAgentSelect.value : '';
+let lastRenderedChatKey = null;
+let pwaOverlayDismissed = false;
+
 function updateChatAgentSelect() {
   if (!chatAgentSelect) return;
-  const currentValue = chatAgentSelect.value;
   const agents = runState.agents || [];
-  const known = new Map();
-  DEFAULT_CHAT_AGENTS.forEach(a => known.set(a.id, a.name));
-  agents.forEach(a => {
-    if (!known.has(a.id)) known.set(a.id, a.name || a.id);
-  });
-
-  const participants = (runState.communication && runState.communication.participants) || {};
-  Object.entries(participants).forEach(([id, profile]) => {
-    if (!known.has(id)) known.set(id, profile.name || id);
-  });
 
   chatAgentSelect.innerHTML = '';
+  if (agents.length === 0) {
+    const option = document.createElement('option');
+    option.value = '';
+    option.textContent = 'No agents available yet';
+    chatAgentSelect.appendChild(option);
+    chatAgentSelect.disabled = true;
+    currentChatAgent = '';
+    return;
+  }
+
+  chatAgentSelect.disabled = false;
+  const known = new Map();
+  agents.forEach(a => {
+    known.set(a.id, a.name || a.id);
+  });
+
   Array.from(known.entries()).forEach(([id, name]) => {
     const option = document.createElement('option');
     option.value = id;
     option.textContent = name;
     chatAgentSelect.appendChild(option);
   });
-  if (known.has(currentValue)) chatAgentSelect.value = currentValue;
-}
 
-let lastRenderedChatKey = null;
+  if (known.has(currentChatAgent)) {
+    chatAgentSelect.value = currentChatAgent;
+  } else {
+    currentChatAgent = chatAgentSelect.value;
+  }
+  renderChat();
+}
 let chatPendingReply = false;
 let lastRenderedDeliverablesKey = null;
 
@@ -1405,15 +1499,25 @@ function buildChatMessageHtml(entry) {
 
 function renderChat() {
   if (!chatMessages) return;
+  if (!currentChatAgent) {
+    chatMessages.innerHTML = '<div class="chat-empty">No agent selected.</div>';
+    lastRenderedChatKey = null;
+    return;
+  }
   const comm = runState.communication || {};
-  const log = (comm.log || []).filter(e => e.type === 'message' && e.messageType === 'chat');
+  const log = (comm.log || []).filter(e =>
+    e.type === 'message' &&
+    e.messageType === 'chat' &&
+    ((e.from === 'user' && e.to === currentChatAgent) ||
+     (e.from === currentChatAgent && e.to === 'user'))
+  );
 
-  const key = log.map(e => `${e.timestamp}|${e.from}|${e.to}|${JSON.stringify(e.payload)}`).join('//');
+  const key = currentChatAgent + '//' + log.map(e => `${e.timestamp}|${e.from}|${e.to}|${JSON.stringify(e.payload)}`).join('//');
   if (key === lastRenderedChatKey) return;
   lastRenderedChatKey = key;
 
   if (!log.length) {
-    chatMessages.innerHTML = '<div class="chat-empty">Select an agent and write a message or instruction.</div>';
+    chatMessages.innerHTML = `<div class="chat-empty">Start a conversation with ${escapeHtml(currentChatAgent)}.</div>`;
     return;
   }
 
@@ -1436,9 +1540,14 @@ function hideChatTyping() {
 }
 
 function checkChatReplyReceived() {
-  if (!chatPendingReply) return;
+  if (!chatPendingReply || !currentChatAgent) return;
   const comm = runState.communication || {};
-  const log = (comm.log || []).filter(e => e.type === 'message' && e.messageType === 'chat');
+  const log = (comm.log || []).filter(e =>
+    e.type === 'message' &&
+    e.messageType === 'chat' &&
+    ((e.from === 'user' && e.to === currentChatAgent) ||
+     (e.from === currentChatAgent && e.to === 'user'))
+  );
   if (!log.length) return;
   const lastUserIdx = log.map(e => e.from).lastIndexOf('user');
   if (lastUserIdx === -1) return;
@@ -1454,7 +1563,11 @@ async function sendChatMessage(e) {
   if (!chatInput || !chatAgentSelect) return;
   const text = chatInput.value.trim();
   if (!text) return;
-  const to = chatAgentSelect.value || 'orchestrator';
+  const to = currentChatAgent || chatAgentSelect.value;
+  if (!to) {
+    showToast('Select an agent first', 3000);
+    return;
+  }
   chatInput.value = '';
   chatInput.disabled = true;
   if (chatForm) chatForm.classList.add('sending');
@@ -1746,6 +1859,349 @@ function closeConfirmModal(result = false) {
 }
 
 /* ============================================================
+   AI backend link modal
+   ============================================================ */
+
+function openAiLinkModal() {
+  if (!aiLinkModal) return;
+  aiLinkModalOpen = true;
+  renderAiLinkModal();
+  aiLinkModal.classList.add('open');
+}
+
+function closeAiLinkModal() {
+  if (!aiLinkModal) return;
+  aiLinkModalOpen = false;
+  aiLinkModal.classList.remove('open');
+}
+
+function renderAiLinkModal() {
+  if (!aiLinkList || !aiLinkNone) return;
+  const backends = systemInfo.availableBackends || [];
+  const available = backends.filter(b => b.available);
+
+  if (available.length === 0) {
+    aiLinkList.innerHTML = '';
+    aiLinkNone.style.display = 'block';
+    return;
+  }
+
+  aiLinkNone.style.display = 'none';
+  aiLinkList.innerHTML = '';
+  available.forEach(backend => {
+    const item = document.createElement('div');
+    item.className = 'ai-link-item';
+    item.innerHTML = `
+      <div class="ai-link-info">
+        <strong>${escapeHtml(backend.displayName)}</strong>
+        <span class="ai-link-meta">${escapeHtml(backend.reason)}</span>
+      </div>
+      <button type="button" class="btn-primary btn-small" data-backend="${escapeHtml(backend.name)}">Link</button>
+    `;
+    const btn = item.querySelector('button');
+    btn.addEventListener('click', () => selectBackend(backend.name));
+    aiLinkList.appendChild(item);
+  });
+}
+
+async function selectBackend(name) {
+  try {
+    const res = await fetch('/api/backends/select', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ backend: name })
+    });
+    const data = await res.json();
+    if (!res.ok || !data.ok) throw new Error(data.error || 'Error linking backend');
+    systemInfo.preferredBackend = name;
+    showToast(`Linked ${name}`);
+    renderHeader();
+    closeAiLinkModal();
+  } catch (err) {
+    showToast(err.message, 4000);
+  }
+}
+
+/* ============================================================
+   PWA install & service worker
+   ============================================================ */
+
+function registerServiceWorker() {
+  if (!('serviceWorker' in navigator)) return;
+  navigator.serviceWorker.register('/static/service-worker.js')
+    .then(reg => console.log('Service Worker registered:', reg.scope))
+    .catch(err => console.error('Service Worker registration failed:', err));
+}
+
+function handleBeforeInstallPrompt(e) {
+  e.preventDefault();
+  installPromptEvent = e;
+  if (btnInstall) btnInstall.style.display = 'inline-flex';
+}
+
+async function installPwa() {
+  if (!installPromptEvent) return;
+  installPromptEvent.prompt();
+  const { outcome } = await installPromptEvent.userChoice;
+  if (outcome === 'accepted') {
+    showToast('AgenticFlow installed');
+  }
+  installPromptEvent = null;
+  if (btnInstall) btnInstall.style.display = 'none';
+}
+
+function showEngineOverlay(message, showHelp = false) {
+  if (!engineOverlay) return;
+  if (engineOverlayStatus) engineOverlayStatus.textContent = message || 'Connecting to local engine...';
+  if (engineOverlayHelp) engineOverlayHelp.style.display = showHelp ? 'block' : 'none';
+  if (btnRetryEngine) btnRetryEngine.style.display = showHelp ? 'inline-flex' : 'none';
+  engineOverlay.classList.remove('hidden');
+}
+
+function hideEngineOverlay() {
+  if (!engineOverlay) return;
+  engineOverlay.classList.add('hidden');
+}
+
+function isPwaInstalled() {
+  if (navigator.standalone === true) return true;
+  if (!window.matchMedia) return false;
+  const modes = ['standalone', 'minimal-ui', 'fullscreen', 'window-controls-overlay'];
+  return modes.some(mode => window.matchMedia(`(display-mode: ${mode})`).matches);
+}
+
+function supportsFolderPicker() {
+  return 'showDirectoryPicker' in window;
+}
+
+function showPwaInstallOverlay() {
+  if (!pwaInstallOverlay) return;
+  if (isPwaInstalled()) {
+    hidePwaInstallOverlay();
+    return;
+  }
+  pwaInstallOverlay.style.display = 'flex';
+  const canInstall = Boolean(installPromptEvent);
+  const canContinue = supportsFolderPicker();
+  if (btnInstallPwaOverlay) btnInstallPwaOverlay.style.display = canInstall ? 'inline-flex' : 'none';
+  if (btnContinueBrowser) btnContinueBrowser.style.display = canContinue ? 'inline-flex' : 'none';
+  if (pwaInstallInstructions) pwaInstallInstructions.style.display = canContinue ? 'none' : 'block';
+}
+
+function hidePwaInstallOverlay() {
+  if (!pwaInstallOverlay) return;
+  pwaInstallOverlay.style.display = 'none';
+}
+
+async function installPwaFromOverlay() {
+  if (!installPromptEvent) return;
+  installPromptEvent.prompt();
+  const { outcome } = await installPromptEvent.userChoice;
+  if (outcome === 'accepted') {
+    showToast('AgenticFlow installed');
+    hidePwaInstallOverlay();
+    bootAppCore();
+  }
+  installPromptEvent = null;
+  if (btnInstall) btnInstall.style.display = 'none';
+}
+
+function continueInBrowser() {
+  hidePwaInstallOverlay();
+  bootAppCore();
+}
+
+async function checkBackend() {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 3000);
+    const res = await fetch('/api/health', { signal: controller.signal });
+    clearTimeout(timeout);
+    if (!res.ok) throw new Error('health check failed');
+    const data = await res.json();
+    if (data.status !== 'ok') throw new Error('backend not ready');
+
+    engineReady = true;
+    hideEngineOverlay();
+    systemInfo = {
+      ...systemInfo,
+      preferredBackend: data.preferredBackend,
+      availableBackends: data.availableBackends,
+    };
+    renderHeader();
+    if (!data.preferredBackend) {
+      const available = (data.availableBackends || []).filter(b => b.available);
+      if (available.length > 0 && !aiLinkModalOpen) openAiLinkModal();
+    }
+    return true;
+  } catch (err) {
+    engineReady = false;
+    showEngineOverlay('Unable to reach the local engine', true);
+    return false;
+  }
+}
+
+/* ============================================================
+   File System Access API helpers
+   ============================================================ */
+
+const FS_HANDLE_DB = 'agenticflow-fs';
+const FS_HANDLE_STORE = 'repo-handles';
+
+async function openFsHandleDb() {
+  if (!('indexedDB' in window)) return null;
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(FS_HANDLE_DB, 1);
+    request.onupgradeneeded = (event) => {
+      const db = event.target.result;
+      if (!db.objectStoreNames.contains(FS_HANDLE_STORE)) {
+        db.createObjectStore(FS_HANDLE_STORE);
+      }
+    };
+    request.onsuccess = (event) => resolve(event.target.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+async function saveRepoHandle(handle) {
+  const db = await openFsHandleDb();
+  if (!db) return false;
+  return new Promise((resolve) => {
+    const tx = db.transaction(FS_HANDLE_STORE, 'readwrite');
+    const store = tx.objectStore(FS_HANDLE_STORE);
+    const request = store.put(handle, 'repo');
+    request.onsuccess = () => resolve(true);
+    request.onerror = () => resolve(false);
+  });
+}
+
+async function loadRepoHandle() {
+  const db = await openFsHandleDb();
+  if (!db) return null;
+  return new Promise((resolve) => {
+    const tx = db.transaction(FS_HANDLE_STORE, 'readonly');
+    const store = tx.objectStore(FS_HANDLE_STORE);
+    const request = store.get('repo');
+    request.onsuccess = () => resolve(request.result || null);
+    request.onerror = () => resolve(null);
+  });
+}
+
+function updateRepoFolderBadge(name) {
+  const badge = document.getElementById('repo-folder-badge');
+  const nameEl = document.getElementById('repo-folder-name');
+  if (!badge || !nameEl) return;
+  if (name) {
+    nameEl.textContent = name;
+    badge.style.display = 'inline-flex';
+  } else {
+    badge.style.display = 'none';
+  }
+}
+
+async function pickRepoFolder() {
+  if (!('showDirectoryPicker' in window)) {
+    showToast('Folder picker is only available in Chrome/Edge');
+    return;
+  }
+  try {
+    const handle = await window.showDirectoryPicker();
+    repoFolderHandle = handle;
+    updateRepoFolderBadge(handle.name);
+    await saveRepoHandle(handle);
+
+    // Verify that it looks like a Git repo by trying to access .git
+    let isGitRepo = false;
+    try {
+      await handle.getDirectoryHandle('.git');
+      isGitRepo = true;
+    } catch {
+      isGitRepo = false;
+    }
+
+    // The File System Access API does not expose absolute paths. If the user
+    // configured a default projects root, auto-fill {root}/{folder-name}; otherwise
+    // ask them to paste the absolute path manually.
+    if (repoPathInput) {
+      if (projectsRoot) {
+        const separator = projectsRoot.endsWith('/') ? '' : '/';
+        repoPathInput.value = `${projectsRoot}${separator}${handle.name}`;
+      } else {
+        repoPathInput.value = '';
+        repoPathInput.placeholder = `Paste absolute path to "${handle.name}"`;
+        repoPathInput.focus();
+      }
+    }
+
+    const message = document.getElementById('repo-picker-message');
+    if (message) {
+      message.textContent = isGitRepo
+        ? `Folder "${handle.name}" selected. Paste its absolute path above, then save the ticket.`
+        : `Folder "${handle.name}" selected (no .git folder found). Paste its absolute path above, then save the ticket.`;
+      message.style.display = 'block';
+    }
+
+    showToast(isGitRepo ? `Linked folder: ${handle.name}` : `Folder selected (not a git repo): ${handle.name}`);
+  } catch (err) {
+    if (err.name !== 'AbortError') {
+      console.error('Error picking folder:', err);
+      showToast('Could not access folder: ' + err.message, 4000);
+    }
+  }
+}
+
+async function pickRepoFolderNative() {
+  try {
+    const res = await fetch('/api/pick-folder', { method: 'POST' });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      showRepoMessage(data.error || 'Could not open system folder picker');
+      return;
+    }
+    const data = await res.json();
+    if (data.canceled) return;
+    if (!data.ok || !data.path) {
+      showRepoMessage(data.error || 'No folder selected');
+      return;
+    }
+    if (repoPathInput) repoPathInput.value = data.path;
+    updateRepoFolderBadge(data.path.split('/').pop() || data.path);
+    showRepoMessage(`Selected: ${data.path}`);
+    showToast(`Selected folder: ${data.path}`);
+  } catch (err) {
+    console.error('Error opening native folder picker:', err);
+    showRepoMessage('Could not open system folder picker. Make sure the local engine is running.');
+  }
+}
+
+async function restoreRepoFolderHandle() {
+  const handle = await loadRepoHandle();
+  if (!handle) return;
+  try {
+    // Re-request permission if needed.
+    const permission = await handle.requestPermission({ mode: 'read' });
+    if (permission !== 'granted') return;
+    repoFolderHandle = handle;
+    updateRepoFolderBadge(handle.name);
+  } catch (err) {
+    console.warn('Could not restore repo folder handle:', err);
+  }
+}
+
+async function loadSystemInfo() {
+  try {
+    const res = await fetch('/api/system-info');
+    if (!res.ok) return;
+    systemInfo = await res.json();
+    projectsRoot = systemInfo.projectsRoot || null;
+    renderHeader();
+    if (aiLinkModalOpen) renderAiLinkModal();
+  } catch (err) {
+    console.error('Error loading system-info:', err);
+  }
+}
+
+/* ============================================================
    Agent restart / file actions
    ============================================================ */
 
@@ -1848,7 +2304,10 @@ async function pollRunState() {
 
 if (btnThemeToggle) btnThemeToggle.addEventListener('click', toggleTheme);
 if (btnTickets) btnTickets.addEventListener('click', openTicketsModal);
+if (btnInstall) btnInstall.addEventListener('click', installPwa);
 if (btnNewTicket) btnNewTicket.addEventListener('click', () => openTicketModal());
+
+window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
 if (btnNewTicketModal) btnNewTicketModal.addEventListener('click', () => openTicketModal());
 if (btnCloseTickets) btnCloseTickets.addEventListener('click', closeTicketsModal);
 if (btnCloseModal) btnCloseModal.addEventListener('click', closeTicketModal);
@@ -1856,24 +2315,29 @@ if (btnCancel) btnCancel.addEventListener('click', closeTicketModal);
 if (btnDelete) btnDelete.addEventListener('click', deleteTicket);
 if (ticketForm) ticketForm.addEventListener('submit', saveTicket);
 
-if (btnPickRepo && repoPicker) {
-  btnPickRepo.addEventListener('click', () => repoPicker.click());
-  repoPathInput.addEventListener('input', hideRepoMessage);
-  repoPicker.addEventListener('change', (e) => {
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
-    const file = files[0];
-    if (file.path) {
-      repoPathInput.value = file.path;
-      hideRepoMessage();
-    } else if (file.webkitRelativePath) {
-      const topFolder = file.webkitRelativePath.split('/')[0];
-      showRepoMessage(`You selected "${topFolder}". The browser does not provide the absolute path; type it in the Repo folder field.`);
-      repoPathInput.focus();
-    }
-    repoPicker.value = '';
-  });
-}
+if (repoPathInput) repoPathInput.addEventListener('input', hideRepoMessage);
+
+const btnPickFolder = document.getElementById('btn-pick-folder');
+const btnPickFolderNative = document.getElementById('btn-pick-folder-native');
+if (btnPickFolder) btnPickFolder.addEventListener('click', pickRepoFolder);
+if (btnPickFolderNative) btnPickFolderNative.addEventListener('click', pickRepoFolderNative);
+
+if (btnSaveProjectsRoot) btnSaveProjectsRoot.addEventListener('click', saveProjectsRoot);
+if (projectsRootInput) projectsRootInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') saveProjectsRoot(); });
+
+if (btnInstallPwaOverlay) btnInstallPwaOverlay.addEventListener('click', installPwaFromOverlay);
+if (btnContinueBrowser) btnContinueBrowser.addEventListener('click', () => {
+  pwaOverlayDismissed = true;
+  continueInBrowser();
+});
+
+window.addEventListener('appinstalled', () => {
+  installPromptEvent = null;
+  pwaOverlayDismissed = true;
+  if (btnInstall) btnInstall.style.display = 'none';
+  hidePwaInstallOverlay();
+  bootAppCore();
+});
 
 if (btnQuestionCustom) btnQuestionCustom.addEventListener('click', toggleCustomAnswer);
 if (btnQuestionSkip) btnQuestionSkip.addEventListener('click', skipQuestion);
@@ -1888,6 +2352,13 @@ if (btnDesignReviewClose) btnDesignReviewClose.addEventListener('click', dismiss
 if (btnDesignReviewLater) btnDesignReviewLater.addEventListener('click', dismissDesignReview);
 
 if (chatForm) chatForm.addEventListener('submit', sendChatMessage);
+if (chatAgentSelect) {
+  chatAgentSelect.addEventListener('change', () => {
+    currentChatAgent = chatAgentSelect.value;
+    lastRenderedChatKey = null;
+    renderChat();
+  });
+}
 if (btnRefreshDeliverables) btnRefreshDeliverables.addEventListener('click', () => {
   lastRenderedDeliverablesKey = null;
   loadDeliverables();
@@ -1910,6 +2381,27 @@ if (btnCloseConfirm) btnCloseConfirm.addEventListener('click', () => closeConfir
 if (confirmModal) {
   confirmModal.addEventListener('click', (e) => { if (e.target === confirmModal) closeConfirmModal(false); });
 }
+
+if (btnAiLinkLater) btnAiLinkLater.addEventListener('click', closeAiLinkModal);
+if (aiLinkModal) {
+  aiLinkModal.addEventListener('click', (e) => { if (e.target === aiLinkModal) closeAiLinkModal(); });
+}
+
+if (btnRetryEngine) btnRetryEngine.addEventListener('click', () => {
+  showEngineOverlay('Connecting to local engine...', false);
+  checkBackend().then(ok => {
+    if (ok) {
+      loadSystemInfo();
+      fetch('/api/board')
+        .then(r => r.json())
+        .then(data => { boardData = data; renderTicketsList(); renderHeader(); renderRunBar(); renderTicketStatus(); })
+        .catch(err => console.error('Error loading board:', err));
+      pollRunState();
+      pollTraces();
+      pollGraph();
+    }
+  });
+});
 
 // Close modals on backdrop click
 [ticketsModal, ticketModal].forEach(modal => {
@@ -1976,20 +2468,45 @@ socket.on('chat_message', (entry) => {
 
 initTheme();
 loadPendingQuestions();
+registerServiceWorker();
+restoreRepoFolderHandle();
 
-fetch('/api/system-info')
-  .then(r => r.json())
-  .then(info => { systemInfo = info; renderHeader(); })
-  .catch(err => console.error('Error loading system-info:', err));
+async function bootAppCore() {
+  const ok = await checkBackend();
+  if (!ok) return;
 
-fetch('/api/board')
-  .then(r => r.json())
-  .then(data => { boardData = data; renderTicketsList(); renderHeader(); renderRunBar(); renderTicketStatus(); })
-  .catch(err => console.error('Error loading board:', err));
+  await loadSystemInfo();
 
-pollRunState();
-pollTraces();
-pollGraph();
+  fetch('/api/board')
+    .then(r => r.json())
+    .then(data => { boardData = data; renderTicketsList(); renderHeader(); renderRunBar(); renderTicketStatus(); })
+    .catch(err => console.error('Error loading board:', err));
+
+  pollRunState();
+  pollTraces();
+  pollGraph();
+}
+
+function bootApp() {
+  if (isPwaInstalled() || pwaOverlayDismissed) {
+    hidePwaInstallOverlay();
+    bootAppCore();
+    return;
+  }
+  showPwaInstallOverlay();
+}
+
+bootApp();
+
+setInterval(async () => {
+  if (!isPwaInstalled() && !pwaOverlayDismissed) {
+    showPwaInstallOverlay();
+    return;
+  }
+  if (!engineReady) {
+    await checkBackend();
+  }
+}, 3000);
 
 setInterval(pollRunState, 2000);
 setInterval(pollTraces, 2000);

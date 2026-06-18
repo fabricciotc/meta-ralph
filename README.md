@@ -1,6 +1,6 @@
-# Meta-Ralph
+# AgenticFlow
 
-Meta-Ralph is a MetaGPT-style multi-agent orchestration skill for AI coding assistants. It coordinates PM Research, Architecture, Planning, parallel Engineers, and QA with a local dashboard for ticket management and live progress.
+AgenticFlow is a MetaGPT-style multi-agent orchestration skill for AI coding assistants. It coordinates PM Research, Architecture, Planning, parallel Engineers, and QA with a local dashboard for ticket management and live progress.
 
 ## What It Does
 
@@ -10,59 +10,6 @@ Meta-Ralph is a MetaGPT-style multi-agent orchestration skill for AI coding assi
 - Runs QA before integrating a batch back into trunk.
 - Provides a Kanban dashboard at `http://localhost:5050` with live updates.
 - Saves per-ticket run snapshots so a ticket can be paused, resumed, or restarted after the dashboard server restarts.
-
-## Installation
-
-### Option 1: Clone Into A Skill Directory
-
-Choose the directory used by your assistant:
-
-```bash
-# Kimi
-git clone https://github.com/fabricciotc/meta-ralph.git ~/.kimi-code/skills/meta-ralph
-
-# Claude
-git clone https://github.com/fabricciotc/meta-ralph.git ~/.claude/skills/meta-ralph
-
-# Cursor
-git clone https://github.com/fabricciotc/meta-ralph.git ~/.cursor/skills/meta-ralph
-
-# Codex
-git clone https://github.com/fabricciotc/meta-ralph.git ~/.codex/skills/meta-ralph
-```
-
-### Option 2: Use The Installer
-
-```bash
-git clone https://github.com/fabricciotc/meta-ralph.git
-cd meta-ralph
-./install.sh
-```
-
-On Windows, you can also use PowerShell:
-
-```powershell
-git clone https://github.com/fabricciotc/meta-ralph.git
-cd meta-ralph
-.\install.ps1
-```
-
-Or run the CLI through Git Bash using the bundled launcher:
-
-```cmd
-scripts\meta-ralph.cmd init
-scripts\meta-ralph.cmd dashboard
-```
-
-The installer:
-
-1. Registers the skill in available assistant skill directories.
-2. Creates a Python virtual environment for the dashboard in `dashboard/.venv`.
-3. Installs `dashboard/requirements.txt`.
-4. Creates a `meta-ralph` command in your PATH.
-5. Reports which AI backends are available.
-
-Restart your terminal or run `source ~/.zshrc`, `source ~/.bashrc`, or `source ~/.bash_profile` so the command is available.
 
 ## Requirements
 
@@ -74,26 +21,93 @@ Restart your terminal or run `source ~/.zshrc`, `source ~/.bashrc`, or `source ~
   - `cursor-agent` (or `agent` on Windows)
   - `codex`
   - `OPENAI_API_KEY` for OpenAI-compatible API mode
-- Git Bash on Windows for the shell launcher, or use `install.ps1`
-- A modern browser for the dashboard
+- Chrome or Edge (required for the File System Access API used by the PWA)
+
+## Installation
+
+### Option 1: Use The Installer
+
+```bash
+git clone https://github.com/fabricciotc/meta-ralph.git
+cd meta-ralph
+./install.sh
+```
+
+On Windows, use PowerShell:
+
+```powershell
+git clone https://github.com/fabricciotc/meta-ralph.git
+cd meta-ralph
+.\install.ps1
+```
+
+The installer:
+
+1. Creates a Python virtual environment for the backend in `dashboard/.venv`.
+2. Installs `dashboard/requirements.txt`.
+3. Creates `agenticflow` and `meta-ralph` commands in your PATH.
+4. Reports which AI backends are available.
+
+Restart your terminal or run `source ~/.zshrc` / `source ~/.bashrc` so the commands are available.
+
+### Option 2: Clone As An Assistant Skill
+
+You can still install AgenticFlow as a skill for Kimi, Claude, Cursor, or Codex:
+
+```bash
+# Kimi
+git clone https://github.com/fabricciotc/meta-ralph.git ~/.kimi-code/skills/meta-ralph
+```
 
 ## Usage
 
-Inside a git project:
+### 1. Start the local engine
+
+```bash
+agenticflow start
+```
+
+This starts the Python backend. If you already installed the PWA, it opens the standalone app; otherwise it opens the dashboard in your default browser.
+
+### 2. Install the PWA (first time only)
+
+Open `http://localhost:5050` in Chrome/Edge and click the install icon in the address bar (or menu > **Install AgenticFlow**). Once installed, `agenticflow start` will detect the installed app and launch it directly.
+
+### 3. Link an AI assistant
+
+The first time the dashboard connects to the local engine it detects which AI CLIs are installed and asks you to pick one. The choice is saved in `scripts/meta-ralph/config.json`.
+
+Supported options:
+
+- `kimi` — Kimi Code CLI
+- `claude` — Claude Code CLI
+- `cursor-agent` / `agent` — Cursor agent CLI
+- `codex` — Codex CLI
+- `OPENAI_API_KEY` — OpenAI-compatible API backend
+
+### 4. Create a ticket and pick a folder
+
+Create a ticket and use **Pick folder** to select the project directory with the native file picker. Because browsers cannot expose absolute paths, you still need to type or confirm the absolute path so the local engine can run `git`, builds, and AI CLIs on that folder.
+
+### 5. Run the factory
+
+Move the ticket to **Ready for Work** and the five-phase loop starts.
+
+## Legacy CLI
+
+The original `meta-ralph` CLI is still available:
 
 ```bash
 meta-ralph init      # create scripts/meta-ralph/ in the current project
 meta-ralph run       # start the multi-agent loop and dashboard
-meta-ralph dashboard # start only the dashboard
-meta-ralph status    # show active workers
-meta-ralph stop      # stop workers and dashboard
+meta-ralph dashboard # start only the web dashboard
+meta-ralph status    # show active worker state
+meta-ralph stop      # stop active workers and the dashboard
 ```
-
-Then open `http://localhost:5050` and create or move tickets into the work queue.
 
 ## Backend Selection
 
-By default, CLI mode tries available backends in this order:
+By default, the backend tries available backends in this order:
 
 ```bash
 META_RALPH_BACKENDS="kimi claude cursor codex openai_api"
@@ -102,10 +116,10 @@ META_RALPH_BACKENDS="kimi claude cursor codex openai_api"
 Force a backend:
 
 ```bash
-META_RALPH_BACKEND=claude meta-ralph run
-META_RALPH_BACKEND=codex meta-ralph run
-META_RALPH_BACKEND=cursor meta-ralph run
-META_RALPH_BACKEND=kimi meta-ralph run
+META_RALPH_BACKEND=claude agenticflow start
+META_RALPH_BACKEND=codex agenticflow start
+META_RALPH_BACKEND=cursor agenticflow start
+META_RALPH_BACKEND=kimi agenticflow start
 ```
 
 Use a custom runner:
@@ -113,7 +127,7 @@ Use a custom runner:
 ```bash
 META_RALPH_BACKEND=custom \
 META_RALPH_RUNNER_COMMAND='my-agent --prompt-file "$META_RALPH_PROMPT_FILE"' \
-meta-ralph run
+agenticflow start
 ```
 
 ## Skill Recognition

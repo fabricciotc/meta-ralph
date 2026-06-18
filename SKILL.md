@@ -7,9 +7,9 @@ user-invocable: true
 disable-model-invocation: false
 ---
 
-# Meta-Ralph: MetaGPT Multi-Agent Orchestrator
+# AgenticFlow: MetaGPT Multi-Agent Orchestrator
 
-Meta-Ralph combines the MetaGPT method of specialized roles and SOPs with the Ralph autonomous loop pattern. It coordinates product research, architecture, planning, parallel implementation, QA review, and integration while keeping a local Kanban dashboard in sync.
+AgenticFlow combines the MetaGPT method of specialized roles and SOPs with the Ralph autonomous loop pattern. It coordinates product research, architecture, planning, parallel implementation, QA review, and integration while keeping a local Kanban dashboard in sync.
 
 This skill is designed to be assistant-neutral. It can be installed as a skill or prompt bundle for Kimi, Claude, Cursor, or Codex, and its CLI runner can fall back across available AI backends.
 
@@ -29,7 +29,7 @@ This skill is designed to be assistant-neutral. It can be installed as a skill o
 ## Role Architecture
 
 ```text
-Orchestrator (meta-ralph)
+Orchestrator (AgenticFlow)
 ├── PM Research Agents (1..N)  -> research project areas and domain assumptions
 ├── Product Manager            -> consolidates findings and decomposes the PRD
 ├── Architect                  -> defines patterns, contracts, and conventions
@@ -112,7 +112,7 @@ meta-ralph run
 
 ## Web Dashboard
 
-`meta-ralph` includes a local Kanban board at `http://localhost:5050`.
+AgenticFlow includes a local Kanban board at `http://localhost:5050`.
 
 ### Board Columns
 
