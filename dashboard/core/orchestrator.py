@@ -32,6 +32,7 @@ from core.roles.architect_role import ArchitectRole
 from core.roles.planner_role import PlannerRole
 from core.roles.engineer_role import EngineerRole
 from core.roles.qa_role import QARole
+from core.roles.swarm_leader_role import SwarmLeaderRole
 from core.plan import BatchScheduler, Task
 from core.roles.dispatcher_role import DispatcherRole
 from core.roles.monitor_role import MonitorRole
@@ -324,6 +325,64 @@ class Orchestrator(threading.Thread):
     def _branch(self) -> str:
         return self.ticket.get("branch", "")
 
+    def _expand_large_tasks(self, tasks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Decompose tasks marked as large ('L') into parallel subtasks.
+
+        Uses a temporary environment with a SwarmLeaderRole so decomposition
+        happens before the dependency-aware BatchScheduler is built.
+        """
+        if not any(t.get("complexity") == "L" for t in tasks):
+            return tasks
+
+        env = Environment()
+        swarm = SwarmLeaderRole(run_ai=self._run_ai, max_workers=get_max_workers())
+        env.add_role(swarm)
+
+        expanded: List[Dict[str, Any]] = []
+        for task in tasks:
+            if task.get("complexity") != "L":
+                expanded.append(task)
+                continue
+
+            tid = task["id"]
+            env.publish_message(Message(
+                content=f"Decompose large task {tid}",
+                sent_from="orchestrator",
+                cause_by="decompose_request",
+                msg_type="decompose_request",
+                send_to={"swarm-leader"},
+                metadata={
+                    "task_id": tid,
+                    "title": task.get("title", tid),
+                    "description": task.get("description", ""),
+                    "complexity": "L",
+                },
+            ))
+
+            subtasks = None
+            for _ in range(self._max_rounds_per_phase):
+                if self._should_stop_or_pause():
+                    break
+                asyncio.run(env.run_round())
+                for msg in reversed(env.history()):
+                    if (
+                        msg.cause_by == "swarm_subtasks"
+                        and msg.metadata.get("parent_task_id") == tid
+                    ):
+                        subtasks = msg.metadata.get("subtasks")
+                        break
+                if subtasks is not None:
+                    break
+
+            if subtasks:
+                self.log(f"Task {tid} decomposed into {len(subtasks)} subtasks.")
+                expanded.extend(subtasks)
+            else:
+                self.log(f"Could not decompose large task {tid}; keeping original.", "warning")
+                expanded.append(task)
+
+        return expanded
+
     def _run_environment_rounds(self, max_rounds: Optional[int] = None) -> None:
         max_rounds = max_rounds or self._max_rounds_per_phase
         for i in range(max_rounds):
@@ -591,6 +650,8 @@ class Orchestrator(threading.Thread):
             self.log("Planner did not generate tasks; skipping execution.", "warning")
             self._update_agent("engineer-squad", status="done", progress=100, log="No tasks to execute.")
             return
+
+        tasks = self._expand_large_tasks(tasks)
 
         repo_path = self._repo_path()
         if not repo_path:

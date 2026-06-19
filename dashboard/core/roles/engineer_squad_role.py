@@ -7,10 +7,10 @@ from typing import Any, Callable, Dict, List, Optional, Set
 
 from core.ai_execution import invoke_ai
 from core.models import Message
-from core.roles.base import Role
+from core.roles.team_leader_role import TeamLeaderRole
 
 
-class EngineerSquadRole(Role):
+class EngineerSquadRole(TeamLeaderRole):
     """Lead engineer that coordinates the engineer squad.
 
     The squad leader receives ``task_report`` messages from every engineer,
@@ -51,24 +51,21 @@ class EngineerSquadRole(Role):
         super().__init__(
             role_id=self.role_id,
             profile="Engineer Squad Lead",
-            goal="Coordinate engineer subagents, resolve blockers and keep context.",
-            addresses=self.addresses,
+            run_ai=run_ai,
+            max_retries=max_retries,
+            phase_name=phase_name,
+            timeout_seconds=timeout_seconds,
         )
-        self.run_ai = run_ai
         self.ticket_id = ticket_id
         self.ticket_title = ticket_title
         self.ticket_description = ticket_description
         self.prd_path = Path(prd_path) if prd_path else None
         self.tasks = list(tasks) if tasks else []
-        self.max_retries = max(1, max_retries)
-        self.phase_name = phase_name
-        self.timeout_seconds = timeout_seconds
         self.request_clarification = request_clarification
         self._escalation_question: Optional[str] = None
         self._escalation_answer: Optional[str] = None
 
         self.task_reports: Dict[str, Dict[str, Any]] = {}
-        self._processed_trigger_ids: Set[str] = set()
         self._pending_pm_requests: Set[str] = set()
         self._pending_user_escalations: Set[str] = set()
 
@@ -96,7 +93,7 @@ class EngineerSquadRole(Role):
         self._shared_context = kwargs.get("context")
 
         if trigger.cause_by == "task_report":
-            return await self._handle_task_report(trigger, env)
+            return await self._handle_task_report(trigger, env, context)
         if trigger.cause_by == "reject_with_feedback":
             return await self._handle_qa_rejection(trigger, env)
         if trigger.cause_by == "request_info_from_pm_response":
@@ -107,7 +104,7 @@ class EngineerSquadRole(Role):
             return await self._handle_squad_chat(trigger, env)
         return None
 
-    async def _handle_task_report(self, trigger: Message, env: Any) -> Message:
+    async def _handle_task_report(self, trigger: Message, env: Any, context: List[Message]) -> Message:
         task_id = trigger.metadata.get("task_id", "unknown")
         engineer_id = trigger.metadata.get("engineer_id", trigger.sent_from)
         status = trigger.metadata.get("status", "unknown")
@@ -135,23 +132,16 @@ class EngineerSquadRole(Role):
 
         # Build squad context for the LLM decision.
         squad_context = self._build_squad_context()
+        trigger.metadata.setdefault("squad_context", squad_context)
 
-        decision = await self._decide_next_move(
-            event="task_report",
-            task_id=task_id,
-            status=status,
-            summary=summary,
-            build_output=build_output,
-            test_output=test_output,
-            retries=retries,
-            squad_context=squad_context,
-        )
+        decision = await self.mediate(trigger, context)
 
         # Publish a visible chat message describing the squad's reaction.
         chat_msg = Message(
             content=decision.get("message", f"Report received from {engineer_id}: {status}"),
             sent_from=self.role_id,
             cause_by="squad_chat",
+            msg_type="squad_chat",
             send_to={"all"},
             metadata={
                 "task_id": task_id,
@@ -177,7 +167,7 @@ class EngineerSquadRole(Role):
                 ))
             return chat_msg
 
-        if action == "request_info_from_pm":
+        if action in ("request_info_from_pm", "request_info"):
             question = decision.get("question", f"I need more context about {task_id}")
             pm_msg = self._request_info_from_pm(task_id, question)
             self._pending_pm_requests.add(pm_msg.metadata.get("request_id", task_id))
@@ -196,6 +186,7 @@ class EngineerSquadRole(Role):
                 content="All squad tasks completed. Sending batch to QA.",
                 sent_from=self.role_id,
                 cause_by="batch_completed",
+                msg_type="batch_completed",
                 send_to={"orchestrator"},
                 metadata={"task_ids": list(self.task_reports.keys()), "status": "completed"},
             ))
@@ -447,32 +438,15 @@ class EngineerSquadRole(Role):
             parts.append(f"Shared PM findings:\n{pm_findings}")
         return "\n\n".join(parts)
 
-    async def _decide_next_move(self, **kwargs) -> Dict[str, Any]:
-        """Use the configured AI backend to decide the squad's next move.
-
-        Returns a dict with keys: action, message, instruction|question|reason.
-        """
-        if self.run_ai is None:
-            return self._fallback_decision(kwargs)
-
-        prompt = self._build_decision_prompt(kwargs)
-        try:
-            raw = await invoke_ai(self.run_ai, prompt, self.phase_name, self.timeout_seconds, self.role_id)
-            if raw:
-                return self._parse_decision(raw)
-        except Exception:
-            pass
-        return self._fallback_decision(kwargs)
-
-    def _build_decision_prompt(self, kwargs: Dict[str, Any]) -> str:
-        event = kwargs.get("event")
-        task_id = kwargs.get("task_id", "unknown")
-        status = kwargs.get("status", "unknown")
-        summary = kwargs.get("summary", "")
-        build_output = kwargs.get("build_output", "")
-        test_output = kwargs.get("test_output", "")
-        retries = kwargs.get("retries", 0)
-        squad_context = kwargs.get("squad_context", "")
+    def _build_decision_prompt(self, trigger: Message, context: List[Message]) -> str:
+        event = trigger.cause_by
+        task_id = trigger.metadata.get("task_id", "unknown")
+        status = trigger.metadata.get("status", "unknown")
+        summary = trigger.metadata.get("summary", trigger.content)
+        build_output = trigger.metadata.get("build_output", "")
+        test_output = trigger.metadata.get("test_output", "")
+        retries = trigger.metadata.get("retries", 0)
+        squad_context = trigger.metadata.get("squad_context", self._build_squad_context())
 
         return (
             "You are the Engineering Squad Lead in a MetaGPT-style software factory. "
@@ -499,28 +473,10 @@ class EngineerSquadRole(Role):
             "Escalate to the user only if retries are exhausted or the question is business-related."
         )
 
-    def _parse_decision(self, raw: str) -> Dict[str, Any]:
-        text = raw.strip()
-        # Try to extract JSON if wrapped in markdown fences.
-        if "```" in text:
-            blocks = text.split("```")
-            for block in blocks:
-                candidate = block.strip()
-                if candidate.startswith("{"):
-                    text = candidate
-                    break
-        try:
-            data = json.loads(text)
-            if "action" in data:
-                return data
-        except Exception:
-            pass
-        return self._fallback_decision({})
-
-    def _fallback_decision(self, kwargs: Dict[str, Any]) -> Dict[str, Any]:
-        status = kwargs.get("status", "unknown")
-        retries = kwargs.get("retries", 0)
-        task_id = kwargs.get("task_id", "unknown")
+    def _fallback_decision(self, trigger: Message, context: List[Message]) -> Dict[str, Any]:
+        status = trigger.metadata.get("status", "unknown")
+        retries = trigger.metadata.get("retries", 0)
+        task_id = trigger.metadata.get("task_id", "unknown")
         if status == "failed" and retries < self.max_retries:
             return {
                 "action": "retry",
