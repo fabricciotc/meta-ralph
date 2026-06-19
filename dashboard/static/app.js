@@ -1117,10 +1117,27 @@ async function deleteTicket() {
   closeTicketModal();
 }
 
+function refreshBoard() {
+  return fetch('/api/board')
+    .then(r => r.json())
+    .then(data => {
+      boardData = data;
+      renderTicketsList();
+      renderHeader();
+      renderRunBar();
+      renderTicketStatus();
+    })
+    .catch(err => console.error('Error loading board:', err));
+}
+
 async function deleteTicketById(id) {
   try {
     const res = await fetch(`/api/tickets/${id}`, { method: 'DELETE' });
     if (!res.ok) throw new Error('Error deleting ticket');
+    if (selectedTicketId === id) {
+      setSelectedTicket(null);
+    }
+    await refreshBoard();
     showToast('Ticket deleted');
   } catch (err) {
     alert(err.message);
@@ -2355,10 +2372,7 @@ if (btnRetryEngine) btnRetryEngine.addEventListener('click', () => {
   checkBackend().then(ok => {
     if (ok) {
       loadSystemInfo();
-      fetch('/api/board')
-        .then(r => r.json())
-        .then(data => { boardData = data; renderTicketsList(); renderHeader(); renderRunBar(); renderTicketStatus(); })
-        .catch(err => console.error('Error loading board:', err));
+      refreshBoard();
       pollRunState();
       pollTraces();
       pollGraph();
@@ -2440,10 +2454,7 @@ async function bootAppCore() {
 
   await loadSystemInfo();
 
-  fetch('/api/board')
-    .then(r => r.json())
-    .then(data => { boardData = data; renderTicketsList(); renderHeader(); renderRunBar(); renderTicketStatus(); })
-    .catch(err => console.error('Error loading board:', err));
+  refreshBoard();
 
   pollRunState();
   pollTraces();
