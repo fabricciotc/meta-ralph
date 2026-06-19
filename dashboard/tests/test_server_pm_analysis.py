@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import shutil
 import sys
 import tempfile
@@ -11,25 +12,26 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import server
 from core import pm_analysis
+from core.paths import get_state_dir
 
 
 class TestServerPMAnalysisIntegration(unittest.TestCase):
     """Integration test: AgentRunner.run_pm_analysis uses the new role/action engine."""
 
     def setUp(self):
-        self.tmpdir = tempfile.mkdtemp()
-        self.original_cwd = Path.cwd()
+        self.tmpdir = Path(tempfile.mkdtemp())
+        self.original_data_dir = os.environ.get("AGENTICFLOW_DATA_DIR")
+        os.environ["AGENTICFLOW_DATA_DIR"] = str(self.tmpdir)
+        self.state_dir = get_state_dir()
 
     def tearDown(self):
-        import os
-        os.chdir(self.original_cwd)
+        if self.original_data_dir is None:
+            os.environ.pop("AGENTICFLOW_DATA_DIR", None)
+        else:
+            os.environ["AGENTICFLOW_DATA_DIR"] = self.original_data_dir
         shutil.rmtree(self.tmpdir, ignore_errors=True)
 
     def test_run_pm_analysis_uses_role_engine_and_writes_prd(self):
-        import os
-        os.chdir(self.tmpdir)
-        (Path(self.tmpdir) / "scripts" / "meta-ralph" / "state").mkdir(parents=True)
-
         ticket = {
             "id": "INT-001",
             "title": "Login OAuth",
@@ -49,7 +51,7 @@ class TestServerPMAnalysisIntegration(unittest.TestCase):
         with patch.object(runner, "_run_ai_prompt", side_effect=mock_run_ai):
             runner.run_pm_analysis()
 
-        prd_path = Path(self.tmpdir) / "scripts" / "meta-ralph" / "state" / "prd-INT-001.md"
+        prd_path = self.state_dir / "prd-INT-001.md"
         self.assertTrue(prd_path.exists())
         self.assertIn("Consolidated PRD content", prd_path.read_text(encoding="utf-8"))
 
@@ -61,10 +63,6 @@ class TestServerPMAnalysisIntegration(unittest.TestCase):
         self.assertTrue(any(c["agent_id"] == "pm-research-agents" for c in calls))
 
     def test_run_pm_analysis_propagates_subagent_status_updates(self):
-        import os
-        os.chdir(self.tmpdir)
-        (Path(self.tmpdir) / "scripts" / "meta-ralph" / "state").mkdir(parents=True)
-
         ticket = {
             "id": "INT-003",
             "title": "Status propagation",
@@ -97,11 +95,7 @@ class TestServerPMAnalysisIntegration(unittest.TestCase):
                                 "Each PM research subagent should be marked done")
 
     def test_run_pm_analysis_reuses_existing_prd(self):
-        import os
-        os.chdir(self.tmpdir)
-        state_dir = Path(self.tmpdir) / "scripts" / "meta-ralph" / "state"
-        state_dir.mkdir(parents=True)
-        prd_path = state_dir / "prd-INT-002.md"
+        prd_path = self.state_dir / "prd-INT-002.md"
         prd_path.write_text("# Existing PRD\n\nAlready done. " + "x" * 200, encoding="utf-8")
 
         ticket = {"id": "INT-002", "title": "X", "description": "Y"}
@@ -119,7 +113,6 @@ class TestServerPMAnalysisIntegration(unittest.TestCase):
         self.assertEqual(len(calls), 0)
         content = prd_path.read_text(encoding="utf-8")
         self.assertIn("Already done.", content)
-        self.assertEqual(len(calls), 0)
 
 
 if __name__ == "__main__":

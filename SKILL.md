@@ -74,16 +74,15 @@ Then run it inside any git project:
 | Command | Action |
 |---------|--------|
 | `meta-ralph init` | Create the AgenticFlow application state directory |
-| `meta-ralph run` | Run the 5-phase loop and start the dashboard at `http://localhost:5050` |
+| `meta-ralph run` | Run the 5-phase loop |
 | `meta-ralph run --max-workers 10` | Limit parallel workers to 10 |
 | `meta-ralph run --skip-pm` | Skip phase 1 and use an existing `prd-expanded.json` |
 | `meta-ralph run --skip-architect` | Skip phase 2 and use an existing `architecture.md` |
 | `meta-ralph run --skip-planner` | Skip phase 3 and use an existing `execution-plan.json` |
-| `meta-ralph run --no-dashboard` | Do not start the web dashboard |
-| `meta-ralph dashboard` | Start only the web dashboard |
-| `meta-ralph dashboard --port 8080` | Start the dashboard on a custom port |
+| `meta-ralph run --no-dashboard` | Deprecated; kept for backward compatibility |
+| `meta-ralph dashboard` | Open the native AgenticFlow desktop app |
 | `meta-ralph status` | Show active worker state |
-| `meta-ralph stop` | Stop active workers and the dashboard |
+| `meta-ralph stop` | Stop active workers |
 
 ## Backend Selection
 
@@ -111,9 +110,9 @@ META_RALPH_RUNNER_COMMAND='my-agent --prompt-file "$META_RALPH_PROMPT_FILE"' \
 meta-ralph run
 ```
 
-## Web Dashboard
+## Native Dashboard
 
-AgenticFlow includes a local Kanban board at `http://localhost:5050`.
+AgenticFlow includes a native desktop Kanban dashboard bundled with the Tauri app.
 
 ### Board Columns
 

@@ -56,7 +56,6 @@ let designReviewDismissedId = null;
 let selectedAgentId = null;
 let confirmModalResolve = null;
 let aiLinkModalOpen = false;
-let installPromptEvent = null;
 let repoFolderHandle = null;
 let engineReady = false;
 
@@ -68,7 +67,6 @@ let lastRenderedRunKey = null;
 // DOM refs
 const btnThemeToggle = document.getElementById('btn-theme-toggle');
 const btnTickets = document.getElementById('btn-tickets');
-const btnInstall = document.getElementById('btn-install');
 const btnNewTicket = document.getElementById('btn-new-ticket');
 const btnNewTicketModal = document.getElementById('btn-new-ticket-modal');
 const navModel = document.getElementById('nav-model');
@@ -117,10 +115,6 @@ const btnCancel = document.getElementById('btn-cancel');
 const btnDelete = document.getElementById('btn-delete');
 const repoPathInput = document.getElementById('ticket-repo-path');
 const repoPickerMessage = document.getElementById('repo-picker-message');
-const pwaInstallOverlay = document.getElementById('pwa-install-overlay');
-const btnInstallPwaOverlay = document.getElementById('btn-install-pwa');
-const btnContinueBrowser = document.getElementById('btn-continue-browser');
-const pwaInstallInstructions = document.getElementById('pwa-install-instructions');
 
 const questionModal = document.getElementById('question-modal');
 const questionAgent = document.getElementById('question-agent');
@@ -1309,7 +1303,6 @@ const DEFAULT_CHAT_AGENTS = [
 
 let currentChatAgent = chatAgentSelect ? chatAgentSelect.value : '';
 let lastRenderedChatKey = null;
-let pwaOverlayDismissed = false;
 
 function updateChatAgentSelect() {
   if (!chatAgentSelect) return;
@@ -1910,32 +1903,8 @@ async function selectBackend(name) {
 }
 
 /* ============================================================
-   PWA install & service worker
+   Engine overlay
    ============================================================ */
-
-function registerServiceWorker() {
-  if (!('serviceWorker' in navigator)) return;
-  navigator.serviceWorker.register('/static/service-worker.js')
-    .then(reg => console.log('Service Worker registered:', reg.scope))
-    .catch(err => console.error('Service Worker registration failed:', err));
-}
-
-function handleBeforeInstallPrompt(e) {
-  e.preventDefault();
-  installPromptEvent = e;
-  if (btnInstall) btnInstall.style.display = 'inline-flex';
-}
-
-async function installPwa() {
-  if (!installPromptEvent) return;
-  installPromptEvent.prompt();
-  const { outcome } = await installPromptEvent.userChoice;
-  if (outcome === 'accepted') {
-    showToast('AgenticFlow installed');
-  }
-  installPromptEvent = null;
-  if (btnInstall) btnInstall.style.display = 'none';
-}
 
 function showEngineOverlay(message, showHelp = false) {
   if (!engineOverlay) return;
@@ -1948,54 +1917,6 @@ function showEngineOverlay(message, showHelp = false) {
 function hideEngineOverlay() {
   if (!engineOverlay) return;
   engineOverlay.classList.add('hidden');
-}
-
-function isPwaInstalled() {
-  if (navigator.standalone === true) return true;
-  if (!window.matchMedia) return false;
-  const modes = ['standalone', 'minimal-ui', 'fullscreen', 'window-controls-overlay'];
-  return modes.some(mode => window.matchMedia(`(display-mode: ${mode})`).matches);
-}
-
-function supportsFolderPicker() {
-  return 'showDirectoryPicker' in window;
-}
-
-function showPwaInstallOverlay() {
-  if (!pwaInstallOverlay) return;
-  if (isPwaInstalled() || detectTauri()) {
-    hidePwaInstallOverlay();
-    return;
-  }
-  pwaInstallOverlay.style.display = 'flex';
-  const canInstall = Boolean(installPromptEvent);
-  const canContinue = supportsFolderPicker() || detectTauri();
-  if (btnInstallPwaOverlay) btnInstallPwaOverlay.style.display = canInstall ? 'inline-flex' : 'none';
-  if (btnContinueBrowser) btnContinueBrowser.style.display = canContinue ? 'inline-flex' : 'none';
-  if (pwaInstallInstructions) pwaInstallInstructions.style.display = canContinue ? 'none' : 'block';
-}
-
-function hidePwaInstallOverlay() {
-  if (!pwaInstallOverlay) return;
-  pwaInstallOverlay.style.display = 'none';
-}
-
-async function installPwaFromOverlay() {
-  if (!installPromptEvent) return;
-  installPromptEvent.prompt();
-  const { outcome } = await installPromptEvent.userChoice;
-  if (outcome === 'accepted') {
-    showToast('AgenticFlow installed');
-    hidePwaInstallOverlay();
-    bootAppCore();
-  }
-  installPromptEvent = null;
-  if (btnInstall) btnInstall.style.display = 'none';
-}
-
-function continueInBrowser() {
-  hidePwaInstallOverlay();
-  bootAppCore();
 }
 
 async function checkBackend() {
@@ -2109,7 +2030,7 @@ async function pickRepoFolder() {
       isGitRepo = false;
     }
 
-    // Browsers do not expose absolute paths. Let the user paste the full path manually.
+    // The selected handle may not expose the absolute path. Let the user paste it manually.
     if (repoPathInput) {
       repoPathInput.value = '';
       repoPathInput.placeholder = `Paste absolute path to "${handle.name}"`;
@@ -2284,7 +2205,6 @@ async function pollRunState() {
 
 if (btnThemeToggle) btnThemeToggle.addEventListener('click', toggleTheme);
 if (btnTickets) btnTickets.addEventListener('click', openTicketsModal);
-if (btnInstall) btnInstall.addEventListener('click', installPwa);
 if (navModel) {
   navModel.style.cursor = 'pointer';
   navModel.title = 'Click to change AI backend';
@@ -2292,7 +2212,6 @@ if (navModel) {
 }
 if (btnNewTicket) btnNewTicket.addEventListener('click', () => openTicketModal());
 
-window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
 if (btnNewTicketModal) btnNewTicketModal.addEventListener('click', () => openTicketModal());
 if (btnCloseTickets) btnCloseTickets.addEventListener('click', closeTicketsModal);
 if (btnCloseModal) btnCloseModal.addEventListener('click', closeTicketModal);
@@ -2304,20 +2223,6 @@ if (repoPathInput) repoPathInput.addEventListener('input', hideRepoMessage);
 
 const btnPickFolder = document.getElementById('btn-pick-folder');
 if (btnPickFolder) btnPickFolder.addEventListener('click', pickRepoFolder);
-
-if (btnInstallPwaOverlay) btnInstallPwaOverlay.addEventListener('click', installPwaFromOverlay);
-if (btnContinueBrowser) btnContinueBrowser.addEventListener('click', () => {
-  pwaOverlayDismissed = true;
-  continueInBrowser();
-});
-
-window.addEventListener('appinstalled', () => {
-  installPromptEvent = null;
-  pwaOverlayDismissed = true;
-  if (btnInstall) btnInstall.style.display = 'none';
-  hidePwaInstallOverlay();
-  bootAppCore();
-});
 
 if (btnQuestionCustom) btnQuestionCustom.addEventListener('click', toggleCustomAnswer);
 if (btnQuestionSkip) btnQuestionSkip.addEventListener('click', skipQuestion);
@@ -2445,7 +2350,6 @@ socket.on('chat_message', (entry) => {
 
 initTheme();
 loadPendingQuestions();
-registerServiceWorker();
 restoreRepoFolderHandle();
 
 async function bootAppCore() {
@@ -2461,22 +2365,15 @@ async function bootAppCore() {
   pollGraph();
 }
 
-function bootApp() {
-  if (isPwaInstalled() || pwaOverlayDismissed || detectTauri()) {
-    hidePwaInstallOverlay();
-    bootAppCore();
-    return;
-  }
-  showPwaInstallOverlay();
+async function bootApp() {
+  const ok = await checkBackend();
+  if (!ok) return;
+  bootAppCore();
 }
 
 bootApp();
 
 setInterval(async () => {
-  if (!isPwaInstalled() && !pwaOverlayDismissed && !detectTauri()) {
-    showPwaInstallOverlay();
-    return;
-  }
   if (!engineReady) {
     await checkBackend();
   }

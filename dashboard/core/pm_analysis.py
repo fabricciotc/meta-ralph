@@ -9,6 +9,7 @@ on the stdlib plus the core Message/Memory/Environment/Role/Action classes.
 from __future__ import annotations
 
 import asyncio
+import os
 import shutil
 import tempfile
 from pathlib import Path
@@ -65,8 +66,8 @@ def run_ai_prompt(
 
     safe_phase = phase_name.lower().replace(" ", "-")
     meta_dir = get_meta_dir()
-    output_path = meta_dir / "state" / f"output-{ticket_id}-{safe_phase}.txt"
-    prompt_path = meta_dir / "state" / f"prompt-{ticket_id}-{safe_phase}.txt"
+    output_path = meta_dir / f"output-{ticket_id}-{safe_phase}.txt"
+    prompt_path = meta_dir / f"prompt-{ticket_id}-{safe_phase}.txt"
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     if output_path.exists():
@@ -295,10 +296,10 @@ def run_pm_analysis(
     description = ticket.get("description", "")
     repo_path = ticket.get("repoPath")
 
-    prd_path = get_meta_dir() / "state" / f"prd-{ticket_id}.md"
+    prd_path = get_meta_dir() / f"prd-{ticket_id}.md"
     prd_path.parent.mkdir(parents=True, exist_ok=True)
 
-    pm_research_dir = get_meta_dir() / "state" / "pm-research"
+    pm_research_dir = get_meta_dir() / "pm-research"
     pm_research_dir.mkdir(parents=True, exist_ok=True)
 
     if prd_path.exists() and prd_path.stat().st_size > 100:
@@ -392,11 +393,9 @@ def run_pm_analysis(
 if __name__ == "__main__":
     # Simple smoke test with a mocked AI runner.
     tmpdir = tempfile.mkdtemp()
-    original_cwd = Path.cwd()
+    original_data_dir = os.environ.get("AGENTICFLOW_DATA_DIR")
     try:
-        import os
-        os.chdir(tmpdir)
-        (Path(tmpdir) / "scripts" / "meta-ralph" / "state").mkdir(parents=True)
+        os.environ["AGENTICFLOW_DATA_DIR"] = tmpdir
 
         def mock_run_ai(prompt, phase_name, timeout_seconds, agent_id=None):
             if agent_id == "pm-research-agents":
@@ -410,5 +409,8 @@ if __name__ == "__main__":
         assert prd is not None
         print("Smoke OK:", prd)
     finally:
-        os.chdir(original_cwd)
+        if original_data_dir is None:
+            os.environ.pop("AGENTICFLOW_DATA_DIR", None)
+        else:
+            os.environ["AGENTICFLOW_DATA_DIR"] = original_data_dir
         shutil.rmtree(tmpdir, ignore_errors=True)

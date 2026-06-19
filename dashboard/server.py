@@ -21,7 +21,7 @@ import subprocess
 import threading
 import time
 import uuid
-import webbrowser
+
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
@@ -826,7 +826,7 @@ def validate_git_repo(repo_path):
     """Validate that repo_path points to a usable folder.
 
     If the path does not exist, it is created (including parents). This lets a
-    ticket start from an empty project folder chosen via the PWA folder picker.
+    ticket start from an empty project folder chosen via the native folder picker.
     Git is optional: if the folder has .git, a branch will be created, but git
     is not required for a ticket to run.
     """
@@ -4390,7 +4390,8 @@ def main():
     parser.add_argument("--port", type=int, default=5050, help="Server port")
     parser.add_argument("--host", type=str, default="0.0.0.0", help="Server host")
     parser.add_argument("--board", type=str, default=None, help="Path to board.json")
-    parser.add_argument("--no-browser", action="store_true", help="Do not open browser")
+    # --no-browser is deprecated and ignored: the native desktop app launches the sidecar.
+    parser.add_argument("--no-browser", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
 
     if args.board:
@@ -4455,13 +4456,6 @@ def main():
             start_automatic_run(ticket, resume=True)
 
     display_host = "localhost" if args.host in ("0.0.0.0", "127.0.0.1") else args.host
-
-    if not args.no_browser:
-        def open_browser():
-            time.sleep(1.5)
-            webbrowser.open(f"http://{display_host}:{args.port}")
-
-        threading.Thread(target=open_browser, daemon=True).start()
 
     print(f"AgenticFlow Dashboard running at http://{display_host}:{args.port}")
     print(f"Board: {get_board_path()}")

@@ -1,6 +1,6 @@
 #!/bin/bash
-# AgenticFlow local engine launcher.
-# Starts the Python backend and opens the dashboard/PWA in the default browser.
+# AgenticFlow native desktop app launcher.
+# Opens the native Tauri bundle (AgenticFlow.app / .exe / .AppImage).
 
 set -e
 

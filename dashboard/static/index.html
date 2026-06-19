@@ -5,12 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="theme-color" content="#0f0f11">
   <meta name="description" content="AgenticFlow — MetaGPT-style multi-agent software factory dashboard.">
-  <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-title" content="AgenticFlow">
-  <title>AgenticFlow Dashboard</title>
-  <link rel="manifest" href="/static/manifest.json">
+  <title>AgenticFlow</title>
   <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
-  <link rel="apple-touch-icon" href="/static/icon-192.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -27,29 +23,9 @@
       </div>
       <div class="engine-overlay-status" id="engine-overlay-status">Connecting to local engine...</div>
       <div class="engine-overlay-help" id="engine-overlay-help" style="display:none;">
-        <p>The local engine is not running. Open a terminal and run:</p>
-        <code>agenticflow start</code>
-        <p>Then return here. The dashboard will connect automatically.</p>
+        <p>The local engine is not responding. Please close and reopen the AgenticFlow app.</p>
       </div>
       <button type="button" class="btn-primary" id="btn-retry-engine" style="display:none;">Retry connection</button>
-    </div>
-  </div>
-
-  <div class="engine-overlay" id="pwa-install-overlay" style="display:none;">
-    <div class="engine-overlay-content">
-      <div class="engine-overlay-brand">
-        <span class="brand-name-lg">AgenticFlow</span>
-        <span class="brand-tagline-lg">Local AI software factory</span>
-      </div>
-      <div class="engine-overlay-status">Install AgenticFlow for the best experience</div>
-      <div class="engine-overlay-help">
-        <p>The installed app opens in its own window. You can also continue in Chrome/Edge — folder picking works in the browser too.</p>
-        <p id="pwa-install-instructions" style="display:none;">Open Chrome or Edge, click the install icon in the address bar, then launch AgenticFlow from your apps.</p>
-      </div>
-      <div class="engine-overlay-actions">
-        <button type="button" class="btn-primary" id="btn-install-pwa" style="display:none;">Install AgenticFlow</button>
-        <button type="button" class="btn-secondary" id="btn-continue-browser" style="display:none;">Continue in browser</button>
-      </div>
     </div>
   </div>
 
@@ -78,7 +54,6 @@
         <div class="header-pill"><span class="pill-label">Ticket</span><span class="pill-value" id="nav-ticket">—</span></div>
         <div class="header-pill connection" id="nav-connection" title="Connection"><i data-lucide="wifi-off" class="status-icon"></i></div>
         <button type="button" class="btn-ghost btn-small" id="btn-tickets" title="View tickets"><i data-lucide="layers"></i> Tickets</button>
-        <button type="button" class="btn-ghost btn-small" id="btn-install" title="Install AgenticFlow" style="display:none;"><i data-lucide="download"></i> Install</button>
         <button type="button" class="btn-primary btn-small" id="btn-new-ticket"><i data-lucide="plus"></i> New</button>
         <button type="button" id="btn-theme-toggle" class="btn-icon" title="Toggle theme" aria-label="Toggle theme"><i data-lucide="moon"></i></button>
       </div>

@@ -4,7 +4,7 @@
   <img src="assets/logo.png" alt="AgenticFlow logo" width="128" height="128">
 </p>
 
-AgenticFlow is a MetaGPT-style multi-agent orchestration app for autonomous software development. It coordinates PM Research, Architecture, Planning, parallel Engineers, and QA with a local dashboard for ticket management and live progress.
+AgenticFlow is a MetaGPT-style multi-agent orchestration app for autonomous software development. It coordinates PM Research, Architecture, Planning, parallel Engineers, and QA with a native desktop dashboard for ticket management and live progress.
 
 ## What It Does
 
@@ -12,8 +12,8 @@ AgenticFlow is a MetaGPT-style multi-agent orchestration app for autonomous soft
 - Supports multiple PM Research agents and Engineer workers, capped by `--max-workers`.
 - Gives each Engineer its own role context, feature focus, git worktree, and branch.
 - Runs QA before integrating a batch back into trunk.
-- Provides a Kanban dashboard at `http://localhost:5050` with live updates.
-- Saves per-ticket run snapshots so a ticket can be paused, resumed, or restarted after the dashboard server restarts.
+- Provides a native Kanban dashboard with live updates.
+- Saves per-ticket run snapshots so a ticket can be paused, resumed, or restarted after the app restarts.
 
 ## Requirements
 
@@ -26,7 +26,7 @@ AgenticFlow is a MetaGPT-style multi-agent orchestration app for autonomous soft
   - `codex`
   - `copilot` or `gh` (GitHub Copilot CLI)
   - `OPENAI_API_KEY` for OpenAI-compatible API mode
-- Chrome or Edge (required for the File System Access API used by the PWA)
+
 
 ## Installation
 
@@ -38,7 +38,7 @@ Pre-built desktop apps are attached to every [GitHub Release](https://github.com
 - **Windows**: the `.exe` installer from the `windows-x86_64` artifact.
 - **Linux**: `.deb` or `.AppImage` from the `linux-x86_64` artifact.
 
-The desktop app bundles the Python engine as a sidecar, so no Python or browser setup is required.
+The desktop app bundles the Python engine as a sidecar, so no Python or web setup is required.
 
 ### Option 2: Use The Installer
 
@@ -76,19 +76,21 @@ git clone https://github.com/fabricciotc/agenticflow.git ~/.kimi-code/skills/met
 
 ## Usage
 
-### 1. Start the local engine
+### 1. Open the native app
 
 ```bash
 agenticflow start
 ```
 
-This starts the Python backend. If you already installed the PWA, it opens the standalone app; otherwise it opens the dashboard in your default browser.
+This opens the native AgenticFlow desktop app. The app bundles the Python engine as a sidecar, so no separate backend is needed.
 
-### 2. Install the PWA (first time only)
+If the bundle has not been built or installed yet, run:
 
-Open `http://localhost:5050` in Chrome/Edge and click the install icon in the address bar (or menu > **Install AgenticFlow**). Once installed, `agenticflow start` will detect the installed app and launch it directly.
+```bash
+scripts/build-sidecar.sh && npm run tauri build
+```
 
-### 3. Link an AI assistant
+### 2. Link an AI assistant
 
 The first time the dashboard connects to the local engine it detects which AI CLIs are installed and asks you to pick one. The choice is saved in the application data directory (`config.json`).
 
@@ -103,7 +105,7 @@ Supported options:
 
 ### 4. Create a ticket and pick a folder
 
-Create a ticket and use **Pick folder** to select the project directory with the native file picker. Because browsers cannot expose absolute paths, you still need to type or confirm the absolute path so the local engine can run `git`, builds, and AI CLIs on that folder.
+Create a ticket and use **Pick folder** to select the project directory with the native file picker. The full absolute path is used so the local engine can run `git`, builds, and AI CLIs on that folder.
 
 ### 5. Run the factory
 
@@ -115,10 +117,10 @@ The original `meta-ralph` CLI is still available as a legacy alias:
 
 ```bash
 meta-ralph init      # create the app state directory
-meta-ralph run       # start the multi-agent loop and dashboard
-meta-ralph dashboard # start only the web dashboard
+meta-ralph run       # start the multi-agent loop
+meta-ralph dashboard # open the native desktop app
 meta-ralph status    # show active worker state
-meta-ralph stop      # stop active workers and the dashboard
+meta-ralph stop      # stop active workers
 ```
 
 ## Backend Selection

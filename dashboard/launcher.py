@@ -1,27 +1,24 @@
 #!/usr/bin/env python3
 """
-AgenticFlow local engine launcher.
+AgenticFlow native app launcher.
 
-Starts the Flask dashboard server in the background, opens the PWA in the
-user's default browser, and manages the process lifecycle (status/stop).
+This launcher no longer starts a web dashboard or opens a browser. It locates
+the native Tauri desktop bundle (AgenticFlow.app / AgenticFlow.exe /
+AgenticFlow.AppImage) and opens it. If the bundle is not installed yet, it
+prints build/install instructions.
 """
 
 import argparse
 import os
 import platform
 import shutil
-import signal
 import subprocess
 import sys
 import time
-import webbrowser
 from pathlib import Path
 
-from core.paths import get_app_data_dir, get_logs_dir
 
-
-DASHBOARD_PORT = int(os.environ.get("AGENTICFLOW_PORT") or os.environ.get("META_RALPH_DASHBOARD_PORT") or "5050")
-DEFAULT_HOST = os.environ.get("AGENTICFLOW_HOST", "127.0.0.1")
+BUNDLE_NAME = "AgenticFlow"
 
 
 def get_repo_root() -> Path:
@@ -29,199 +26,56 @@ def get_repo_root() -> Path:
     return Path(__file__).resolve().parent.parent
 
 
-def get_dashboard_dir() -> Path:
-    return Path(__file__).resolve().parent
-
-
-def get_venv_dir() -> Path:
-    return get_dashboard_dir() / ".venv"
-
-
-def get_pid_file() -> Path:
-    return get_logs_dir() / "engine.pid"
-
-
-def get_python_cmd() -> str:
-    """Return the Python interpreter from the virtual environment."""
-    venv = get_venv_dir()
-    if platform.system() == "Windows":
-        candidate = venv / "Scripts" / "python.exe"
-    else:
-        candidate = venv / "bin" / "python"
-    if candidate.exists():
-        return str(candidate)
-    python = shutil.which("python3") or shutil.which("python")
-    if not python:
-        print("Error: python3 or python is not installed.", file=sys.stderr)
-        sys.exit(1)
-    return python
-
-
-def get_pip_cmd() -> str:
-    venv = get_venv_dir()
-    if platform.system() == "Windows":
-        candidate = venv / "Scripts" / "pip.exe"
-    else:
-        candidate = venv / "bin" / "pip"
-    if candidate.exists():
-        return str(candidate)
-    pip = shutil.which("pip3") or shutil.which("pip")
-    if not pip:
-        print("Error: pip is not available.", file=sys.stderr)
-        sys.exit(1)
-    return pip
-
-
-def ensure_venv() -> None:
-    """Create and configure the dashboard virtual environment if needed."""
-    venv = get_venv_dir()
-    if venv.exists():
-        return
-    print("Creating AgenticFlow virtual environment...")
-    python = shutil.which("python3") or shutil.which("python")
-    if not python:
-        print("Error: python3 or python is not installed.", file=sys.stderr)
-        sys.exit(1)
-    subprocess.run([python, "-m", "venv", str(venv)], check=True)
-    pip = get_pip_cmd()
-    subprocess.run([pip, "install", "-q", "--upgrade", "pip"], check=False)
-    requirements = get_dashboard_dir() / "requirements.txt"
-    subprocess.run([pip, "install", "-q", "-r", str(requirements)], check=True)
-    print("Virtual environment ready.")
-
-
-def start_engine(open_browser: bool = True) -> None:
-    """Start the local engine in the background."""
-    ensure_venv()
-
-    pid_file = get_pid_file()
-    if pid_file.exists():
-        try:
-            pid = int(pid_file.read_text().strip())
-            if _is_process_running(pid):
-                print(f"AgenticFlow engine is already running (PID {pid}).")
-                if open_browser:
-                    _open_dashboard()
-                return
-        except ValueError:
-            pass
-
-    python = get_python_cmd()
-    server_script = get_dashboard_dir() / "server.py"
-    env = os.environ.copy()
-    env["AGENTICFLOW_PORT"] = str(DASHBOARD_PORT)
-
-    print(f"Starting AgenticFlow engine on http://{DEFAULT_HOST}:{DASHBOARD_PORT} ...")
-    process = subprocess.Popen(
-        [python, str(server_script), "--port", str(DASHBOARD_PORT), "--host", DEFAULT_HOST, "--no-browser"],
-        cwd=str(get_dashboard_dir()),
-        env=env,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        start_new_session=True,
-    )
-    pid_file.write_text(str(process.pid))
-    print(f"Engine started (PID {process.pid}).")
-
-    # Wait briefly for the server to come up.
-    for _ in range(20):
-        if _is_port_open(DEFAULT_HOST, DASHBOARD_PORT):
-            break
-        time.sleep(0.25)
-
-    if open_browser:
-        _open_dashboard()
-
-
-def stop_engine() -> None:
-    """Stop the local engine."""
-    pid_file = get_pid_file()
-    if not pid_file.exists():
-        print("AgenticFlow engine is not running.")
-        return
+def _is_process_running(name: str) -> bool:
+    """Best-effort check whether a process with the given name is running."""
+    system = platform.system()
     try:
-        pid = int(pid_file.read_text().strip())
-    except ValueError:
-        print("Invalid PID file; removing it.")
-        pid_file.unlink(missing_ok=True)
-        return
-
-    if not _is_process_running(pid):
-        print("AgenticFlow engine is not running.")
-        pid_file.unlink(missing_ok=True)
-        return
-
-    if platform.system() == "Windows":
-        subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], check=False)
-    else:
-        try:
-            os.kill(pid, signal.SIGTERM)
-        except ProcessLookupError:
-            pass
-    pid_file.unlink(missing_ok=True)
-    print("AgenticFlow engine stopped.")
-
-
-def engine_status() -> None:
-    """Print the current engine status."""
-    pid_file = get_pid_file()
-    if pid_file.exists():
-        try:
-            pid = int(pid_file.read_text().strip())
-            if _is_process_running(pid):
-                print(f"AgenticFlow engine is running (PID {pid}).")
-                print(f"Dashboard: http://{DEFAULT_HOST}:{DASHBOARD_PORT}")
-                return
-        except ValueError:
-            pass
-    print("AgenticFlow engine is not running.")
-
-
-def _is_process_running(pid: int) -> bool:
-    if pid <= 0:
-        return False
-    try:
-        os.kill(pid, 0)
-        return True
-    except (ProcessLookupError, PermissionError, OSError):
+        if system == "Windows":
+            result = subprocess.run(
+                ["tasklist", "/FI", f"IMAGENAME eq {name}.exe", "/NH"],
+                capture_output=True, text=True, check=False, timeout=5
+            )
+            return name in result.stdout
+        else:
+            result = subprocess.run(
+                ["pgrep", "-x", name],
+                capture_output=True, text=True, check=False, timeout=5
+            )
+            return result.returncode == 0 and result.stdout.strip() != ""
+    except Exception:
         return False
 
 
-def _is_port_open(host: str, port: int) -> bool:
-    import socket
-    try:
-        with socket.create_connection((host, port), timeout=1):
-            return True
-    except OSError:
-        return False
-
-
-def _find_installed_pwa() -> Path | None:
-    """Return the path to an installed AgenticFlow PWA app, if any."""
+def _find_native_bundle() -> Path | None:
+    """Return the path to the native AgenticFlow bundle, if it exists."""
+    repo_root = get_repo_root()
     home = Path.home()
     system = platform.system()
-    candidates = []
+    candidates: list[Path] = []
 
     if system == "Darwin":
         candidates = [
-            Path("/Applications/AgenticFlow.app"),
-            home / "Applications" / "AgenticFlow.app",
-            home / "Applications" / "Chrome Apps.localized" / "AgenticFlow.app",
-            home / "Applications" / "Chrome Apps" / "AgenticFlow.app",
+            repo_root / "src-tauri" / "target" / "release" / "bundle" / "macos" / f"{BUNDLE_NAME}.app",
+            repo_root / "src-tauri" / "target" / "debug" / "bundle" / "macos" / f"{BUNDLE_NAME}.app",
+            Path("/Applications") / f"{BUNDLE_NAME}.app",
+            home / "Applications" / f"{BUNDLE_NAME}.app",
         ]
     elif system == "Windows":
-        local_appdata = os.environ.get("LOCALAPPDATA")
-        appdata = os.environ.get("APPDATA")
-        if local_appdata:
-            candidates.append(Path(local_appdata) / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Chrome Apps" / "AgenticFlow.lnk")
-            candidates.append(Path(local_appdata) / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "AgenticFlow.lnk")
-        if appdata:
-            candidates.append(Path(appdata) / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Chrome Apps" / "AgenticFlow.lnk")
-            candidates.append(Path(appdata) / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "AgenticFlow.lnk")
-    else:
         candidates = [
-            home / ".local" / "share" / "applications" / "AgenticFlow.desktop",
-            home / ".local" / "share" / "applications" / "chrome-AgenticFlow-Default.desktop",
+            repo_root / "src-tauri" / "target" / "release" / "bundle" / "nsis" / f"{BUNDLE_NAME}.exe",
+            repo_root / "src-tauri" / "target" / "debug" / "bundle" / "nsis" / f"{BUNDLE_NAME}.exe",
+            repo_root / "src-tauri" / "target" / "release" / f"{BUNDLE_NAME}.exe",
+            Path(os.environ.get("LOCALAPPDATA", "")) / BUNDLE_NAME / f"{BUNDLE_NAME}.exe",
+            Path(os.environ.get("PROGRAMFILES", "")) / BUNDLE_NAME / f"{BUNDLE_NAME}.exe",
+        ]
+    else:
+        # Linux / generic Unix
+        candidates = [
+            repo_root / "src-tauri" / "target" / "release" / "bundle" / "appimage" / f"{BUNDLE_NAME}.AppImage",
+            repo_root / "src-tauri" / "target" / "debug" / "bundle" / "appimage" / f"{BUNDLE_NAME}.AppImage",
+            Path("/usr/bin") / BUNDLE_NAME.lower(),
+            Path("/usr/local/bin") / BUNDLE_NAME.lower(),
+            home / ".local" / "bin" / BUNDLE_NAME.lower(),
         ]
 
     for candidate in candidates:
@@ -230,35 +84,74 @@ def _find_installed_pwa() -> Path | None:
     return None
 
 
-def _open_dashboard() -> None:
-    url = f"http://{DEFAULT_HOST}:{DASHBOARD_PORT}"
-    pwa = _find_installed_pwa()
-    if pwa:
-        print(f"Opening installed PWA: {pwa}")
-        try:
-            if platform.system() == "Darwin":
-                subprocess.run(["open", "-a", pwa.name.replace(".app", ""), url], check=False)
-            elif platform.system() == "Windows":
-                os.startfile(str(pwa))  # type: ignore[attr-defined]
-            else:
-                subprocess.run(["xdg-open", str(pwa)], check=False)
-            return
-        except Exception as exc:
-            print(f"Could not open PWA ({exc}), falling back to browser.")
-    print(f"Opening {url}")
-    webbrowser.open(url)
+def _open_path(path: Path) -> None:
+    """Open a file/executable using the platform's native mechanism."""
+    system = platform.system()
+    if system == "Darwin":
+        subprocess.run(["open", str(path)], check=False)
+    elif system == "Windows":
+        os.startfile(str(path))  # type: ignore[attr-defined]
+    else:
+        # Try to run AppImage/executable directly if executable; otherwise xdg-open.
+        if os.access(path, os.X_OK):
+            subprocess.Popen([str(path)], start_new_session=True)
+        else:
+            subprocess.run(["xdg-open", str(path)], check=False)
+
+
+def start_native_app() -> None:
+    """Open the native AgenticFlow desktop app."""
+    if _is_process_running(BUNDLE_NAME):
+        print("AgenticFlow is already running.")
+        return
+
+    bundle = _find_native_bundle()
+    if not bundle:
+        print("AgenticFlow native app is not installed in this system.")
+        print("")
+        print("Build it locally with:")
+        print("  scripts/build-sidecar.sh && npm run tauri build")
+        print("")
+        print("Or install a release DMG/EXE/AppImage and place it in a standard location.")
+        sys.exit(1)
+
+    print(f"Opening AgenticFlow native app: {bundle}")
+    _open_path(bundle)
+
+
+def stop_native_app() -> None:
+    """Advise the user how to close the native app."""
+    if not _is_process_running(BUNDLE_NAME):
+        print("AgenticFlow is not running.")
+        return
+    print("AgenticFlow native app is running. Close it from its window (Cmd+Q / Alt+F4 / window close).")
+
+
+def engine_status() -> None:
+    """Print whether the native app process is running."""
+    if _is_process_running(BUNDLE_NAME):
+        print("AgenticFlow native app is running.")
+    else:
+        print("AgenticFlow native app is not running.")
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="AgenticFlow local engine launcher")
-    parser.add_argument("command", choices=["start", "stop", "status"], default="start", nargs="?")
-    parser.add_argument("--no-browser", action="store_true", help="Do not open the browser")
+    parser = argparse.ArgumentParser(description="AgenticFlow native app launcher")
+    parser.add_argument(
+        "command",
+        choices=["start", "stop", "status"],
+        default="start",
+        nargs="?",
+        help="start: open the native app; stop: show how to close it; status: show whether it is running",
+    )
+    # --no-browser is kept as a no-op for backward compatibility with old aliases.
+    parser.add_argument("--no-browser", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
 
     if args.command == "start":
-        start_engine(open_browser=not args.no_browser)
+        start_native_app()
     elif args.command == "stop":
-        stop_engine()
+        stop_native_app()
     elif args.command == "status":
         engine_status()
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import shutil
 import sys
 import tempfile
@@ -24,19 +25,18 @@ class _FakeBackend:
 
 class TestServerRunAiPrompt(unittest.TestCase):
     def setUp(self):
-        self.tmpdir = tempfile.mkdtemp()
-        self.original_cwd = Path.cwd()
+        self.tmpdir = Path(tempfile.mkdtemp())
+        self.original_data_dir = os.environ.get("AGENTICFLOW_DATA_DIR")
+        os.environ["AGENTICFLOW_DATA_DIR"] = str(self.tmpdir)
 
     def tearDown(self):
-        import os
-        os.chdir(self.original_cwd)
+        if self.original_data_dir is None:
+            os.environ.pop("AGENTICFLOW_DATA_DIR", None)
+        else:
+            os.environ["AGENTICFLOW_DATA_DIR"] = self.original_data_dir
         shutil.rmtree(self.tmpdir, ignore_errors=True)
 
     def test_output_files_are_isolated_by_agent_id(self):
-        import os
-        os.chdir(self.tmpdir)
-        (Path(self.tmpdir) / "scripts" / "meta-ralph" / "state").mkdir(parents=True)
-
         ticket = {"id": "ISO-001", "title": "X", "description": "Y", "repoPath": str(self.tmpdir)}
         runner = server.AgentRunner(ticket)
 
@@ -55,7 +55,7 @@ class TestServerRunAiPrompt(unittest.TestCase):
         self.assertEqual(out1, "output for qa-T1")
         self.assertEqual(out2, "output for qa-T2")
 
-        state_dir = server.get_meta_dir() / "state"
+        state_dir = server.get_state_dir()
         outputs = sorted(state_dir.glob("output-ISO-001-qa_review-*.txt"))
         self.assertEqual(len(outputs), 2)
         self.assertTrue(any("qa-t1" in p.name for p in outputs))

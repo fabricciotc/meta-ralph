@@ -1,4 +1,5 @@
 import json
+import os
 import shutil
 import sys
 import tempfile
@@ -9,6 +10,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import server
+from core.paths import get_state_dir
 
 
 def _stub_run(self):
@@ -47,7 +49,9 @@ def _stub_run(self):
 
 
 def test_restart_ticket_clears_state_and_artifacts():
-    tmpdir = Path(tempfile.mkdtemp(prefix="meta-ralph-restart-test-"))
+    tmpdir = Path(tempfile.mkdtemp(prefix="agenticflow-restart-test-"))
+    original_data_dir = os.environ.get("AGENTICFLOW_DATA_DIR")
+    os.environ["AGENTICFLOW_DATA_DIR"] = str(tmpdir)
     try:
         board_path = tmpdir / "board.json"
         board = {
@@ -75,48 +79,46 @@ def test_restart_ticket_clears_state_and_artifacts():
         server.RUN_STATE_FILE = tmpdir / "run-state.json"
         server.LOG_FILE = tmpdir / "run.log"
 
-        # Isolate generated artifacts to a temp meta dir.
-        meta_dir = tmpdir / "meta"
-        state_dir = meta_dir / "state"
+        # Isolate generated artifacts to the temp app-data state dir.
+        state_dir = get_state_dir()
         state_dir.mkdir(parents=True, exist_ok=True)
-        original_get_meta_dir = server.get_meta_dir
-        server.get_meta_dir = lambda: meta_dir
 
-        try:
-            # Create artifacts.
-            (state_dir / f"prd-TKT-RESTART.md").write_text("PRD", encoding="utf-8")
-            (state_dir / f"tasks-TKT-RESTART.json").write_text("[]", encoding="utf-8")
-            (state_dir / f"architecture-TKT-RESTART.md").write_text("ARCH", encoding="utf-8")
-            snapshot_path = server.get_ticket_snapshot_path("TKT-RESTART")
-            snapshot_path.parent.mkdir(parents=True, exist_ok=True)
-            snapshot_path.write_text("{}", encoding="utf-8")
+        # Create artifacts.
+        (state_dir / f"prd-TKT-RESTART.md").write_text("PRD", encoding="utf-8")
+        (state_dir / f"tasks-TKT-RESTART.json").write_text("[]", encoding="utf-8")
+        (state_dir / f"architecture-TKT-RESTART.md").write_text("ARCH", encoding="utf-8")
+        snapshot_path = server.get_ticket_snapshot_path("TKT-RESTART")
+        snapshot_path.parent.mkdir(parents=True, exist_ok=True)
+        snapshot_path.write_text("{}", encoding="utf-8")
 
-            with patch.object(server.AgentRunner, "run", _stub_run):
-                ok, msg = server.restart_ticket("TKT-RESTART")
-                assert ok, msg
+        with patch.object(server.AgentRunner, "run", _stub_run):
+            ok, msg = server.restart_ticket("TKT-RESTART")
+            assert ok, msg
 
-            # Artifacts should be gone.
-            assert not (state_dir / "prd-TKT-RESTART.md").exists()
-            assert not (state_dir / "tasks-TKT-RESTART.json").exists()
-            assert not (state_dir / "architecture-TKT-RESTART.md").exists()
-            assert not snapshot_path.exists()
+        # Artifacts should be gone.
+        assert not (state_dir / "prd-TKT-RESTART.md").exists()
+        assert not (state_dir / "tasks-TKT-RESTART.json").exists()
+        assert not (state_dir / "architecture-TKT-RESTART.md").exists()
+        assert not snapshot_path.exists()
 
-            # Ticket should be back to ready-for-work.
-            ticket = next(t for t in server.load_board()["tickets"] if t["id"] == "TKT-RESTART")
-            assert ticket["status"] == "ready-for-work"
+        # Ticket should be back to ready-for-work.
+        ticket = next(t for t in server.load_board()["tickets"] if t["id"] == "TKT-RESTART")
+        assert ticket["status"] == "ready-for-work"
 
-            # Wait for the stub thread to complete the new run.
-            for _ in range(100):
-                state = server.load_run_state()
-                if state.get("status") == "completed":
-                    break
-                time.sleep(0.05)
+        # Wait for the stub thread to complete the new run.
+        for _ in range(100):
             state = server.load_run_state()
-            assert state.get("status") == "completed"
-            assert state.get("ticketId") == "TKT-RESTART"
-        finally:
-            server.get_meta_dir = original_get_meta_dir
+            if state.get("status") == "completed":
+                break
+            time.sleep(0.05)
+        state = server.load_run_state()
+        assert state.get("status") == "completed"
+        assert state.get("ticketId") == "TKT-RESTART"
     finally:
+        if original_data_dir is None:
+            os.environ.pop("AGENTICFLOW_DATA_DIR", None)
+        else:
+            os.environ["AGENTICFLOW_DATA_DIR"] = original_data_dir
         shutil.rmtree(tmpdir, ignore_errors=True)
 
 

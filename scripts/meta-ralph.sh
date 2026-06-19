@@ -24,10 +24,10 @@ AgenticFlow: MetaGPT multi-agent orchestrator
 
 Usage:
   meta-ralph init                       Initialize meta-ralph in the current project
-  meta-ralph run [options]              Run the multi-agent loop and start the dashboard
+  meta-ralph run [options]              Run the multi-agent loop
   meta-ralph status                     Show active worker state
-  meta-ralph stop                       Stop active workers and the dashboard
-  meta-ralph dashboard [--port N]       Start only the web dashboard
+  meta-ralph stop                       Stop active workers
+  meta-ralph dashboard                  Open the native AgenticFlow desktop app
   meta-ralph --help                     Show this help
 
 Run options:
@@ -36,7 +36,7 @@ Run options:
   --skip-architect      Skip phase 2 and use an existing architecture.md
   --skip-planner        Skip phase 3 and use an existing execution-plan.json
   --max-time TIME       Maximum total run time, for example 60m or 2h
-  --no-dashboard        Do not start the web dashboard during meta-ralph run
+  --no-dashboard        Deprecated; kept for backward compatibility only
 
 Backend options:
   META_RALPH_BACKEND=auto|kimi|claude|cursor|codex|openai_api|custom
@@ -132,18 +132,7 @@ cmd_stop() {
     fi
   done
 
-  local dashboard_pid_file="$STATE_DIR/dashboard.pid"
-  if [ -f "$dashboard_pid_file" ]; then
-    local pid
-    pid=$(cat "$dashboard_pid_file")
-    if is_process_running "$pid"; then
-      echo "Stopping dashboard (PID $pid)..."
-      kill "$pid" 2>/dev/null || true
-    fi
-    rm -f "$dashboard_pid_file"
-  fi
-
-  echo "Workers and dashboard stopped."
+  echo "Workers stopped. Close the AgenticFlow native app from its window if it is open."
 }
 
 dashboard_venv() {
@@ -180,44 +169,10 @@ resolve_dashboard_python() {
 }
 
 cmd_dashboard() {
-  local port="$DASHBOARD_PORT"
-  local no_browser=""
-
-  while [[ $# -gt 0 ]]; do
-    case $1 in
-      --port)
-        port="$2"
-        shift 2
-        ;;
-      --port=*)
-        port="${1#*=}"
-        shift
-        ;;
-      --no-browser)
-        no_browser="--no-browser"
-        shift
-        ;;
-      *)
-        shift
-        ;;
-    esac
-  done
-
-  local venv_dir
+  # The AgenticFlow UI is now a native desktop app. Open it if available.
   local python_bin
-  venv_dir=$(dashboard_venv)
   python_bin=$(resolve_dashboard_python)
-
-  local board_file
-  board_file="$STATE_DIR/board.json"
-
-  if [ ! -f "$board_file" ]; then
-    echo "Could not find $board_file. Run first: meta-ralph init"
-    exit 1
-  fi
-
-  echo "Starting AgenticFlow Dashboard at http://localhost:$port"
-  "$python_bin" "$SKILL_DIR/dashboard/server.py" --port "$port" --board "$board_file" $no_browser
+  exec "$python_bin" "$SKILL_DIR/dashboard/launcher.py" start
 }
 
 run_with_backend() {
@@ -396,27 +351,8 @@ cmd_run() {
     exit 1
   fi
 
-  if [ "$no_dashboard" != "true" ]; then
-    local dashboard_pid_file="$STATE_DIR/dashboard.pid"
-    if [ -f "$dashboard_pid_file" ] && is_process_running "$(cat "$dashboard_pid_file")"; then
-      echo "Dashboard is already running at http://localhost:$DASHBOARD_PORT"
-    else
-      local python_bin
-      local board_file
-      local dashboard_pid
-      python_bin=$(resolve_dashboard_python)
-      board_file="$STATE_DIR/board.json"
-      mkdir -p "$STATE_DIR"
-      dashboard_pid=$(start_dashboard_background \
-        "$python_bin" \
-        "$SKILL_DIR/dashboard/server.py" \
-        "$DASHBOARD_PORT" \
-        "$board_file" \
-        "$STATE_DIR/dashboard.log")
-      echo "$dashboard_pid" >"$dashboard_pid_file"
-      echo "Dashboard started at http://localhost:$DASHBOARD_PORT"
-    fi
-  fi
+  # The AgenticFlow UI is a native desktop app; the orchestrator no longer
+  # starts the dashboard. Use `meta-ralph dashboard` to open the app.
 
   BASE_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||' || git branch --show-current 2>/dev/null || echo "main")
 
