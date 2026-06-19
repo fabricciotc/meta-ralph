@@ -27,6 +27,11 @@ public static class DependencyInjection
             var pathProvider = provider.GetRequiredService<AppDataPathProvider>();
             return new JsonFileStore<AppConfig>(pathProvider, "config.json");
         });
+        services.AddSingleton(provider =>
+        {
+            var pathProvider = provider.GetRequiredService<AppDataPathProvider>();
+            return new JsonFileStore<Dictionary<string, Snapshot>>(pathProvider, "snapshots.json");
+        });
 
         services.AddSingleton<IBoardStore, BoardStore>();
         services.AddSingleton<IRunStateStore, RunStateStore>();
