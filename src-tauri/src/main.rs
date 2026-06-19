@@ -90,17 +90,17 @@ fn create_main_window(app: &tauri::AppHandle) -> Result<tauri::WebviewWindow, St
     let init_script = r#"
         window.__AGENTICFLOW_TAURI__ = true;
         window.__agenticflow_invoke = function(cmd, args) {
-            if (window.__TAURI_INTERNALS__ && typeof window.__TAURI_INTERNALS__.invoke === 'function') {
-                return window.__TAURI_INTERNALS__.invoke(cmd, args);
-            }
             if (window.__TAURI__ && window.__TAURI__.core && typeof window.__TAURI__.core.invoke === 'function') {
                 return window.__TAURI__.core.invoke(cmd, args);
+            }
+            if (window.__TAURI_INTERNALS__ && typeof window.__TAURI_INTERNALS__.invoke === 'function') {
+                return window.__TAURI_INTERNALS__.invoke(cmd, args);
             }
             return Promise.reject(new Error('Tauri invoke not available'));
         };
         try {
             navigator.sendBeacon('http://127.0.0.1:5051/api/client-beacon',
-                'init-script: typeof isTauri=' + (typeof window.isTauri) + ' typeof __TAURI__=' + (typeof window.__TAURI__) + ' typeof __TAURI_INTERNALS__=' + (typeof window.__TAURI_INTERNALS__) + ' typeof invoke=' + (typeof window.__agenticflow_invoke));
+                'init-script: typeof __TAURI__=' + (typeof window.__TAURI__) + ' typeof dialog=' + (typeof (window.__TAURI__ && window.__TAURI__.dialog)));
         } catch(e) {}
     "#;
     WebviewWindowBuilder::new(app, "main", WebviewUrl::External(url))
@@ -162,18 +162,12 @@ fn api_call(request: ApiCallRequest) -> Result<ApiCallResponse, String> {
     Ok(ApiCallResponse { status, body })
 }
 
-#[command]
-fn pick_folder(app: tauri::AppHandle) -> Result<Option<String>, String> {
-    let picked = app.dialog().file().blocking_pick_folder();
-    Ok(picked.map(|file_path| file_path.to_string()))
-}
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![health_check, api_call, pick_folder])
+        .invoke_handler(tauri::generate_handler![health_check, api_call])
         .manage(AppState {
             sidecar_child: Mutex::new(None),
         })

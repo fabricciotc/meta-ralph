@@ -2116,17 +2116,19 @@ async function pickRepoFolder() {
 
 async function pickRepoFolderTauri() {
   try {
-    const invoke = window.__agenticflow_invoke;
-    if (typeof invoke !== 'function') {
-      showRepoMessage('Native folder picker is not available.');
+    const tauri = window.__TAURI__;
+    if (!tauri || !tauri.dialog || typeof tauri.dialog.open !== 'function') {
+      showRepoMessage('Native folder picker is not available in this view.');
       return;
     }
-    const path = await invoke('pick_folder');
+    const path = await tauri.dialog.open({ directory: true });
     if (!path) return;
-    if (repoPathInput) repoPathInput.value = path;
-    updateRepoFolderBadge(path.split(/[/\\]/).pop() || path);
-    showRepoMessage(`Selected: ${path}`);
-    showToast(`Selected folder: ${path}`);
+    const selectedPath = Array.isArray(path) ? path[0] : path;
+    if (!selectedPath) return;
+    if (repoPathInput) repoPathInput.value = selectedPath;
+    updateRepoFolderBadge(selectedPath.split(/[/\\]/).pop() || selectedPath);
+    showRepoMessage(`Selected: ${selectedPath}`);
+    showToast(`Selected folder: ${selectedPath}`);
   } catch (err) {
     console.error('Error opening native folder picker:', err);
     showRepoMessage('Could not open system folder picker: ' + (err.message || err));
