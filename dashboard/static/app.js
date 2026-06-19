@@ -2071,7 +2071,7 @@ function updateRepoFolderBadge(name) {
 
 async function pickRepoFolder() {
   if (detectTauri()) {
-    return pickRepoFolderTauri();
+    return pickRepoFolderNative();
   }
   if (!('showDirectoryPicker' in window)) {
     if (repoPathInput) repoPathInput.focus();
@@ -2114,24 +2114,27 @@ async function pickRepoFolder() {
   }
 }
 
-async function pickRepoFolderTauri() {
+async function pickRepoFolderNative() {
   try {
-    const tauri = window.__TAURI__;
-    if (!tauri || !tauri.dialog || typeof tauri.dialog.open !== 'function') {
-      showRepoMessage('Native folder picker is not available in this view.');
+    const res = await fetch('/api/pick-folder', { method: 'POST' });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      showRepoMessage(data.error || 'Could not open system folder picker');
       return;
     }
-    const path = await tauri.dialog.open({ directory: true });
-    if (!path) return;
-    const selectedPath = Array.isArray(path) ? path[0] : path;
-    if (!selectedPath) return;
-    if (repoPathInput) repoPathInput.value = selectedPath;
-    updateRepoFolderBadge(selectedPath.split(/[/\\]/).pop() || selectedPath);
-    showRepoMessage(`Selected: ${selectedPath}`);
-    showToast(`Selected folder: ${selectedPath}`);
+    const data = await res.json();
+    if (data.canceled) return;
+    if (!data.ok || !data.path) {
+      showRepoMessage(data.error || 'No folder selected');
+      return;
+    }
+    if (repoPathInput) repoPathInput.value = data.path;
+    updateRepoFolderBadge(data.path.split(/[/\\]/).pop() || data.path);
+    showRepoMessage(`Selected: ${data.path}`);
+    showToast(`Selected folder: ${data.path}`);
   } catch (err) {
     console.error('Error opening native folder picker:', err);
-    showRepoMessage('Could not open system folder picker: ' + (err.message || err));
+    showRepoMessage('Could not open system folder picker. Make sure the local engine is running.');
   }
 }
 
