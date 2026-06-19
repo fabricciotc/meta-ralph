@@ -78,6 +78,30 @@ class Role(ABC):
         if msg is not None:
             self._processed_trigger_ids.add(msg.id)
 
+    def is_idle(self) -> bool:
+        """Return True if the role has no pending work in memory.
+
+        A role is idle when it has no selected action (``todo``) and no
+        unprocessed trigger message in its own memory.
+        """
+        if self.todo is not None:
+            return False
+        return self._find_trigger(self.memory.get()) is None
+
+    def should_run(self, env: Any = None) -> bool:
+        """Return True if the role should be scheduled this round.
+
+        By default a role should run when it is not idle or when its environment
+        inbox contains new messages. Subclasses may override this hook to add
+        custom scheduling logic.
+        """
+        if not self.is_idle():
+            return True
+        if env is not None and hasattr(env, "get_messages_for"):
+            if env.get_messages_for(self.role_id):
+                return True
+        return False
+
     async def _think(self, context: List[Message]) -> Optional[Action]:
         """Default decision logic: pick the next action from ``self.actions``.
 
@@ -149,6 +173,7 @@ class Role(ABC):
         self._mark_trigger_processed(trigger)
 
         response = await self.act(action, context, **kwargs)
+        self.todo = None
         response.sent_from = self.role_id
 
         if hasattr(env, "publish_message"):

@@ -32,6 +32,7 @@ from core.roles.architect_role import ArchitectRole
 from core.roles.planner_role import PlannerRole
 from core.roles.engineer_role import EngineerRole
 from core.roles.qa_role import QARole
+from core.plan import BatchScheduler, Task
 from core.roles.dispatcher_role import DispatcherRole
 from core.roles.monitor_role import MonitorRole
 from core.roles.recovery_role import RecoveryRole
@@ -615,31 +616,22 @@ class Orchestrator(threading.Thread):
         )
         self.env.add_role(squad)
 
-        task_by_id = {t["id"]: t for t in tasks}
-        status: Dict[str, str] = {t["id"]: "queued" for t in tasks}
-        completed: Set[str] = set()
-        failed: Set[str] = set()
-        max_workers = get_max_workers()
+        scheduler = BatchScheduler(tasks, max_workers=get_max_workers())
         running_threads: Dict[str, threading.Thread] = {}
         lock = threading.Lock()
         stop_event = threading.Event()
 
-        def can_run(task: Dict[str, Any]) -> bool:
-            deps = task.get("dependencies", []) or []
-            return all(status.get(d) == "done" for d in deps)
-
-        def run_task(task: Dict[str, Any]) -> None:
-            tid = task["id"]
+        def run_task(task_obj: Task) -> None:
+            tid = task_obj.id
             agent_id = f"engineer-{tid}"
             self._ensure_agent(agent_id, f"Engineer {tid}", "sub", "engineer-squad", "running", 0)
-            self._update_agent(agent_id, progress=20, log=f"Starting task: {task.get('title', tid)}")
+            self._update_agent(agent_id, progress=20, log=f"Starting task: {task_obj.title or tid}")
 
-            deps = task.get("dependencies", []) or []
-            dependencies_context = self._get_dependency_context(deps)
+            dependencies_context = self._get_dependency_context(task_obj.dependencies)
 
             role = EngineerRole(
                 role_id=agent_id,
-                focus=task.get("title", tid),
+                focus=task_obj.title or tid,
                 run_ai=self._run_ai,
                 repo_path=repo_path,
                 branch_prefix="feature",
@@ -650,8 +642,10 @@ class Orchestrator(threading.Thread):
             self.env.add_role(role)
 
             branch = f"feature/{self.ticket_id}-{tid}".lower()
+            task_dict = task_obj.to_dict()
             metadata = {
-                "task": task,
+                "task": task_dict,
+                "task_id": tid,
                 "ticket_id": self.ticket_id,
                 "ticket_title": self.ticket.get("title", ""),
                 "ticket_description": self.ticket.get("description", ""),
@@ -666,12 +660,14 @@ class Orchestrator(threading.Thread):
                 content=f"Implement task {tid}",
                 sent_from="orchestrator",
                 cause_by="task_assigned",
+                msg_type="task_assigned",
                 send_to={agent_id},
                 metadata=metadata,
             ))
 
             # Run rounds until this task is completed or max rounds exhausted.
             # The squad lead may retry failed tasks via squad_instruction messages.
+            completed = False
             for _ in range(self._max_rounds_per_phase):
                 if stop_event.is_set() or self._should_stop_or_pause():
                     break
@@ -687,55 +683,56 @@ class Orchestrator(threading.Thread):
                 if latest_completed:
                     self._update_agent(agent_id, status="done", progress=100, log=f"Task {tid} completed.")
                     self._collect_outputs(agent_id, repo_path)
-                    with lock:
-                        status[tid] = "done"
-                        completed.add(tid)
-                    return
-
-            # If we exhausted rounds without completion, mark failed.
-            self._update_agent(agent_id, status="failed", progress=100, log=f"Task {tid} did not finish in time.")
-            with lock:
-                status[tid] = "failed"
-                failed.add(tid)
-            stop_event.set()
-
-        pending = set(t["id"] for t in tasks if status.get(t["id"]) == "queued")
-        self.log(f"[execution] {len(pending)} pending tasks.")
-
-        while pending or running_threads:
-            if stop_event.is_set() or self._should_stop_or_pause():
-                for t in list(running_threads.values()):
-                    t.join(timeout=5)
-                with lock:
-                    for tid in list(pending):
-                        status[tid] = "blocked"
-                        self._ensure_agent(f"engineer-{tid}", f"Engineer {tid}", "sub", "engineer-squad", "blocked", 0)
-                        self._update_agent(f"engineer-{tid}", status="blocked", progress=0, log="Blocked by dependency failure.")
-                break
-
-            while len(running_threads) < max_workers and pending:
-                ready = [task_by_id[tid] for tid in pending if can_run(task_by_id[tid])]
-                if not ready:
+                    completed = True
                     break
-                task = ready[0]
-                tid = task["id"]
-                pending.remove(tid)
-                with lock:
-                    status[tid] = "running"
-                t = threading.Thread(target=run_task, args=(task,), daemon=True)
-                running_threads[tid] = t
-                t.start()
 
-            if not running_threads:
-                break
+            with lock:
+                if completed:
+                    scheduler.mark_done(tid)
+                else:
+                    scheduler.mark_failed(tid)
+            if not completed:
+                self._update_agent(agent_id, status="failed", progress=100, log=f"Task {tid} did not finish in time.")
+                stop_event.set()
 
+        pending_count = len(scheduler.graph.tasks) - len(scheduler.done) - len(scheduler.running)
+        self.log(f"[execution] {pending_count} pending tasks.")
+
+        while True:
+            with lock:
+                if scheduler.is_complete() or scheduler.is_failed() or stop_event.is_set() or self._should_stop_or_pause():
+                    break
+                batch = scheduler.next_batch()
+
+            if batch:
+                for task_obj in batch:
+                    tid = task_obj.id
+                    t = threading.Thread(target=run_task, args=(task_obj,), daemon=True)
+                    running_threads[tid] = t
+                    t.start()
+
+            # Reap completed threads to free capacity and avoid leaks.
             done_threads = [tid for tid, t in running_threads.items() if not t.is_alive()]
             for tid in done_threads:
                 del running_threads[tid]
-            if not done_threads:
-                time.sleep(0.5)
 
-        successful = sum(1 for s in status.values() if s == "done")
+            if not batch:
+                if not running_threads:
+                    break
+                time.sleep(0.2)
+
+        # Wait for any remaining threads before reporting final state.
+        for t in running_threads.values():
+            t.join(timeout=5)
+
+        if scheduler.is_failed() or self._should_stop_or_pause():
+            with lock:
+                for tid in list(scheduler.running):
+                    scheduler.mark_failed(tid)
+                    self._ensure_agent(f"engineer-{tid}", f"Engineer {tid}", "sub", "engineer-squad", "blocked", 0)
+                    self._update_agent(f"engineer-{tid}", status="blocked", progress=0, log="Blocked by dependency failure.")
+
+        successful = len(scheduler.done)
         self.log(f"Parallel execution finished: {successful}/{len(tasks)} successful.")
         self._update_agent("engineer-squad", status="done", progress=100, log=f"Execution completed: {successful}/{len(tasks)}.")
         self._set_phase("engineer-squad", "in-progress", 85)

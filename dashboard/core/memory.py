@@ -11,11 +11,16 @@ class Memory:
         self.messages: List[Message] = []
         self._index_by_cause: Dict[str, List[Message]] = defaultdict(list)
         self._index_by_role: Dict[str, List[Message]] = defaultdict(list)
+        self._index_by_type: Dict[str, List[Message]] = defaultdict(list)
+        self._index_by_recipient: Dict[str, List[Message]] = defaultdict(list)
 
     def add(self, msg: Message) -> None:
         self.messages.append(msg)
         self._index_by_cause[msg.cause_by].append(msg)
         self._index_by_role[msg.sent_from].append(msg)
+        self._index_by_type[msg.msg_type].append(msg)
+        for recipient in msg.send_to:
+            self._index_by_recipient[recipient].append(msg)
 
     def add_batch(self, msgs: List[Message]) -> None:
         for msg in msgs:
@@ -31,6 +36,21 @@ class Memory:
 
     def get_by_role(self, role: str) -> List[Message]:
         return list(self._index_by_role.get(role, []))
+
+    def get_by_type(self, msg_type: str) -> List[Message]:
+        """Return all messages with the given ``msg_type``."""
+        return list(self._index_by_type.get(msg_type, []))
+
+    def get_for_role(self, role_id: str) -> List[Message]:
+        """Return messages addressed to ``role_id`` (including broadcasts)."""
+        seen: set = set()
+        result: List[Message] = []
+        for key in (role_id, "all"):
+            for m in self._index_by_recipient.get(key, []):
+                if m.id not in seen and m.is_for(role_id):
+                    seen.add(m.id)
+                    result.append(m)
+        return result
 
     def recent_context(self, n: int = 10) -> List[Message]:
         return self.get(k=n)

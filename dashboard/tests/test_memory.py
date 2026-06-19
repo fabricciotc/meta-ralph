@@ -39,6 +39,50 @@ class TestMemory(unittest.TestCase):
         restored = Memory.from_dict(d)
         self.assertEqual(len(restored.get()), 1)
 
+    def test_get_by_type(self):
+        mem = Memory()
+        mem.add(
+            Message(
+                content="task", sent_from="orchestrator", cause_by="plan", msg_type="task_assigned"
+            )
+        )
+        mem.add(
+            Message(content="chat", sent_from="user", cause_by="talk", msg_type="chat")
+        )
+        self.assertEqual(len(mem.get_by_type("task_assigned")), 1)
+        self.assertEqual(mem.get_by_type("task_assigned")[0].content, "task")
+        self.assertEqual(len(mem.get_by_type("chat")), 1)
+
+    def test_get_for_role(self):
+        mem = Memory()
+        mem.add(
+            Message(
+                content="to role1",
+                sent_from="orchestrator",
+                cause_by="plan",
+                send_to={"role1"},
+            )
+        )
+        mem.add(
+            Message(
+                content="broadcast",
+                sent_from="orchestrator",
+                cause_by="plan",
+                send_to={"all"},
+            )
+        )
+        mem.add(
+            Message(
+                content="to role2",
+                sent_from="orchestrator",
+                cause_by="plan",
+                send_to={"role2"},
+            )
+        )
+        self.assertEqual(len(mem.get_for_role("role1")), 2)
+        self.assertEqual(len(mem.get_for_role("role2")), 2)
+        self.assertTrue(all(m.is_for("role1") for m in mem.get_for_role("role1")))
+
 
 if __name__ == "__main__":
     unittest.main()

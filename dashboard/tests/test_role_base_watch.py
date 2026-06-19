@@ -82,3 +82,44 @@ def test_base_role_by_order_selects_first_action():
     ))
     asyncio.run(env.run_round())
     assert any(m.cause_by == "ack" for m in env.memory.get())
+
+
+def test_role_is_idle_when_no_pending_work():
+    env = Environment()
+    role = WatcherRole()
+    env.add_role(role)
+    assert role.is_idle() is True
+    assert role.should_run(env) is False
+
+
+def test_role_should_run_when_inbox_has_trigger():
+    env = Environment()
+    role = WatcherRole()
+    env.add_role(role)
+    env.publish_message(Message(
+        content="go",
+        sent_from="user",
+        cause_by="trigger",
+        send_to={"watcher"},
+    ))
+    assert role.is_idle() is True  # has not observed yet
+    assert role.should_run(env) is True
+    asyncio.run(env.run_round())
+    assert role.should_run(env) is False
+    assert role.is_idle() is True
+
+
+def test_role_is_idle_false_when_todo_set():
+    role = WatcherRole()
+    assert role.is_idle() is True
+    role.todo = AckAction("ack", "Ack")
+    assert role.is_idle() is False
+
+
+def test_role_is_idle_false_with_unprocessed_trigger():
+    role = WatcherRole()
+    trigger = Message(content="go", sent_from="user", cause_by="trigger", send_to={"watcher"})
+    role.memory.add(trigger)
+    assert role.is_idle() is False
+    role._mark_trigger_processed(trigger)
+    assert role.is_idle() is True

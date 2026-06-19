@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
-from typing import Any, Dict, Set
+from typing import Any, Dict, Optional, Set
 
 
 @dataclass
@@ -15,6 +15,8 @@ class Message:
     role: str = "assistant"
     send_to: Set[str] = field(default_factory=lambda: {"all"})
     metadata: Dict[str, Any] = field(default_factory=dict)
+    msg_type: str = "event"
+    routing_key: Optional[str] = None
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
     def to_dict(self) -> Dict[str, Any]:
@@ -27,3 +29,11 @@ class Message:
         data = dict(data)
         data["send_to"] = set(data.get("send_to", ["all"]))
         return cls(**data)
+
+    def is_for(self, role_id: str) -> bool:
+        """Return True if this message is addressed to ``role_id`` or broadcast."""
+        return "all" in self.send_to or role_id in self.send_to
+
+    def is_broadcast(self) -> bool:
+        """Return True if this message is addressed to all roles."""
+        return "all" in self.send_to

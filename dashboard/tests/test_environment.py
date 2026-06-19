@@ -83,6 +83,72 @@ class TestEnvironment(unittest.TestCase):
         self.assertTrue(active)
         self.assertEqual([m.cause_by for m in context.messages], ["start", "ack"])
 
+    def test_inboxes_are_routed_by_recipient(self):
+        env = Environment()
+        env.add_role(DummyRole("role1"))
+        env.add_role(DummyRole("role2"))
+        env.publish_message(
+            Message(content="hi", sent_from="user", cause_by="start", send_to={"role1"})
+        )
+        self.assertEqual(len(env.get_messages_for("role1")), 1)
+        self.assertEqual(len(env.get_messages_for("role2")), 0)
+
+    def test_broadcast_populates_all_inboxes(self):
+        env = Environment()
+        env.add_role(DummyRole("role1"))
+        env.add_role(DummyRole("role2"))
+        env.publish_message(
+            Message(content="hi", sent_from="user", cause_by="start", send_to={"all"})
+        )
+        self.assertEqual(len(env.get_messages_for("role1")), 1)
+        self.assertEqual(len(env.get_messages_for("role2")), 1)
+
+    def test_run_round_skips_idle_roles(self):
+        import asyncio
+
+        class CountingRole:
+            def __init__(self, role_id):
+                self.role_id = role_id
+                self.addresses = {role_id}
+                self.runs = 0
+
+            async def run(self, env, **kwargs):
+                self.runs += 1
+                return True
+
+        env = Environment()
+        active_role = CountingRole("active")
+        idle_role = CountingRole("idle")
+        env.add_role(active_role)
+        env.add_role(idle_role)
+        env.publish_message(
+            Message(content="go", sent_from="user", cause_by="start", send_to={"active"})
+        )
+        asyncio.run(env.run_round())
+        self.assertEqual(active_role.runs, 1)
+        self.assertEqual(idle_role.runs, 0)
+
+    def test_run_round_clears_inbox_after_run(self):
+        import asyncio
+
+        env = Environment()
+        env.add_role(DummyRole("role1"))
+        env.publish_message(
+            Message(content="go", sent_from="user", cause_by="start", send_to={"role1"})
+        )
+        self.assertEqual(len(env.get_messages_for("role1")), 1)
+        asyncio.run(env.run_round())
+        self.assertEqual(len(env.get_messages_for("role1")), 0)
+
+    def test_is_idle_false_when_inbox_has_messages(self):
+        env = Environment()
+        env.add_role(DummyRole("role1"))
+        self.assertTrue(env.is_idle())
+        env.publish_message(
+            Message(content="go", sent_from="user", cause_by="start", send_to={"role1"})
+        )
+        self.assertFalse(env.is_idle())
+
 
 if __name__ == "__main__":
     unittest.main()
