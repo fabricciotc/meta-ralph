@@ -65,15 +65,6 @@ The installer:
 
 Restart your terminal or run `source ~/.zshrc` / `source ~/.bashrc` so the commands are available.
 
-### Option 3: Clone As An Assistant Skill
-
-You can still install AgenticFlow as a skill for Kimi, Claude, Cursor, or Codex:
-
-```bash
-# Kimi
-git clone https://github.com/fabricciotc/agenticflow.git ~/.kimi-code/skills/meta-ralph
-```
-
 ## Usage
 
 ### 1. Open the native app
