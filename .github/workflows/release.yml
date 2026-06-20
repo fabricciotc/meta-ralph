@@ -142,7 +142,7 @@ jobs:
           for arch in aarch64 x86_64; do
             app_dir="artifacts/AgenticFlow-${arch}.app"
             if [ -d "$app_dir/AgenticFlow.app" ]; then
-              (cd "$app_dir" && zip -ry ../../release-assets/AgenticFlow_${arch}.app.zip AgenticFlow.app)
+              (cd "$app_dir" && zip -ry ../release-assets/AgenticFlow_${arch}.app.zip AgenticFlow.app)
             fi
           done
 
