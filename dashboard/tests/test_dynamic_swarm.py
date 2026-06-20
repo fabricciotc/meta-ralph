@@ -5,9 +5,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import MagicMock
 
-sys.modules.setdefault("yaml", MagicMock())
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from core.dynamic_swarm import (
