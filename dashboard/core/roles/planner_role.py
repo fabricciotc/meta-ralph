@@ -23,6 +23,7 @@ class PlannerRole(Role):
         ticket_description: str = "",
         prd_path: Optional[Any] = None,
         tasks_path: Optional[Any] = None,
+        design_path: Optional[Any] = None,
         build_plan_prompt: Optional[Any] = None,
         parse_tasks_json: Optional[Any] = None,
         write_fallback_plan: Optional[Any] = None,
@@ -32,7 +33,7 @@ class PlannerRole(Role):
         super().__init__(
             role_id=self.role_id,
             profile="Planner",
-            goal="Create a task plan from PRD and architecture.",
+            goal="Create a task plan from PRD, architecture, and UX design spec.",
             actions=actions,
             addresses=self.addresses,
         )
@@ -42,6 +43,7 @@ class PlannerRole(Role):
         self.ticket_description = ticket_description
         self.prd_path = Path(prd_path) if prd_path else None
         self.tasks_path = Path(tasks_path) if tasks_path else None
+        self.design_path = Path(design_path) if design_path else None
         self.build_plan_prompt = build_plan_prompt
         self.parse_tasks_json = parse_tasks_json
         self.write_fallback_plan = write_fallback_plan
@@ -140,6 +142,15 @@ class PlannerRole(Role):
                     if architecture_path:
                         break
 
+        # Resolve UX design spec path when available.
+        design_path: Optional[Path] = self.design_path
+        if design_path is None:
+            for msg in reversed(context):
+                if msg.cause_by == "ux_design_ready" and msg.sent_from != self.role_id:
+                    design_path = self._artifact_path(msg)
+                    if design_path:
+                        break
+
         tasks_path = self.tasks_path or self._default_tasks_path(prd_path, self.ticket_id)
 
         action_kwargs = {
@@ -149,6 +160,7 @@ class PlannerRole(Role):
             "ticket_description": self.ticket_description,
             "prd_path": prd_path,
             "architecture_path": architecture_path,
+            "design_path": design_path,
             "tasks_path": tasks_path,
             "build_plan_prompt": self.build_plan_prompt,
             "parse_tasks_json": self.parse_tasks_json,

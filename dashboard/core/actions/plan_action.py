@@ -36,6 +36,7 @@ class PlanAction(Action):
         ticket_description: str = kwargs["ticket_description"]
         prd_path: Path = Path(kwargs["prd_path"])
         architecture_path: Optional[Path] = kwargs.get("architecture_path")
+        design_path: Optional[Path] = kwargs.get("design_path")
         tasks_path: Path = Path(kwargs["tasks_path"])
         build_plan_prompt: Optional[Callable[..., str]] = kwargs.get("build_plan_prompt")
         parse_tasks_json: Optional[Callable[[str], List[Dict[str, Any]]]] = kwargs.get("parse_tasks_json")
@@ -45,6 +46,7 @@ class PlanAction(Action):
 
         prd_content = self._read_file(prd_path)
         architecture_content = self._read_file(architecture_path) if architecture_path else ""
+        design_content = self._read_file(design_path) if design_path else ""
 
         # No runner available: emit a fallback plan immediately.
         if run_ai is None:
@@ -64,6 +66,7 @@ class PlanAction(Action):
                 ticket_description,
                 prd_content,
                 architecture_content,
+                design_content,
                 tasks_path,
             )
         else:
@@ -73,6 +76,7 @@ class PlanAction(Action):
                 ticket_description,
                 prd_content,
                 architecture_content,
+                design_content,
                 tasks_path,
             )
 
@@ -255,17 +259,22 @@ class PlanAction(Action):
         description: str,
         prd_content: str,
         architecture_content: str,
+        design_content: str,
         tasks_path: Path,
     ) -> str:
         architecture_section = ""
         if architecture_content:
             architecture_section = f"\n\nARCHITECTURE:\n{architecture_content}"
+        design_section = ""
+        if design_content:
+            design_section = f"\n\nUX/UI DESIGN SPEC (respect these flows and components):\n{design_content}"
         return (
             "You are the Planner for AgenticFlow, a MetaGPT-style software factory. "
-            "Your job is to generate a technical task plan from the provided PRD and architecture.\n\n"
+            "Your job is to generate a technical task plan from the provided PRD, architecture, and UX design spec.\n\n"
             f"TICKET:\nID: {ticket_id}\nTITLE: {title}\nDESCRIPTION: {description}\n\n"
             f"PRD:\n{prd_content}"
-            f"{architecture_section}\n\n"
+            f"{architecture_section}"
+            f"{design_section}\n\n"
             "Generate JSON with an array of tasks. Each task must include these fields:\n"
             "- id: unique string\n"
             "- title: string\n"
@@ -274,6 +283,8 @@ class PlanAction(Action):
             "- files_to_touch: array of strings (relative file paths)\n"
             "- complexity: 'S', 'M', or 'L'\n"
             "- qa_checklist: array of strings\n\n"
+            "When a UX design spec is present, include tasks that implement the specified screens, "
+            "components, and user flows. Split large UI work into parallel, independent tasks when possible.\n\n"
             f"The plan must be saved at: {tasks_path}\n\n"
             "Respond ONLY with valid JSON, without additional text."
         )

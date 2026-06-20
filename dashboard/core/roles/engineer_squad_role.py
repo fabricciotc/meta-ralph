@@ -417,19 +417,37 @@ class EngineerSquadRole(TeamLeaderRole):
         ]
         if self.prd_path and self.prd_path.exists():
             try:
-                parts.append(f"PRD: {self.prd_path.read_text(encoding='utf-8')[:1000]}")
+                parts.append(f"PRD:\n{self.prd_path.read_text(encoding='utf-8')[:4000]}")
             except Exception:
                 pass
+        # Include architecture and UX design specs if available.
+        if self.prd_path:
+            state_dir = self.prd_path.parent
+            ticket_id = self.ticket_id
+            arch_path = state_dir / f"architecture-{ticket_id}.md"
+            if arch_path.exists():
+                try:
+                    parts.append(f"ARCHITECTURE:\n{arch_path.read_text(encoding='utf-8')[:4000]}")
+                except Exception:
+                    pass
+            design_path = state_dir / f"design-{ticket_id}.md"
+            if design_path.exists():
+                try:
+                    parts.append(f"UX/UI DESIGN SPEC:\n{design_path.read_text(encoding='utf-8')[:4000]}")
+                except Exception:
+                    pass
         if self.tasks:
             tasks_summary = "\n".join(
-                f"- {t.get('id')}: {t.get('title')}" for t in self.tasks
+                f"- {t.get('id')}: {t.get('title')} (complexity {t.get('complexity', 'M')}, deps: {', '.join(t.get('dependencies', []) or ['none'])}"
+                for t in self.tasks
             )
             parts.append(f"Planned tasks:\n{tasks_summary}")
         reports_summary = "\n".join(
             f"- {tid}: {r.get('status')} (engineer {r.get('engineer_id')}, retries {r.get('retries', 0)})"
             for tid, r in self.task_reports.items()
         )
-        parts.append(f"Received reports:\n{reports_summary}")
+        if reports_summary:
+            parts.append(f"Received reports:\n{reports_summary}")
         shared_reports = self._format_shared_engineer_reports()
         if shared_reports:
             parts.append(f"Shared engineer reports:\n{shared_reports}")

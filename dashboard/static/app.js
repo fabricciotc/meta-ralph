@@ -1593,6 +1593,17 @@ function renderDesignReview(state) {
   designReviewExpiresAt = new Date(review.expiresAt).getTime();
   if (designReviewQuestions) designReviewQuestions.innerHTML = '';
 
+  // Render the architect proposal summary if available.
+  const proposalEl = document.getElementById('architect-proposal');
+  if (proposalEl) {
+    const proposal = review.proposal || '';
+    const summary = proposal.split('\n').slice(0, 80).join('\n'); // first 80 lines
+    proposalEl.innerHTML = `
+      <div class="architect-proposal-header"><i data-lucide="file-text"></i> Proposal summary</div>
+      <pre class="architect-proposal-content">${escapeHtml(summary)}${proposal.split('\n').length > 80 ? '\n\n...' : ''}</pre>
+    `;
+  }
+
   (review.questions || []).forEach((q, idx) => {
     const div = document.createElement('div');
     div.className = 'design-review-question';

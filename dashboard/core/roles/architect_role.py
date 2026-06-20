@@ -28,6 +28,7 @@ class ArchitectRole(Role):
         run_ai: Optional[Any] = None,
         prd_path: Optional[Any] = None,
         architecture_path: Optional[Any] = None,
+        design_path: Optional[Any] = None,
         ticket_title: str = "",
         ticket_description: str = "",
         ticket_id: str = "",
@@ -49,6 +50,7 @@ class ArchitectRole(Role):
         self.run_ai = run_ai
         self.prd_path = Path(prd_path) if prd_path else None
         self.architecture_path = Path(architecture_path) if architecture_path else None
+        self.design_path = Path(design_path) if design_path else None
         self.ticket_title = ticket_title
         self.ticket_description = ticket_description
         self.ticket_id = ticket_id
@@ -129,6 +131,7 @@ class ArchitectRole(Role):
             "run_ai": self.run_ai,
             "prd_path": self.prd_path,
             "architecture_path": self.architecture_path,
+            "design_path": self.design_path,
             "ticket_title": self.ticket_title,
             "ticket_description": self.ticket_description,
             "ticket_id": self.ticket_id,

@@ -325,15 +325,15 @@
     </div>
   </div>
 
-  <!-- Design review modal -->
+  <!-- Architect proposal / design review modal -->
   <div class="modal" id="design-review-modal">
     <div class="modal-content design-review-modal-content">
       <div class="modal-header">
         <div class="modal-header-left">
           <span class="modal-header-icon"><i data-lucide="clipboard-check"></i></span>
           <div>
-            <h2>Design Review</h2>
-            <span class="modal-header-subtitle">Validate the assumed technical decisions</span>
+            <h2>Architect Proposal</h2>
+            <span class="modal-header-subtitle">Review the architect's proposal before moving to implementation</span>
           </div>
         </div>
         <div class="design-review-header-actions">
@@ -342,7 +342,8 @@
         </div>
       </div>
       <div class="modal-body design-review-body">
-        <p class="design-review-intro">The analysis produced the following technical decisions. Review the assumed answers; if you do not respond within <strong>1 minute</strong>, they will be used automatically.</p>
+        <p class="design-review-intro">The architect produced the following proposal. Review it and confirm or edit the highlighted decisions. If you do not respond within <strong>1 minute</strong>, the assumed answers will be used automatically.</p>
+        <div class="architect-proposal" id="architect-proposal"></div>
         <div class="design-review-questions" id="design-review-questions"></div>
       </div>
       <div class="modal-actions">

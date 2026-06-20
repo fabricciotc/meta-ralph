@@ -83,6 +83,7 @@ class ImplementAction(Action):
                 architecture_path=architecture_path,
                 ticket_title=ticket_title,
                 ticket_description=ticket_description,
+                ticket_id=ticket_id,
             )
 
             output = await invoke_ai(run_ai, prompt, phase_name, timeout_seconds, agent_id=agent_id)

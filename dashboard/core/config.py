@@ -11,7 +11,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "preferredBackend": None,
     "backendConfig": {},
     "projectsRoot": None,
-    "maxWorkers": 10,
+    "maxWorkers": 16,
 }
 
 

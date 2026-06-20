@@ -2093,16 +2093,26 @@ Do not include explanations outside the JSON."""
         ]
 
     def _wait_for_design_answers(self, questions, timeout_seconds=60):
-        """Pause the run so the user can review or confirm design answers.
+        """Pause the run so the user can review the architect proposal and confirm design answers.
 
         If the timeout expires, assumed answers are used.
         """
-        self.log(f"Pausing for design review. The user has {timeout_seconds}s to respond.")
+        self.log(f"Pausing for architect proposal review. The user has {timeout_seconds}s to respond.")
         self.set_phase("design-review", "design-review", 55)
+
+        # Load the architect proposal (architecture.md) to show in the modal.
+        architecture_path = get_state_dir() / f"architecture-{self.ticket_id}.md"
+        proposal_text = ""
+        if architecture_path.exists():
+            try:
+                proposal_text = architecture_path.read_text(encoding="utf-8")
+            except Exception as exc:
+                self.log(f"Could not read architecture proposal: {exc}", "warning")
 
         review_id = str(uuid.uuid4())
         review = {
             "id": review_id,
+            "proposal": proposal_text,
             "questions": questions,
             "answered": False,
             "expiresAt": (datetime.now(timezone.utc) + timedelta(seconds=timeout_seconds)).isoformat(),

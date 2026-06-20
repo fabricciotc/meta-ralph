@@ -38,6 +38,7 @@ class ArchitectAction(Action):
         phase_name: str = kwargs["phase_name"]
         timeout_seconds: int = kwargs["timeout_seconds"]
         review_answers: Optional[str] = kwargs.get("review_answers")
+        design_path: Optional[Path] = kwargs.get("design_path")
 
         build_prompt: Callable[..., str] = kwargs.get("build_architect_prompt") or self._build_default_prompt
         extract_architecture: Callable[..., str] = kwargs.get("extract_architecture") or self._extract_architecture
@@ -74,6 +75,7 @@ class ArchitectAction(Action):
             prd_content,
             architecture_path,
             review_answers,
+            design_path,
         )
 
         raw = run_ai(prompt, phase_name, timeout_seconds, agent_id="architect")
@@ -118,6 +120,7 @@ class ArchitectAction(Action):
         prd_content: str,
         architecture_path: Path,
         review_answers: Optional[str] = None,
+        design_path: Optional[Path] = None,
     ) -> str:
         review_section = ""
         if review_answers:
@@ -125,6 +128,14 @@ class ArchitectAction(Action):
                 "\n\nDESIGN REVIEW ANSWERS (apply these decisions):\n"
                 f"{review_answers}\n"
             )
+
+        design_section = ""
+        if design_path and design_path.exists():
+            try:
+                design_text = design_path.read_text(encoding="utf-8")[:8000]
+                design_section = f"\n\nUX/UI DESIGN SPEC (follow these flows and components):\n{design_text}\n"
+            except Exception:
+                pass
 
         return (
             "You are the AgenticFlow Architect in a MetaGPT-style software factory. "
@@ -144,6 +155,7 @@ class ArchitectAction(Action):
             "Respond in English. At the end, briefly confirm that you saved the architecture. "
             "If you detect pending design decisions, list them clearly under the heading "
             "'PENDING DECISIONS:'."
+            + design_section
             + review_section
         )
 

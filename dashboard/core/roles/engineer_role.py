@@ -205,6 +205,8 @@ class EngineerRole(Role):
         architecture_path: Optional[Path],
         ticket_title: str,
         ticket_description: str,
+        ticket_id: str = "",
+        design_path: Optional[Path] = None,
     ) -> str:
         files_section = ""
         files_to_touch = task.get("files_to_touch", []) or []
@@ -217,11 +219,35 @@ class EngineerRole(Role):
 
         prd_section = ""
         if prd_path and prd_path.exists():
-            prd_section = f"\n\nPRD: {prd_path}"
+            try:
+                prd_text = prd_path.read_text(encoding="utf-8")[:8000]
+                prd_section = f"\n\nPRD:\n{prd_text}"
+            except Exception:
+                prd_section = f"\n\nPRD: {prd_path}"
 
         arch_section = ""
         if architecture_path and architecture_path.exists():
-            arch_section = f"\n\nArchitecture: {architecture_path}"
+            try:
+                arch_text = architecture_path.read_text(encoding="utf-8")[:8000]
+                arch_section = f"\n\nARCHITECTURE:\n{arch_text}"
+            except Exception:
+                arch_section = f"\n\nArchitecture: {architecture_path}"
+
+        design_section = ""
+        if design_path and design_path.exists():
+            try:
+                design_text = design_path.read_text(encoding="utf-8")[:8000]
+                design_section = f"\n\nUX/UI DESIGN SPEC:\n{design_text}"
+            except Exception:
+                design_section = f"\n\nUX/UI Design: {design_path}"
+        elif ticket_id:
+            fallback_design = prd_path.parent / f"design-{ticket_id}.md" if prd_path else None
+            if fallback_design and fallback_design.exists():
+                try:
+                    design_text = fallback_design.read_text(encoding="utf-8")[:8000]
+                    design_section = f"\n\nUX/UI DESIGN SPEC:\n{design_text}"
+                except Exception:
+                    pass
 
         return (
             "You are a senior software Engineer in a MetaGPT-style software factory. "
@@ -237,7 +263,7 @@ class EngineerRole(Role):
             f"TASK ID: {task.get('id', '')}\n"
             f"TASK DESCRIPTION: {task.get('description', '')}\n"
             f"REPO: {repo_path}\n"
-            f"BRANCH: {branch}{files_section}{deps_section}{prd_section}{arch_section}\n\n"
+            f"BRANCH: {branch}{files_section}{deps_section}{prd_section}{arch_section}{design_section}\n\n"
             "Respond with a brief summary of the changes made."
         )
 
