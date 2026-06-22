@@ -268,7 +268,23 @@ Dark-mode equivalents are applied via `.dark` on `body`/`html`.
 
 ---
 
-## 6. Next Steps (post-handoff)
+## 6. Uso por el rol UX Designer del orquestador
+
+El rol `ux-designer` de AgenticFlow está configurado para usar este design system como contrato visual:
+
+- `dashboard/core/role_skills_registry.yaml` activa las skills `ui`, `tech-research` y `agent-browser` para ese rol.
+- El prompt prefix del rol le indica que busque inspiración en https://styles.refero.design/ y que luego adapte los hallazgos al `DESIGN.md` del proyecto.
+- `dashboard/core/actions/ux_design_action.py` carga automáticamente este `DESIGN.md` y lo inyecta en el contexto del agente UX/UI antes de generar `design-<ticket>.md`.
+
+Flujo esperado:
+
+1. El agente UX/UI recibe el PRD y la arquitectura.
+2. Investiga estilos relevantes en Refero (command center, dark SaaS dashboard, developer tools).
+3. Lee los `DESIGN.md` de referencia y este `DESIGN.md` propio.
+4. Genera una especificación `design-<ticket>.md` coherente con la identidad WTW Software Factory.
+5. El PM y el Engineer Squad usan esa especificación como fuente de verdad visual.
+
+## 7. Next Steps (post-handoff)
 
 1. Engineering squad reviews `DESIGN.md` and flags any implementation conflicts.
 2. Backlog tickets created for:

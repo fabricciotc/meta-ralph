@@ -112,21 +112,41 @@ class UXDesignAction(Action):
 
         arch_section = f"\n\nARCHITECTURE:\n{arch_text}" if arch_text else ""
 
+        # Load the project's own DESIGN.md if it exists so the UX agent stays on-brand.
+        project_root = prd_path.parent.parent if prd_path else Path.cwd()
+        design_md_path = project_root / "DESIGN.md"
+        design_md_text = ""
+        if design_md_path.exists():
+            try:
+                design_md_text = design_md_path.read_text(encoding="utf-8")[:8000]
+            except Exception:
+                pass
+        design_md_section = f"\n\nPROJECT DESIGN SYSTEM (DESIGN.md):\n{design_md_text}" if design_md_text else ""
+
         return (
-            "You are a senior UX/UI Designer. Use the UI/UX design skills and conventions from "
-            "https://www.ui-skills.com/ to produce a practical, developer-ready design specification.\n\n"
+            "You are a senior UX/UI Designer for AgenticFlow.\n\n"
+            "Before proposing a design, gather inspiration from real product design systems:\n"
+            "- Browse https://styles.refero.design/ and search for styles that match this ticket "
+            "(e.g. 'dark SaaS dashboard', 'command center', 'developer tools', 'Linear', 'Mercury', 'Vercel').\n"
+            "- Read the DESIGN.md examples of the best 2-3 matches. Use their tokens, spacing, "
+            "component rules, and visual atmosphere as inspiration, but adapt them to the "
+            "AgenticFlow identity described below.\n"
+            "- Also look for public GitHub repositories that publish DESIGN.md templates "
+            "(e.g. google-labs-code/design.md, voltagent/awesome-design-md) to ground your spec "
+            "in the standard format.\n\n"
             "Read the PRD (and architecture if provided) and create a markdown UX/UI design spec "
             f"saved to: {design_path}\n\n"
             f"TICKET:\nTITLE: {ticket_title}\nDESCRIPTION: {ticket_description}\n\n"
-            f"PRD:\n{prd_text}{arch_section}\n\n"
+            f"PRD:\n{prd_text}{arch_section}{design_md_section}\n\n"
             "Your design spec must include:\n"
-            "1. User flow(s) — step-by-step screens/actions.\n"
-            "2. Screen inventory — name, purpose, and key elements per screen.\n"
-            "3. Component recommendations — reusable UI components and where they belong.\n"
-            "4. Visual direction — spacing, color, typography priorities (keep it concise).\n"
-            "5. Accessibility & responsiveness notes.\n"
-            "6. Implementation guidance for engineers — file structure, state management, and event handling hints.\n"
-            "7. Open design questions (if any).\n\n"
+            "1. Inspiration summary — which Refero styles / DESIGN.md examples you consulted and why.\n"
+            "2. User flow(s) — step-by-step screens/actions.\n"
+            "3. Screen inventory — name, purpose, and key elements per screen.\n"
+            "4. Component recommendations — reusable UI components and where they belong.\n"
+            "5. Visual direction — spacing, color, typography, radii, shadows (keep it concise but concrete).\n"
+            "6. Accessibility & responsiveness notes.\n"
+            "7. Implementation guidance for engineers — file structure, state management, and event handling hints.\n"
+            "8. Open design questions (if any).\n\n"
             "Do NOT write implementation code. Write clear, actionable design guidance that a PM can turn into "
             "user stories and an Engineer can implement."
         )

@@ -319,3 +319,7 @@ When implementing new UI in AgenticFlow, paste this DESIGN.md into context and a
 4. Use JetBrains Mono for any technical metadata.
 5. Include both light and dark token paths if adding new color variables.
 6. Keep the layout responsive down to 1280px; side panels collapse into drawers on smaller viewports.
+
+### For the UX Designer agent
+
+The `ux-designer` role in AgenticFlow should read this file before writing `design-<ticket>.md`. It may also browse https://styles.refero.design/ for inspiration, but the final spec must converge on the tokens and rules above so every Engineer receives a single, consistent visual contract.
