@@ -61,3 +61,23 @@ testbin/
 src-tauri/binaries/
 *.app
 
+# .NET / build artifacts
+dist/
+**/bin/
+**/obj/
+*.dll
+*.exe
+*.pdb
+*.cache
+*.nupkg
+*.deps.json
+*.runtimeconfig.json
+
+# Coverage / test results
+**/TestResults/
+coverage/
+
+# NuGet
+*.nuget.props
+*.nuget.targets
+
